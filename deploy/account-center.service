@@ -1,0 +1,22 @@
+[Unit]
+Description=Group Account Center API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=accountcenter
+Group=accountcenter
+WorkingDirectory=/opt/account-center/backend
+EnvironmentFile=/etc/account-center/app.env
+ExecStart=/opt/account-center/.venv/bin/python -m uvicorn app.main:app --app-dir /opt/account-center/backend --host 127.0.0.1 --port 8100
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+MemoryHigh=350M
+MemoryMax=500M
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

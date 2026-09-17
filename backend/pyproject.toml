@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "group-account-center-backend"
+version = "0.1.0"
+description = "集团账号与数字资产管理中台后端"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "alembic>=1.16,<2",
+  "argon2-cffi>=25,<26",
+  "email-validator>=2.2,<3",
+  "fastapi>=0.116,<1",
+  # Keep local, CI and production routing behavior reproducible.
+  "starlette==1.3.1",
+  "httpx>=0.28,<1",
+  "openpyxl>=3.1,<4",
+  "psycopg[binary]>=3.2,<4",
+  "pydantic-settings>=2.10,<3",
+  "python-multipart>=0.0.20,<1",
+  "sqlalchemy>=2.0.41,<3",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1",
+  "mypy>=1.17,<2",
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<7",
+  "ruff>=0.12,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+
+[tool.mypy]
+python_version = "3.13"
+plugins = ["pydantic.mypy"]
+strict = true
