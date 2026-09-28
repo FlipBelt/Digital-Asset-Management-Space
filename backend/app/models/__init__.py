@@ -1,3 +1,4 @@
+from app.models.asset_space import AssetBookmark, AssetConfirmation, AssetEvidence
 from app.models.domain import (
     AccessGrant,
     Account,
@@ -70,6 +71,9 @@ from app.models.domain import (
 )
 
 __all__ = [
+    "AssetBookmark",
+    "AssetConfirmation",
+    "AssetEvidence",
     "Account",
     "AccountGrant",
     "AccessGrant",

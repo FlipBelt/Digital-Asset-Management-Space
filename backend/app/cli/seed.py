@@ -84,6 +84,9 @@ TYPES = {
         ("internal_system", "公司自研系统", "internal_system"),
         ("automation_script", "自动化脚本", "internal_system"),
         ("ai_workflow", "AI工作流/智能体", "internal_system"),
+        ("ai_skill", "AI 技能", "generic"),
+        ("ai_plugin", "AI 插件", "generic"),
+        ("ai_agent", "AI 智能体", "generic"),
         ("code_repository", "代码仓库", "generic"),
     ],
     "saas_software": [

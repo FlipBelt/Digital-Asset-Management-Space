@@ -2,6 +2,9 @@ from fastapi import APIRouter, Depends
 
 from app.api.v1 import (
     admin,
+    asset_activity,
+    asset_attachments,
+    asset_space,
     assets,
     catalog,
     dashboard,
@@ -28,6 +31,9 @@ api_router.include_router(dingtalk.router)
 authenticated = [Depends(require_authenticated)]
 api_router.include_router(organizations.router, dependencies=authenticated)
 api_router.include_router(catalog.router, dependencies=authenticated)
+api_router.include_router(asset_space.router, dependencies=authenticated)
+api_router.include_router(asset_activity.router, dependencies=authenticated)
+api_router.include_router(asset_attachments.router, dependencies=authenticated)
 api_router.include_router(assets.router, dependencies=authenticated)
 api_router.include_router(inventory.router, dependencies=authenticated)
 api_router.include_router(usage.router, dependencies=authenticated)

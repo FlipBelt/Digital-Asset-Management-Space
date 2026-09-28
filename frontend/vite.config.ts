@@ -7,13 +7,14 @@ export default defineConfig(({ mode }) => {
   return {
     base: env.VITE_BASE_PATH || "/",
     plugins: [vue(), tailwindcss()],
+    preview: { host: "127.0.0.1", proxy: { "/api": { target: env.LOCAL_API_TARGET || "http://127.0.0.1:8100", changeOrigin: false } } },
     server: {
       host: "127.0.0.1",
       port: 5173,
       strictPort: true,
       proxy: {
         "/api": {
-          target: "http://127.0.0.1:8100",
+          target: env.LOCAL_API_TARGET || "http://127.0.0.1:8100",
           changeOrigin: false,
         },
       },

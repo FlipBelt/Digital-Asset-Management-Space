@@ -89,3 +89,6 @@ git push -u origin codex/<topic>
 ```
 
 通过 Pull Request 合并到 `main`。生产发布前先在隔离测试环境完成迁移、接口回归和前端打开耗时验证。
+
+
+V1.3 资产中心融合的专用本地预览、隔离数据库演练、验证结果和回退门槛见 [迁移记录](docs/ASSET-CENTER-V1.3-MIGRATION.md)。

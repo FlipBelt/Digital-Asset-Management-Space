@@ -30,9 +30,21 @@ export interface AssetCategory { id: string; parent_id: string | null; code: str
 export interface AssetType { id: string; category_id: string; code: string; name: string; profile_kind: string; code_prefix: string; ownership_default: string; is_system: boolean; completeness_rules?: Record<string, unknown> }
 export interface AssetFieldDefinition { id: string; asset_type_id: string; field_key: string; label: string; data_type: string; is_required: boolean; options: string[] | null; group_name: string; help_text: string | null; unit: string | null; validation: Record<string, unknown>; confidentiality: string; is_searchable: boolean; completeness_weight: number; sort_order: number; entry_visibility: "core" | "optional" | "advanced" | "conditional"; requirement_stage: "create" | "activation" | "optional"; applies_to_existing: boolean; condition_rules: Record<string, unknown> }
 export interface AssetFieldValue { id: string; asset_id: string; field_definition_id: string; value: { value: unknown } }
+export interface SpaceSummary { created: number; responsible: number; using: number; subscriptions: number; ai: number; drafts: number; bookmarks: number; evidence: number }
+export interface Membership { id: string; asset_id: string; service_product_id: string; subscription_name: string | null; funding_source: string | null; payer_person_id: string | null; starts_at: string | null; expires_at: string | null; usage_frequency: string | null; primary_purpose: string | null }
+export interface AssetEvidence { id: string; asset_id: string | null; subscription_id: string | null; kind: string; title: string; problem: string; method: string; output: string; observed_effect: string | null; review_status: string; created_at: string }
+export interface AssetConfirmation {
+  id: string; asset_version: number; content_digest: string; sharing_scope: string; expires_at: string;
+  preview: {
+    asset: { name: string; description: string | null; source_system: string | null; source_agent: string | null };
+    attachments: { id: string; file_name: string; size_bytes: number }[];
+    subscriptions: Membership[];
+  };
+}
 export interface Asset {
   id: string; asset_code: string; name: string; asset_type_id: string; legal_entity_id: string | null;
   owner_department_id: string | null; ownership_scope: string; status: string; criticality: string; confidentiality: string;
+  sharing_scope?: string | null; source_system?: string | null; source_agent?: string | null; source_reference?: string | null; development_method?: string | null;
   source_type: string; started_at: string | null; expires_at: string | null; last_verified_at: string | null;
   description: string | null; version: number; created_at: string; updated_at: string; archived_at: string | null;
   created_by_person_id?: string | null; confirmed_by_person_id?: string | null; confirmed_at?: string | null; review_status?: string;
@@ -185,6 +197,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(response.status, message);
   }
   if (response.status === 204) return undefined as T;
+  if (response.headers.get("content-type")?.startsWith("application/zip")) return await response.blob() as T;
   return await response.json() as T;
 }
 
@@ -198,6 +211,16 @@ export function apiPath(path: string): string {
 const json = (method: string, body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) });
 
 export const api = {
+  spaceSummary: () => request<SpaceSummary>("/api/v1/space/summary"),
+  spaceBookmarks: () => request<string[]>("/api/v1/space/bookmarks"),
+  addBookmark: (id: string) => request<void>(`/api/v1/assets/${id}/bookmark`, json("PUT")),
+  removeBookmark: (id: string) => request<void>(`/api/v1/assets/${id}/bookmark`, json("DELETE")),
+  spaceMemberships: () => request<Membership[]>("/api/v1/space/memberships"),
+  spaceEvidence: (params: Record<string, string> = {}) => request<{ data: AssetEvidence[]; pagination: { page: number; page_size: number; total: number } }>(`/api/v1/space/evidence?${new URLSearchParams(params)}`),
+  createEvidence: (body: Record<string, unknown>) => request<AssetEvidence>("/api/v1/space/evidence", json("POST", body)),
+  prepareAssetConfirmation: (id: string, body: Record<string, unknown>) => request<AssetConfirmation>(`/api/v1/assets/${id}/confirmation`, json("POST", body)),
+  confirmAssetDraft: (id: string, body: Record<string, unknown>) => request<Asset>(`/api/v1/assets/${id}/confirm`, json("POST", body)),
+  cancelAssetConfirmation: (id: string, confirmation: string) => request<void>(`/api/v1/assets/${id}/confirmation/${confirmation}`, json("DELETE")),
   login: async (username: string, password: string) => {
     const session = await request<Session>("/api/v1/sessions", json("POST", { username, password }));
     setCsrfToken(session.user.csrf_token);
@@ -224,6 +247,12 @@ export const api = {
   },
   dingtalkProfiles: () => request<DingTalkProfile[]>("/api/v1/dingtalk/profiles"),
   syncDingtalkDirectory: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/sync", json("POST", { legal_entity_id: legalEntityId })),
+  assetAttachments: (id: string) => request<{id: string; file_name: string; size_bytes: number}[]>(`/api/v1/assets/${id}/attachments`),
+  uploadAssetZip: (id: string, file: File) => { const body = new FormData(); body.append("file", file); return request(`/api/v1/assets/${id}/attachments`, {method: "POST", body}); },
+  downloadAssetZip: (id: string, attachment: string) => request<Blob>(`/api/v1/assets/${id}/attachments/${attachment}/download`),
+  registerMembership: (body: Record<string, unknown>) => request<Asset>("/api/v1/space/memberships", json("POST", body)),
+  spaceAssets: (params: Record<string, string>) => request<{data: Asset[]; pagination: {page: number; page_size: number; total: number}}>(`/api/v1/space/assets?${new URLSearchParams(params)}`),
+  createAssetDraft: (body: Record<string, unknown>) => request<Asset>("/api/v1/assets/draft", json("POST", body)),
   myAssets: () => request<Asset[]>("/api/v1/workspace/my-assets"),
   health: () => request<HealthStatus>("/api/v1/health/ready"),
   scenarios: () => request<ScenarioSummary[]>("/api/v1/workspace/scenarios"),
