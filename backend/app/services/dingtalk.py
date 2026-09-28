@@ -66,12 +66,14 @@ class DingTalkClient:
         params = dict(kwargs.pop("params", {}))
         if access_token:
             params["access_token"] = access_token
-        response = self.client.request(method, f"{_OAPI_BASE}{path}", params=params, **kwargs)
         try:
+            response = self.client.request(method, f"{_OAPI_BASE}{path}", params=params, **kwargs)
             data = response.json()
-        except ValueError as exc:
-            raise HTTPException(status_code=502, detail="invalid DingTalk response") from exc
-        if response.is_error or data.get("errcode", 0) != 0:
+        except (httpx.HTTPError, ValueError):
+            raise HTTPException(status_code=502, detail="DingTalk request failed") from None
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=502, detail="invalid DingTalk response")
+        if response.is_error or data.get("errcode", 0) not in (0, "0"):
             raise HTTPException(
                 status_code=502,
                 detail={"message": "DingTalk API request failed", "code": data.get("errcode")},
@@ -173,6 +175,66 @@ class DingTalkClient:
             json={"userid": user_id, "language": "zh_CN"},
         )
         return detail.get("result", {})
+
+    def _web_request(self, method: str, path: str, **kwargs: Any) -> dict:
+        try:
+            response = self.client.request(method, f"https://api.dingtalk.com{path}", **kwargs)
+            data = response.json()
+        except (httpx.HTTPError, ValueError):
+            raise HTTPException(status_code=502, detail="DingTalk web request failed") from None
+        if response.is_error or not isinstance(data, dict):
+            raise HTTPException(status_code=502, detail="DingTalk web request failed")
+        return data
+
+    def user_from_web_auth_code(self, auth_code: str) -> dict:
+        """Resolve web OAuth into a verified employee of the configured organization."""
+        self.validate_configuration(require_corp_id=True)
+        user_token_data = self._web_request(
+            "POST",
+            "/v1.0/oauth2/userAccessToken",
+            json={
+                "clientId": self.settings.dingtalk_client_id,
+                "clientSecret": self.settings.dingtalk_client_secret,
+                "code": auth_code,
+                "grantType": "authorization_code",
+            },
+        )
+        if user_token_data.get("corpId") != self.settings.dingtalk_corp_id:
+            raise HTTPException(status_code=403, detail="DingTalk organization does not match")
+        user_token = user_token_data.get("accessToken")
+        if not isinstance(user_token, str) or not user_token:
+            raise HTTPException(status_code=401, detail="DingTalk identity was not returned")
+        personal = self._web_request(
+            "GET",
+            "/v1.0/contact/users/me",
+            headers={"x-acs-dingtalk-access-token": user_token},
+        )
+        union_id = personal.get("unionId")
+        if not isinstance(union_id, str) or not union_id or len(union_id) > 200:
+            raise HTTPException(status_code=401, detail="DingTalk identity was not returned")
+        organization_token = self.access_token()
+        try:
+            mapping = self._request(
+                "POST",
+                "/topapi/user/getbyunionid",
+                access_token=organization_token,
+                json={"unionid": union_id},
+            )
+        except HTTPException as exc:
+            if isinstance(exc.detail, dict) and exc.detail.get("code") in (60121, "60121"):
+                raise HTTPException(
+                    status_code=403, detail="DingTalk employee was not found"
+                ) from None
+            raise
+        mapped = mapping.get("result")
+        user_id = mapped.get("userid") if isinstance(mapped, dict) else None
+        if not isinstance(user_id, str) or not user_id:
+            raise HTTPException(status_code=403, detail="DingTalk employee was not found")
+        detail = self.user_detail(organization_token, user_id)
+        if detail.get("userid") != user_id or detail.get("unionid") != union_id:
+            raise HTTPException(status_code=403, detail="DingTalk employee identity does not match")
+        # Use the corporate profile, never the personal nickname, for account mapping and roles.
+        return detail
 
     def send_work_notification(self, user_ids: list[str], content: str) -> None:
         """Send a plain-text internal-app work notification to DingTalk users."""

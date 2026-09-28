@@ -115,6 +115,7 @@ export interface CurrentUser { id: string; username: string; person_id: string |
 export interface Session { user: CurrentUser; expires_at: string; session_token?: string | null }
 export interface DingTalkStatus { enabled: boolean; configured: boolean; corp_id: string | null }
 export interface DingTalkConfig { corpId: string | null; agentId: string | null; configured: boolean }
+export interface DingTalkWebConfig { enabled: boolean; configured: boolean }
 export interface PmSessionUser { dingUserId: string; name: string; avatar: string | null; department: string | null; role: string; roles: string[]; permissions: string[]; sessionToken: string }
 export interface DingTalkProfile { person_id: string; dingtalk_user_id: string; job_title: string | null }
 export interface DingTalkIdentity { person_id: string; display_name: string; department_id: string | null; job_title: string | null; is_department_manager: boolean }
@@ -164,6 +165,12 @@ let pmSessionToken = "";
 export function setCsrfToken(value: string) { csrfToken = value; }
 export function setPmSessionToken(value: string) { pmSessionToken = value; }
 export function clearPmSessionToken() { pmSessionToken = ""; }
+export function resetPmSessionCache() {
+  clearPmSessionToken();
+  setCsrfToken("");
+  localStorage.removeItem("pm-current-user");
+  localStorage.removeItem("account-center-person-id");
+}
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message) }
@@ -234,6 +241,8 @@ export const api = {
   },
   logout: async () => { await request<void>("/api/v1/sessions/current", { method: "DELETE" }); setCsrfToken(""); clearPmSessionToken(); },
   dingtalkStatus: () => request<DingTalkStatus>("/api/v1/dingtalk/status"),
+  dingtalkWebConfig: () => request<DingTalkWebConfig>("/api/dingtalk/web/config"),
+  dingtalkWebAuthorizeUrl: (returnPath: string) => apiPath(`/api/dingtalk/web/authorize?${new URLSearchParams({ next: returnPath })}`),
   dingtalkConfig: async () => {
     const config = await request<DingTalkConfig>("/api/dingtalk/config");
     return { enabled: config.configured, configured: config.configured, corp_id: config.corpId } as DingTalkStatus;

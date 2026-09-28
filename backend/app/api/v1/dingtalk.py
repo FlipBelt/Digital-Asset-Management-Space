@@ -221,7 +221,19 @@ def _identity_read(
 def _create_dingtalk_session(
     auth_code: str, request: Request, response: Response, db: Session
 ) -> tuple[User, Person, DingTalkPersonProfile, str, object]:
-    profile_data = DingTalkClient().user_from_auth_code(auth_code)
+    return create_verified_dingtalk_session(
+        DingTalkClient().user_from_auth_code(auth_code), request, response, db
+    )
+
+
+def create_verified_dingtalk_session(
+    profile_data: dict,
+    request: Request,
+    response: Response,
+    db: Session,
+    *,
+    audit_action: str = "session.dingtalk_login",
+) -> tuple[User, Person, DingTalkPersonProfile, str, object]:
     user, person, profile, _ = _provision_dingtalk_user(db, profile_data)
     if not user.is_active or user.archived_at is not None or person.archived_at is not None:
         raise HTTPException(status_code=403, detail="DingTalk user is not active in this system")
@@ -242,7 +254,7 @@ def _create_dingtalk_session(
     db.add(
         AuditLog(
             actor_user_id=user.id,
-            action="session.dingtalk_login",
+            action=audit_action,
             object_type="user",
             object_id=user.id,
         )

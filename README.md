@@ -50,7 +50,7 @@ V1.3 以统一 Asset 底库融合个人空间、成果发现、订阅与探索�
 
 服务器测试环境使用独立的 `account_center_test` 数据库、`account-center-test.service`（回环端口 `8200`）和 `/var/www/account-center-test` 静态目录。生产仍使用 `/` 与 `/api/`，测试只通过 `/test/` 与 `/test-api/` 访问。进入任一环境后，顶部“生产环境 / 测试环境”按钮可在同一个钉钉应用内切换；两套环境使用不同会话 Cookie，互不串会话。测试库首次创建前的生产快照保存在服务器备份目录，后续新方案、新迁移和版本升级先在测试环境验证，再安排生产发布。
 
-测试环境部署单元见 [`deploy/account-center-test.service`](./deploy/account-center-test.service)，Nginx 路由见 [`deploy/account-center.https.nginx.conf`](./deploy/account-center.https.nginx.conf)。测试环境沿用现有钉钉登录配置；在普通浏览器中打开时，若出现“请从钉钉打开”属于预期行为。测试服务的 `APP_ENV=test` 会在完成身份认证后授予全量测试操作权限，便于自由探索；该授权分支只存在于隔离测试服务，生产服务仍按正式 RBAC 校验。
+测试环境部署单元见 [`deploy/account-center-test.service`](./deploy/account-center-test.service)，Nginx 路由见 [`deploy/account-center.https.nginx.conf`](./deploy/account-center.https.nginx.conf)。测试环境沿用现有钉钉内部应用身份配置。钉钉内支持免登；普通浏览器的 `/login` 提供钉钉网页扫码入口，启用前需完成[网页登录配置](docs/DINGTALK_WEB_LOGIN.md)。未配置时入口显示原因并保持禁用，也可使用管理员已开通的系统账号。测试服务的 `APP_ENV=test` 会在完成身份认证后授予全量测试操作权限，便于自由探索；该授权分支只存在于隔离测试服务，生产服务仍按正式 RBAC 校验。
 
 完整校验：
 

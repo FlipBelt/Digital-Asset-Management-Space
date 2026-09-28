@@ -9,11 +9,14 @@ import {
 
 import { useTheme } from "./composables/useTheme";
 import { assetReturnContext } from "./lib/assetNavigation";
-import { api, setPmSessionToken, clearPmSessionToken, type Asset, type CurrentUser, type DingTalkIdentity, type Person, type PmSessionUser } from "./lib/api";
+import { safeLoginRedirect } from "./lib/loginNavigation";
+import { api, ApiError, setPmSessionToken, resetPmSessionCache, type Asset, type CurrentUser, type DingTalkIdentity, type Person, type PmSessionUser } from "./lib/api";
 
 useTheme();
 const router = useRouter();
 const route = useRoute();
+const inDingTalkClient = /DingTalk|AliApp\(DingTalk/i.test(navigator.userAgent);
+if (route.query.dingtalk === "success") resetPmSessionCache();
 const query = ref("");
 const mobileOpen = ref(false);
 const logoUrl = import.meta.env.BASE_URL + "logo.svg";
@@ -333,7 +336,7 @@ const identityLabel = computed(() => {
   if (dingtalkIdentity.value) return dingtalkIdentity.value.display_name;
   if (currentUser.value) return currentUser.value.display_name || currentUser.value.username;
   if (identityState.value === "recognizing") return "正在识别钉钉身份";
-  if (identityState.value === "outside") return "请从钉钉打开";
+  if (identityState.value === "outside") return "尚未登录";
   if (identityState.value === "failed") return "身份识别失败，点击重试";
   return "访客预览";
 });
@@ -343,11 +346,11 @@ async function recognizeIdentity() {
   identityState.value = "recognizing";
   identityHint.value = "";
   try {
-    const inDingTalk = /DingTalk|AliApp\(DingTalk/i.test(navigator.userAgent);
+    const inDingTalk = inDingTalkClient;
     let bridge = getDingTalkBridge();
-    if (!inDingTalk && !bridge) {
+    if (!inDingTalk) {
       identityState.value = "outside";
-      identityHint.value = "当前是普通浏览器。请从钉钉工作台打开企业应用进行免登。";
+      identityHint.value = "使用钉钉扫码登录，即可在浏览器中查看你的资产与订阅。";
       return;
     }
     const status = await api.dingtalkConfig();
@@ -392,26 +395,35 @@ async function bootstrapSession() {
   const cached = cachedPmUser();
   if (cached?.sessionToken) setPmSessionToken(cached.sessionToken);
   try {
-    currentUser.value = await api.currentSession();
+    try { currentUser.value = await api.currentSession(); }
+    catch (reason) {
+      // An expired legacy header must not mask a fresh web-login cookie.
+      if (!cached?.sessionToken || !(reason instanceof ApiError) || reason.status !== 401) throw reason;
+      resetPmSessionCache();
+      currentUser.value = await api.currentSession();
+    }
     if (currentUser.value.person_id) localStorage.setItem("account-center-person-id", currentUser.value.person_id);
-    if (currentUser.value.person_id && currentUser.value.display_name) {
-      dingtalkIdentity.value = {
-        person_id: currentUser.value.person_id,
-        display_name: currentUser.value.display_name,
-        department_id: currentUser.value.department_id,
-        job_title: currentUser.value.job_title,
-        is_department_manager: currentUser.value.roles.includes("department_manager"),
-      };
-      identityState.value = "authenticated";
-    }
+    dingtalkIdentity.value = currentUser.value.person_id && currentUser.value.display_name ? {
+      person_id: currentUser.value.person_id,
+      display_name: currentUser.value.display_name,
+      department_id: currentUser.value.department_id,
+      job_title: currentUser.value.job_title,
+      is_department_manager: currentUser.value.roles.includes("department_manager"),
+    } : null;
+    identityState.value = "authenticated";
+    identityHint.value = "";
   } catch {
-    if (cached) {
-      localStorage.removeItem("pm-current-user");
-      clearPmSessionToken();
-      window.dispatchEvent(new CustomEvent("pm-session-change", { detail: null }));
-    }
+    currentUser.value = null;
+    dingtalkIdentity.value = null;
+    resetPmSessionCache();
     await recognizeIdentity();
   }
+}
+
+function openIdentityEntry() {
+  if (currentUser.value) { void bootstrapSession(); return; }
+  if (inDingTalkClient) { void recognizeIdentity(); return; }
+  void router.push({ path: "/login", query: { redirect: safeLoginRedirect(route.fullPath) } });
 }
 
 function onSessionChanged() { void bootstrapSession(); }
@@ -499,7 +511,7 @@ onBeforeUnmount(() => { window.removeEventListener("keydown", onHotkey); window.
         <div class="topbar-actions">
           <RouterLink :to="isHuduMode ? '/hudu' : '/register'" class="primary-button compact"><Plus :size="16" />登记成果</RouterLink>
           <a v-if="!isLocalDevelopment" class="environment-switcher" :href="environmentTarget" :title="`切换到${isTestEnvironment ? '生产' : '测试'}环境`"><span class="environment-dot" :class="{ test: isTestEnvironment }" /><span>{{ environmentLabel }}</span><ChevronDown :size="14" /></a>
-          <button class="user-menu" type="button" :aria-label="identityLabel + '，重新识别身份'" :disabled="identityState === 'recognizing'" :title="identityHint || identityLabel" @click="recognizeIdentity">
+          <button class="user-menu" type="button" :aria-label="identityLabel + (currentUser ? '，刷新登录状态' : '，登录')" :disabled="identityState === 'recognizing'" :title="identityHint || identityLabel" @click="openIdentityEntry">
             <span class="avatar"><UserRound :size="16" aria-hidden="true" /></span>
             <span>{{ identityLabel }}</span>
             <small v-if="dingtalkIdentity">{{ verifiedRoleLabel !== "成员" ? verifiedRoleLabel : dingtalkIdentity.job_title || "部门成员" }}</small>
@@ -508,10 +520,10 @@ onBeforeUnmount(() => { window.removeEventListener("keydown", onHotkey); window.
         </div>
       </header>
       <main class="content-area">
-        <section v-if="!currentUser" class="content-panel auth-session-notice">
+        <section v-if="!currentUser && route.path !== '/login'" class="content-panel auth-session-notice">
           <UserRound :size="22" />
-          <div><strong>{{ identityLabel }}</strong><p>{{ identityHint || '请从钉钉工作台打开应用完成身份识别，以加载你的数据范围。' }}</p><RouterLink v-if="!isHuduMode" to="/login" class="hudu-login-link">本地开发登录</RouterLink><RouterLink v-else to="/login?redirect=/hudu" class="hudu-login-link">本地开发登录后查看完整数据</RouterLink></div>
-          <button v-if="identityState !== 'recognizing'" class="secondary-button" type="button" @click="recognizeIdentity">重新识别</button>
+          <div><strong>{{ identityLabel }}</strong><p>{{ identityHint || '登录后查看你的资产与订阅；钉钉内支持免登，普通浏览器支持扫码登录。' }}</p></div>
+          <button v-if="identityState !== 'recognizing'" class="secondary-button" type="button" @click="openIdentityEntry">{{ inDingTalkClient ? '重新识别' : '钉钉扫码登录' }}</button>
         </section>
         <!-- Identity state changes must never unmount the business router.  The
              backend remains the authority for protected reads/writes; this
