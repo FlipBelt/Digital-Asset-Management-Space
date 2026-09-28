@@ -24,7 +24,7 @@ async function submit() {
 <template>
   <div class="page-stack fusion-space">
     <PageHeader eyebrow="沉淀工作成果" title="登记成果" description="先保存私有草稿，核对附件和共享范围后再确认登记。" />
-    <section v-if="result" class="fusion-empty" role="status"><h2>草稿已保存</h2><p>{{ result.name }} · 待人工审核，不代表正式批准使用。</p><p v-if="uploaded">ZIP 附件已保存。</p><p v-if="error" role="alert">{{ error }}</p><button v-if="zipFile && !uploaded" class="secondary-button" :disabled="saving" @click="uploadZip">重试附件上传</button><RouterLink :to="`/discover/${result.id}`" class="primary-button">查看草稿</RouterLink><RouterLink to="/my/drafts" class="secondary-button">我的草稿</RouterLink></section>
+    <section v-if="result" class="fusion-empty" role="status"><h2>草稿已保存</h2><p>{{ result.name }} · 待人工审核，不代表正式批准使用。</p><p v-if="uploaded">ZIP 附件已保存。</p><p v-if="error" role="alert">{{ error }}</p><button v-if="zipFile && !uploaded" class="secondary-button" :disabled="saving" @click="uploadZip">重试附件上传</button><RouterLink :to="{ path: `/discover/${result.id}`, query: { returnTo: '/my/drafts' } }" class="primary-button">查看草稿</RouterLink><RouterLink to="/my/drafts" class="secondary-button">我的草稿</RouterLink></section>
     <form v-else class="fusion-register" @submit.prevent="submit">
       <label>成果名称<input v-model="form.name" required maxlength="200" placeholder="例如：竞品视觉拆解" /></label>
       <label>成果类型<select v-model="form.asset_type_id" required><option value="" disabled>请选择</option><option v-for="item in types" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>

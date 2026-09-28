@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  Archive, Bookmark, Bell, Boxes, Building2, ChevronDown, CircleGauge, ClipboardCheck, Database,
-  FileInput, GitFork, KeyRound, LayoutDashboard, Network, Plus, Search,
-  Settings, UserRound, Users, Menu, FileText, HeartHandshake, Sparkles,
+  Bookmark, Boxes, CalendarClock, ChevronDown, Clock3, CreditCard, FileInput,
+  Hexagon, Home, LibraryBig, List, Menu, Pencil, Plus, Search, Shield,
+  SlidersHorizontal, Sparkles, Star, UserRound, Users, Workflow, LayoutGrid, X,
 } from "lucide-vue-next";
 
 import { useTheme } from "./composables/useTheme";
+import { assetReturnContext } from "./lib/assetNavigation";
 import { api, setPmSessionToken, clearPmSessionToken, type Asset, type CurrentUser, type DingTalkIdentity, type Person, type PmSessionUser } from "./lib/api";
 
 useTheme();
@@ -141,23 +142,24 @@ async function resolveDingTalkBridge(inDingTalk: boolean): Promise<NativeDingTal
 }
 
 const personalNav = [
-  { to: "/my", label: "我的首页", icon: UserRound },
-  { to: "/my/created", label: "我创建的", icon: FileText },
-  { to: "/my/responsible", label: "我负责的", icon: ClipboardCheck },
-  { to: "/my/subscriptions", label: "我的订阅", icon: KeyRound },
-  { to: "/my/using", label: "我使用的", icon: Boxes },
-  { to: "/my/drafts", label: "我的草稿", icon: FileInput },
-  { to: "/my/bookmarks", label: "我的收藏", icon: Bookmark },
-  { to: "/my/ai", label: "我的 AI 能力", icon: Sparkles },
-  { to: "/my/contributions", label: "我的贡献", icon: HeartHandshake },
+  { to: "/my", label: "首页", icon: Home },
+  { to: "/my/created", label: "创建", icon: Pencil },
+  { to: "/my/responsible", label: "负责", icon: Shield },
+  { to: "/my/subscriptions", label: "订阅", icon: CreditCard },
+  { to: "/my/using", label: "使用", icon: Clock3 },
+  { to: "/my/ai", label: "AI 能力", icon: Hexagon },
+  { to: "/my/contributions", label: "贡献", icon: Star },
+  { to: "/my/drafts", label: "草稿", icon: List },
+  { to: "/my/bookmarks", label: "收藏", icon: Bookmark },
 ];
 const sharedNav = [
-  { to: "/discover", label: "资产发现", icon: Boxes },
-  { to: "/team", label: "团队空间", icon: Building2 },
+  { to: "/discover", label: "资产发现", icon: LayoutGrid },
+  { to: "/discover?category=workflows", label: "工作流", icon: Workflow },
+  { to: "/team", label: "团队空间", icon: Users },
 ];
 const huduNav = [
-  { to: "/hudu", label: "资产库", icon: Boxes },
-  { to: "/hudu/expirations", label: "到期与交接", icon: ClipboardCheck },
+  { to: "/hudu", label: "资产库", icon: LibraryBig },
+  { to: "/hudu/expirations", label: "到期与交接", icon: CalendarClock },
   { to: "/hudu/intake", label: "资料接入", icon: FileInput },
 ];
 const isHuduMode = computed(() => route.path === "/hudu" || route.path.startsWith("/hudu/"));
@@ -168,6 +170,24 @@ const canManage = computed(() => Boolean(currentUser.value?.roles.some(
 )));
 const environmentLabel = computed(() => isLocalDevelopment ? "本地预览" : isTestEnvironment ? "测试环境" : "生产环境");
 const environmentTarget = computed(() => isTestEnvironment ? "/" : "/test/");
+
+const navigationContext = computed(() => route.path.startsWith("/discover/")
+  ? assetReturnContext(route.query.returnTo)
+  : { path: route.path, category: route.query.category === "workflows" ? "workflows" : "all" });
+// Query-based shortcuts share the asset route, but only one navigation item is selected.
+function isNavActive(to: string) {
+  if (to === "/discover?category=workflows") {
+    return navigationContext.value.path === "/discover" && navigationContext.value.category === "workflows";
+  }
+  if (to === "/discover") {
+    return (navigationContext.value.path === "/discover" && navigationContext.value.category !== "workflows") || navigationContext.value.path.startsWith("/discover/");
+  }
+  if (to === "/manage") {
+    return ["/manage", "/map", "/assets", "/accounts", "/organization", "/services", "/governance", "/imports", "/admin", "/intake", "/scenarios"]
+      .some(path => navigationContext.value.path === path || navigationContext.value.path.startsWith(path + "/"));
+  }
+  return navigationContext.value.path === to;
+}
 
 watch(query, (value) => {
   window.clearTimeout(searchTimer);
@@ -189,7 +209,24 @@ function closeSearchDelayed() {
   window.setTimeout(() => { searchOpen.value = false; }, 150);
 }
 
+watch(mobileOpen, async (open) => {
+  await nextTick();
+  if (open) {
+    document.querySelector<HTMLElement>(".primary-sidebar .is-active, .primary-sidebar .brand-block")?.focus();
+  } else {
+    document.querySelector<HTMLButtonElement>(".fusion-mobile-menu")?.focus();
+  }
+});
+
+function onViewportChange() { if (window.innerWidth > 760) mobileOpen.value = false; }
+
 function onHotkey(event: KeyboardEvent) {
+  if (mobileOpen.value && event.key === "Tab") {
+    const controls = [...document.querySelectorAll<HTMLElement>(".primary-sidebar a[href], .primary-sidebar button:not(:disabled)")];
+    const first = controls[0], last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
   if (event.key === "Escape") mobileOpen.value = false;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
@@ -379,48 +416,66 @@ async function bootstrapSession() {
 
 function onSessionChanged() { void bootstrapSession(); }
 
-onMounted(() => { window.addEventListener("keydown", onHotkey); window.addEventListener("pm-session-change", onSessionChanged); void bootstrapSession(); });
-onBeforeUnmount(() => { window.removeEventListener("keydown", onHotkey); window.removeEventListener("pm-session-change", onSessionChanged); });
+onMounted(() => { window.addEventListener("keydown", onHotkey); window.addEventListener("resize", onViewportChange); window.addEventListener("pm-session-change", onSessionChanged); void bootstrapSession(); });
+onBeforeUnmount(() => { window.removeEventListener("keydown", onHotkey); window.removeEventListener("resize", onViewportChange); window.removeEventListener("pm-session-change", onSessionChanged); });
 </script>
 
 <template>
   <div class="app-shell new-shell">
     <button v-if="mobileOpen" class="fusion-nav-backdrop" aria-label="关闭导航" @click="mobileOpen = false" />
-    <aside id="asset-navigation" class="primary-sidebar" :class="{ 'mobile-open': mobileOpen }">
+    <aside id="asset-navigation" class="primary-sidebar" :class="{ 'mobile-open': mobileOpen }"
+      :role="mobileOpen ? 'dialog' : undefined" :aria-modal="mobileOpen ? true : undefined" aria-label="资产中心导航">
+      <button v-if="mobileOpen" class="icon-button fusion-nav-close" aria-label="关闭侧栏" @click="mobileOpen = false"><X :size="20" aria-hidden="true" /></button>
       <RouterLink to="/my" class="brand-block" @click="mobileOpen = false">
         <img :src="logoUrl" alt="FlipBelt" class="fusion-brand-logo" />
         <span>飞比特 · 资产中心</span>
       </RouterLink>
-      <div class="sidebar-user-chip">
-        <strong>{{ dingtalkIdentity?.display_name || currentUser?.display_name || currentUser?.username || "访客" }} <span>{{ currentUser ? verifiedRoleLabel : "未登录" }}</span></strong>
-        <small>{{ dingtalkIdentity?.job_title || (currentUser ? "本地开发会话" : "从钉钉打开后加载个人数据范围") }}</small>
-      </div>
-
       <nav class="primary-nav" aria-label="资产中心导航">
-        <span class="nav-section-label">我的空间</span>
-        <RouterLink v-for="item in personalNav" :key="item.to" :to="item.to" class="nav-item" @click="mobileOpen = false">
-          <component :is="item.icon" :size="18" /><span>{{ item.label }}</span>
-        </RouterLink>
-        <span class="nav-section-label">资产与协作</span>
-        <RouterLink v-for="item in sharedNav" :key="item.to" :to="item.to" class="nav-item" @click="mobileOpen = false">
-          <component :is="item.icon" :size="18" /><span>{{ item.label }}</span>
-        </RouterLink>
-        <template v-if="canManage">
-          <span class="nav-section-label">管理工作区</span>
-          <RouterLink to="/manage" class="nav-item" @click="mobileOpen = false"><Settings :size="18" /><span>管理</span></RouterLink>
-        </template>
-        <template v-if="isHuduMode && canManage">
-          <span class="nav-section-label">当前工作区</span>
-          <RouterLink v-for="item in huduNav" :key="item.to" :to="item.to" class="nav-item" @click="mobileOpen = false"><component :is="item.icon" :size="18" /><span>{{ item.label }}</span></RouterLink>
-        </template>
+        <section class="nav-group" aria-labelledby="personal-nav-heading">
+          <h2 id="personal-nav-heading" class="nav-section-label">我的空间</h2>
+          <RouterLink v-for="item in personalNav" :key="item.to" :to="item.to" class="nav-item"
+            active-class="" exact-active-class="" :class="{ 'is-active': isNavActive(item.to) }"
+            :aria-current="isNavActive(item.to) ? 'page' : undefined" @click="mobileOpen = false">
+            <component :is="item.icon" :size="20" aria-hidden="true" /><span>{{ item.label }}</span>
+          </RouterLink>
+        </section>
+        <section class="nav-group" aria-labelledby="team-nav-heading">
+          <h2 id="team-nav-heading" class="nav-section-label">团队与资产</h2>
+          <RouterLink v-for="item in sharedNav" :key="item.to" :to="item.to" class="nav-item"
+            active-class="" exact-active-class="" :class="{ 'is-active': isNavActive(item.to) }"
+            :aria-current="isNavActive(item.to) ? 'page' : undefined" @click="mobileOpen = false">
+            <component :is="item.icon" :size="20" aria-hidden="true" /><span>{{ item.label }}</span>
+          </RouterLink>
+        </section>
+        <section class="nav-group" aria-labelledby="growth-nav-heading">
+          <h2 id="growth-nav-heading" class="nav-section-label">探索与成长</h2>
+          <div class="nav-item nav-item-pending" aria-disabled="true" title="AI 机会尚未开放">
+            <Sparkles :size="20" aria-hidden="true" /><span>AI 机会</span><small>待开放</small>
+          </div>
+        </section>
+        <section v-if="canManage" class="nav-group" aria-labelledby="manage-nav-heading">
+          <h2 id="manage-nav-heading" class="nav-section-label">管理区</h2>
+          <RouterLink to="/manage" class="nav-item" active-class="" exact-active-class=""
+            :class="{ 'is-active': isNavActive('/manage') }" :aria-current="isNavActive('/manage') ? 'page' : undefined"
+            @click="mobileOpen = false"><SlidersHorizontal :size="20" aria-hidden="true" /><span>管理</span></RouterLink>
+        </section>
+        <section v-if="isHuduMode && canManage" class="nav-group" aria-labelledby="hudu-nav-heading">
+          <h2 id="hudu-nav-heading" class="nav-section-label">当前工作区</h2>
+          <RouterLink v-for="item in huduNav" :key="item.to" :to="item.to" class="nav-item"
+            active-class="" exact-active-class="" :class="{ 'is-active': isNavActive(item.to) }"
+            :aria-current="isNavActive(item.to) ? 'page' : undefined" @click="mobileOpen = false">
+            <component :is="item.icon" :size="20" aria-hidden="true" /><span>{{ item.label }}</span>
+          </RouterLink>
+        </section>
       </nav>
-      <div class="sidebar-quick-entry">
-        <span>发现新账号、服务或系统？</span>
-        <RouterLink :to="isHuduMode ? '/hudu' : '/register'" class="sidebar-create"><Plus :size="17" />登记 / 发现资产</RouterLink>
-      </div>
+      <footer class="sidebar-session">
+        <span class="avatar"><UserRound :size="18" aria-hidden="true" /></span>
+        <div><strong>{{ dingtalkIdentity?.display_name || currentUser?.display_name || currentUser?.username || "访客" }}</strong>
+          <small>{{ currentUser ? verifiedRoleLabel : "未登录" }} · {{ environmentLabel }}</small></div>
+      </footer>
     </aside>
 
-    <section class="application-area">
+    <section class="application-area" :inert="mobileOpen || undefined">
       <header class="topbar">
         <button class="icon-button fusion-mobile-menu" aria-label="打开导航" :aria-expanded="mobileOpen" aria-controls="asset-navigation" @click="mobileOpen = !mobileOpen"><Menu :size="22" /></button>
         <div class="global-search" @focusout="closeSearchDelayed">
@@ -444,8 +499,8 @@ onBeforeUnmount(() => { window.removeEventListener("keydown", onHotkey); window.
         <div class="topbar-actions">
           <RouterLink :to="isHuduMode ? '/hudu' : '/register'" class="primary-button compact"><Plus :size="16" />登记成果</RouterLink>
           <a v-if="!isLocalDevelopment" class="environment-switcher" :href="environmentTarget" :title="`切换到${isTestEnvironment ? '生产' : '测试'}环境`"><span class="environment-dot" :class="{ test: isTestEnvironment }" /><span>{{ environmentLabel }}</span><ChevronDown :size="14" /></a>
-          <button class="user-menu" type="button" :disabled="identityState === 'recognizing'" :title="identityHint || identityLabel" @click="recognizeIdentity">
-            <span class="avatar">{{ (dingtalkIdentity?.display_name || currentUser?.display_name || currentUser?.username || "访").slice(0, 1) }}</span>
+          <button class="user-menu" type="button" :aria-label="identityLabel + '，重新识别身份'" :disabled="identityState === 'recognizing'" :title="identityHint || identityLabel" @click="recognizeIdentity">
+            <span class="avatar"><UserRound :size="16" aria-hidden="true" /></span>
             <span>{{ identityLabel }}</span>
             <small v-if="dingtalkIdentity">{{ verifiedRoleLabel !== "成员" ? verifiedRoleLabel : dingtalkIdentity.job_title || "部门成员" }}</small>
             <ChevronDown :size="16" />

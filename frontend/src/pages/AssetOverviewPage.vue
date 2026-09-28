@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { Bookmark, ArrowRight } from "lucide-vue-next";
+import { ArrowLeft, Bookmark, ArrowRight } from "lucide-vue-next";
 import PageHeader from "../components/PageHeader.vue";
 import AssetAttachments from "../components/AssetAttachments.vue";
 import AssetConfirmationPanel from "../components/AssetConfirmationPanel.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { api, type Asset, type HuduAssetDetail, type Membership } from "../lib/api";
 import { displayStatus } from "../lib/labels";
+import { assetReturnContext } from "../lib/assetNavigation";
 const route = useRoute(); const detail = ref<HuduAssetDetail | null>(null); const asset = ref<Asset | null>(null);
 const subscription = ref<Membership | null>(null); const bookmarked = ref(false); const person = ref("");
 const error = ref(""); const loading = ref(false); const actionError = ref(""); const busy = ref(false); let sequence = 0;
+const returnContext = computed(() => assetReturnContext(route.query.returnTo));
 const owns = computed(() => Boolean(person.value && asset.value?.created_by_person_id === person.value));
 const scopeLabels: Record<string, string> = { private: "仅自己", team: "团队共享", company: "公司共享" };
 const fundingLabels: Record<string, string> = { personal: "个人自费", company: "公司付费", department: "部门付费", free: "免费", trial: "试用" };
@@ -37,7 +39,7 @@ watch(() => route.params.id, load, { immediate: true });
 </script>
 <template>
   <div class="page-stack fusion-space">
-    <RouterLink to="/discover" class="fusion-back">← 返回资产发现</RouterLink>
+    <RouterLink :to="returnContext.to" class="fusion-back"><ArrowLeft :size="16" aria-hidden="true" />返回{{ returnContext.label }}</RouterLink>
     <section v-if="loading" class="fusion-empty" role="status">正在读取资产…</section>
     <section v-else-if="error" class="fusion-empty" role="alert"><p>{{ error }}</p><button class="secondary-button" @click="load">重试</button></section>
     <template v-else-if="detail && asset">
@@ -52,7 +54,7 @@ watch(() => route.params.id, load, { immediate: true });
       </div>
       <AssetConfirmationPanel v-if="owns && asset.status === 'draft'" :asset-id="asset.id" @confirmed="load" />
       <AssetAttachments :key="`${asset.id}-${asset.version}`" :asset-id="asset.id" />
-      <section class="content-panel"><h2>关联资产与工作流</h2><p v-if="!detail.relations.length" class="fusion-muted">尚未登记关联关系。</p><div v-else class="fusion-grid"><RouterLink v-for="relation in detail.relations" :key="relation.id" :to="`/discover/${relation.related_asset_id}`" class="fusion-card"><h2>{{ relation.related_name }}</h2><span class="fusion-detail">查看关联详情<ArrowRight :size="17" /></span></RouterLink></div></section>
+      <section class="content-panel"><h2>关联资产与工作流</h2><p v-if="!detail.relations.length" class="fusion-muted">尚未登记关联关系。</p><div v-else class="fusion-grid"><RouterLink v-for="relation in detail.relations" :key="relation.id" :to="{ path: `/discover/${relation.related_asset_id}`, query: { returnTo: returnContext.to } }" class="fusion-card"><h2>{{ relation.related_name }}</h2><span class="fusion-detail">查看关联详情<ArrowRight :size="17" /></span></RouterLink></div></section>
     </template>
   </div>
 </template>

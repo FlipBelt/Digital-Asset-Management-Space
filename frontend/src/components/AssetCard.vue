@@ -1,19 +1,34 @@
 <script setup lang="ts">
-import { ArrowRight, Bookmark } from "lucide-vue-next";
+import { computed } from "vue";
+import { AppWindow, ArrowRight, Bookmark, Bot, CreditCard, FileBox, Hexagon, Puzzle, Terminal, Users, Workflow } from "lucide-vue-next";
 import { type Asset } from "../lib/api";
 import { displayStatus } from "../lib/labels";
-defineProps<{ asset: Asset; typeName?: string; teamName?: string; bookmarked: boolean; busy?: boolean }>();
+
+const props = defineProps<{ asset: Asset; typeName?: string; typeCode?: string; teamName?: string; bookmarked: boolean; busy?: boolean; returnTo?: string }>();
 defineEmits<{ bookmark: [asset: Asset] }>();
+const typeIcons: Record<string, typeof FileBox> = {
+  ai_skill: Hexagon, ai_plugin: Puzzle, ai_agent: Bot, ai_workflow: Workflow,
+  automation_script: Terminal, saas_subscription: CreditCard, internal_system: AppWindow,
+};
+const typeIcon = computed(() => typeIcons[props.typeCode || ""] || FileBox);
+const detailLink = computed(() => ({ path: `/discover/${props.asset.id}`, query: props.returnTo ? { returnTo: props.returnTo } : {} }));
+const bookmarkLabel = computed(() => `${props.bookmarked ? '取消收藏' : '收藏'}${props.asset.name}`);
 </script>
 <template>
   <article class="fusion-card">
     <div class="fusion-card-meta">
-      <div class="fusion-type"><span class="fusion-monogram">{{ asset.name.slice(0, 1) }}</span><span><strong>{{ typeName || '资产' }}</strong><small>版本 {{ asset.version }}</small></span></div>
-      <button class="icon-button fusion-bookmark" :class="{ saved: bookmarked }" :aria-label="`${bookmarked ? '取消收藏' : '收藏'}${asset.name}`" :aria-pressed="bookmarked" :disabled="busy" @click="$emit('bookmark', asset)"><Bookmark :size="19" /></button>
+      <div class="fusion-type">
+        <span class="fusion-asset-symbol" :class="typeCode"><component :is="typeIcon" :size="22" aria-hidden="true" /></span>
+        <span><strong>{{ typeName || '资产' }}</strong><small>版本 {{ asset.version }}</small></span>
+      </div>
+      <button class="icon-button fusion-bookmark" :class="{ saved: bookmarked }" :aria-label="bookmarkLabel" :title="bookmarkLabel" :aria-pressed="bookmarked" :disabled="busy" @click="$emit('bookmark', asset)"><Bookmark :size="19" aria-hidden="true" /></button>
     </div>
-    <h2><RouterLink :to="`/discover/${asset.id}`">{{ asset.name }}</RouterLink></h2>
+    <h2><RouterLink :to="detailLink">{{ asset.name }}</RouterLink></h2>
     <p>{{ asset.description || '暂无说明，待负责人补充。' }}</p>
-    <div class="fusion-card-footer"><small>{{ teamName || '归属待确认' }}</small><span class="fusion-status">{{ displayStatus(asset.status) }}</span></div>
-    <RouterLink :to="`/discover/${asset.id}`" class="fusion-detail">查看详情<ArrowRight :size="18" /></RouterLink>
+    <div class="fusion-card-footer">
+      <span class="fusion-owner"><Users :size="14" aria-hidden="true" />{{ teamName || '归属待确认' }}</span>
+      <span class="fusion-status" :class="{ 'is-draft': asset.status === 'draft' }">{{ displayStatus(asset.status) }}</span>
+    </div>
+    <RouterLink :to="detailLink" class="fusion-detail">查看详情<ArrowRight :size="17" aria-hidden="true" /></RouterLink>
   </article>
 </template>

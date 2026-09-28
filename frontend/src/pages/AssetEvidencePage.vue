@@ -85,7 +85,7 @@ watch(() => route.query.new, value => { if (value) open(String(value)); });
           <h2>{{ item.title }}</h2><p>{{ item.problem }}</p>
           <details><summary>查看实践证据</summary><dl><dt>方法</dt><dd>{{ item.method }}</dd><dt>成果</dt><dd>{{ item.output }}</dd><dt>观察到的变化</dt><dd>{{ item.observed_effect || '尚未记录' }}</dd></dl></details>
           <small>{{ new Date(item.created_at).toLocaleDateString('zh-CN') }} · 本人记录</small>
-          <RouterLink v-if="item.asset_id" :to="`/discover/${item.asset_id}`" class="fusion-detail">查看关联资产<ArrowRight :size="17" /></RouterLink>
+          <RouterLink v-if="item.asset_id" :to="{ path: `/discover/${item.asset_id}`, query: { returnTo: route.fullPath } }" class="fusion-detail">查看关联资产<ArrowRight :size="17" /></RouterLink>
         </article>
       </div>
       <section v-else-if="!formOpen" class="fusion-empty"><h2>还没有实践记录</h2><p>从一个真实问题开始，记录你采用的方法和留下的成果。</p><button class="primary-button" @click="open()">记录第一次实践</button></section>
