@@ -1,32 +1,28 @@
-from types import SimpleNamespace
-from unittest.mock import patch
-from uuid import uuid4
-
 from app.core.access import AccessContext
 
 
-def _context() -> AccessContext:
-    return AccessContext(
-        user=None,  # type: ignore[arg-type]
+def test_employee_context_keeps_rbac_including_isolated_test_environment() -> None:
+    context = AccessContext(
+        user=None,
         person_id=None,
-        roles=frozenset(),
-        permissions=frozenset(),
-        department_scopes=frozenset({uuid4()}),
+        roles=frozenset({"employee"}),
+        permissions=frozenset({"asset.read"}),
+        department_scopes=frozenset(),
     )
+    assert not context.is_global_manager
+    assert not context.is_read_all
+    assert not context.has_permission("admin.manage")
+    assert context.has_permission("asset.read")
 
 
-def test_test_environment_grants_authenticated_context_full_scope() -> None:
-    context = _context()
-    with patch("app.core.access.get_settings", return_value=SimpleNamespace(app_env="test")):
-        assert context.is_global_manager
-        assert context.is_read_all
-        assert context.has_permission("admin.manage")
-
-
-def test_production_context_keeps_rbac_scope() -> None:
-    context = _context()
-    with patch(
-        "app.core.access.get_settings", return_value=SimpleNamespace(app_env="production")
-    ):
-        assert not context.is_global_manager
-        assert not context.has_permission("admin.manage")
+def test_system_admin_keeps_explicit_full_scope() -> None:
+    context = AccessContext(
+        user=None,
+        person_id=None,
+        roles=frozenset({"system_admin"}),
+        permissions=frozenset(),
+        department_scopes=frozenset(),
+    )
+    assert context.is_global_manager
+    assert context.is_read_all
+    assert context.has_permission("admin.manage")

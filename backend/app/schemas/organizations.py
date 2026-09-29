@@ -112,5 +112,6 @@ class DepartmentMembershipRead(ORMModel):
     person_id: UUID
     department_id: UUID
     is_manager: bool
+    leadership_role: str | None = None
     is_primary: bool
     is_active: bool

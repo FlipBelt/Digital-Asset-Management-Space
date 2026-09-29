@@ -49,6 +49,9 @@ class DingTalkClientDiagnostic(BaseModel):
 class DingTalkDirectorySnapshotRead(BaseModel):
     department_codes: list[str]
     checked_at: datetime | None
+    current_person_ids: list[UUID] | None = None
+    historical_person_ids: list[UUID] | None = None
+    people_checked_at: datetime | None = None
 
 
 class DingTalkOrganizationRead(BaseModel):
@@ -76,6 +79,7 @@ class DingTalkPersonProfileRead(ORMModel):
     dingtalk_user_id: str
     job_title: str | None
     company_affiliation: DingTalkCompanyAffiliationRead | None = None
+    directory_status: Literal["current", "not_in_current_directory"] | None = None
 
 
 class DingTalkIdentityRead(BaseModel):
@@ -84,6 +88,7 @@ class DingTalkIdentityRead(BaseModel):
     department_id: UUID | None
     job_title: str | None
     is_department_manager: bool
+    is_group_leader: bool = False
 
 
 class DingTalkSessionRead(BaseModel):

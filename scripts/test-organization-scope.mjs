@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { organizationScope } from "../frontend/src/lib/organizationScope.ts";
+import { currentDirectoryScope, organizationScope } from "../frontend/src/lib/organizationScope.ts";
 
 const departments = [
   { id: "a-root", legal_entity_id: "a", parent_id: null },
@@ -32,3 +32,11 @@ for (const id of [undefined, null, "missing"]) {
 assert.deepEqual(organizationScope("a", [], [], []), { departments: [], people: [], memberships: [] });
 assert.deepEqual({ departments, people, memberships }, input);
 console.log("Organization scoping: 9 assertions passed, including cross-company and missing-binding boundaries.");
+
+const current = currentDirectoryScope(scoped, ["a-person", "a-manager"], ["a-person"]);
+assert.deepEqual(current.people.map(item => item.id), ["a-person"]);
+assert.deepEqual(current.memberships.map(item => item.id), ["a-member"]);
+assert.equal(scoped.memberships.length, 2);
+assert.deepEqual(currentDirectoryScope(scoped, ["a-person"], ["a-manager"]).people.map(item => item.id), ["a-manager"]);
+assert.equal(currentDirectoryScope(scoped, ["a-person"], null), scoped);
+console.log("Current directory display: 5 assertions passed; history is preserved and memberships are not mutated.");

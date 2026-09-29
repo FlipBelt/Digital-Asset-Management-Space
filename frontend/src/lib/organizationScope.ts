@@ -17,3 +17,18 @@ export function organizationScope(
       item.is_active && departmentIds.has(item.department_id) && personIds.has(item.person_id)),
   };
 }
+
+/** Project the latest source snapshot without deleting historical memberships. */
+export function currentDirectoryScope(
+  scoped: ReturnType<typeof organizationScope>,
+  linkedPersonIds: string[],
+  currentPersonIds?: string[] | null,
+) {
+  if (!currentPersonIds) return scoped;
+  const linked = new Set(linkedPersonIds);
+  const current = new Set(currentPersonIds);
+  const people = scoped.people.filter(person => !linked.has(person.id) || current.has(person.id));
+  const visible = new Set(people.map(person => person.id));
+  return { departments: scoped.departments, people,
+    memberships: scoped.memberships.filter(membership => visible.has(membership.person_id)) };
+}

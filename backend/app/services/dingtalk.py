@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import httpx
@@ -90,6 +91,8 @@ class SyncResult:
     people_created: int = 0
     people_updated: int = 0
     memberships_synced: int = 0
+    people_current: int = 0
+    people_historical: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -98,6 +101,8 @@ class SyncResult:
             "people_created": self.people_created,
             "people_updated": self.people_updated,
             "memberships_synced": self.memberships_synced,
+            "people_current": self.people_current,
+            "people_historical": self.people_historical,
         }
 
 
@@ -172,12 +177,20 @@ class DingTalkClient:
             )
             # DingTalk's legacy endpoint has returned both shapes in the wild:
             # {"result": [...]} and {"result": {"list": [...]}}.
-            result = data.get("result", [])
-            rows = result if isinstance(result, list) else result.get("list", [])
+            result = data.get("result")
+            rows = (
+                result
+                if isinstance(result, list)
+                else result.get("list")
+                if isinstance(result, dict)
+                else None
+            )
+            if not isinstance(rows, list):
+                raise HTTPException(status_code=502, detail="invalid DingTalk department page")
             for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                department_id = str(row.get("dept_id") or "")
+                if not isinstance(row, dict) or not row.get("dept_id") or not row.get("name"):
+                    raise HTTPException(status_code=502, detail="invalid DingTalk department row")
+                department_id = str(row["dept_id"])
                 if not department_id or department_id == "-7" or department_id in visited:
                     continue
                 visited.add(department_id)
@@ -187,7 +200,13 @@ class DingTalkClient:
 
     def users(self, access_token: str, department_id: str) -> Iterable[dict]:
         cursor = 0
+        visited: set[int] = set()
         while True:
+            if cursor in visited or len(visited) >= 10000:
+                raise HTTPException(
+                    status_code=502, detail="DingTalk directory cursor did not progress"
+                )
+            visited.add(cursor)
             data = self._request(
                 "POST",
                 "/topapi/v2/user/list",
@@ -199,12 +218,29 @@ class DingTalkClient:
                     "language": "zh_CN",
                 },
             )
-            result = data.get("result", {})
-            rows = result.get("list", [])
-            yield from (row for row in rows if isinstance(row, dict))
-            if not result.get("has_more"):
+            result = data.get("result")
+            rows = result.get("list") if isinstance(result, dict) else None
+            if not isinstance(rows, list) or any(
+                not isinstance(row, dict) or not row.get("userid") for row in rows
+            ):
+                raise HTTPException(status_code=502, detail="invalid DingTalk directory page")
+            more = result.get("has_more")
+            if more not in (True, False, 0, 1, "true", "false", "True", "False"):
+                raise HTTPException(status_code=502, detail="invalid DingTalk directory pagination")
+            yield from rows
+            if more in (False, 0, "false", "False"):
                 return
-            cursor = int(result.get("next_cursor", 0))
+            try:
+                next_cursor = int(result["next_cursor"])
+            except (KeyError, TypeError, ValueError):
+                raise HTTPException(
+                    status_code=502, detail="invalid DingTalk directory cursor"
+                ) from None
+            if next_cursor <= cursor:
+                raise HTTPException(
+                    status_code=502, detail="DingTalk directory cursor did not progress"
+                )
+            cursor = next_cursor
 
     def user_detail(self, access_token: str, user_id: str) -> dict:
         data = self._request(
@@ -386,6 +422,7 @@ class DingTalkDirectorySync:
             snapshot = AppSetting(key="dingtalk_directory_snapshot", value={})
             self.db.add(snapshot)
         snapshot.value = {
+            **(snapshot.value or {}),
             "legal_entity_id": str(entity.id),
             "department_codes": [f"DT-{value}" for value in directory_ids],
             "checked_at": pending[0][1]["checked_at"] if pending else None,
@@ -406,15 +443,115 @@ class DingTalkDirectorySync:
     def run(self, legal_entity_id: str) -> SyncResult:
         entity = self._require_entity(legal_entity_id)
         token = self.client.access_token()
-        result = SyncResult()
-        links = self._upsert_departments(entity, self.client.departments(token), result)
-        for dingtalk_id, department in links.items():
-            for user_data in self.client.users(token, dingtalk_id):
-                user_id = str(user_data.get("userid") or user_data.get("user_id") or "")
-                if user_id in self._seen_user_ids:
+        directory = self.client.departments(token)
+        if not directory:
+            raise HTTPException(status_code=502, detail="钉钉组织目录为空，请核实通讯录可见范围")
+        directory_ids = {str(row["dept_id"]) for row in directory}
+        pending: dict[str, tuple[str, dict]] = {}
+        # Complete and validate every upstream read before staging master-data writes.
+        for row in directory:
+            department_id = str(row["dept_id"])
+            for user_data in self.client.users(token, department_id):
+                user_id = str(user_data.get("userid") or "")
+                if not user_id:
+                    raise HTTPException(status_code=502, detail="钉钉目录成员缺少稳定身份")
+                if user_id in pending:
                     continue
-                detail = self.client.user_detail(token, user_id) if user_id else {}
-                self._upsert_person(entity, department, {**user_data, **detail}, links, result)
+                detail = self.client.user_detail(token, user_id)
+                if detail.get("userid") != user_id:
+                    raise HTTPException(status_code=502, detail="钉钉成员详情与查询身份不一致")
+                placements = detail.get("dept_id_list")
+                if not isinstance(placements, list) or not any(
+                    str(item) in directory_ids for item in placements
+                ):
+                    raise HTTPException(status_code=502, detail="钉钉成员部门不在本次目录范围中")
+                pending[user_id] = (department_id, {**user_data, **detail})
+        if not pending:
+            raise HTTPException(status_code=502, detail="钉钉成员目录为空，保留已有数据")
+        unresolved = {str(row["dept_id"]): str(row.get("parent_id", "1")) for row in directory}
+        if len(unresolved) != len(directory):
+            raise HTTPException(
+                status_code=502, detail="DingTalk directory contains duplicate departments"
+            )
+        resolved = {"", "0", "1"}
+        while unresolved:
+            ready = {key for key, parent in unresolved.items() if parent in resolved}
+            if not ready:
+                raise HTTPException(
+                    status_code=502, detail="DingTalk department hierarchy is invalid"
+                )
+            resolved.update(ready)
+            unresolved = {key: parent for key, parent in unresolved.items() if key not in ready}
+        for department in self.db.scalars(
+            select(Department)
+            .join(DingTalkDepartmentLink, DingTalkDepartmentLink.department_id == Department.id)
+            .where(DingTalkDepartmentLink.dingtalk_department_id.in_(directory_ids))
+        ):
+            if department.legal_entity_id != entity.id:
+                raise HTTPException(status_code=409, detail="钉钉部门已经绑定其他组织，停止同步")
+        for user_id in pending:
+            profile = self.db.scalar(
+                select(DingTalkPersonProfile).where(
+                    DingTalkPersonProfile.dingtalk_user_id == user_id
+                )
+            )
+            person = self.db.get(Person, profile.person_id) if profile else None
+            if person and person.legal_entity_id != entity.id:
+                raise HTTPException(status_code=409, detail="钉钉成员已经绑定其他组织，停止同步")
+        result = SyncResult()
+        self._seen_user_ids.clear()
+        links = self._upsert_departments(entity, directory, result)
+        for department_id, data in pending.values():
+            self._upsert_person(entity, links[department_id], data, links, result)
+        self.db.flush()
+        checked_at = datetime.now(UTC).isoformat()
+        current_person_ids = []
+        historical_person_ids = []
+        profiles = list(
+            self.db.scalars(
+                select(DingTalkPersonProfile)
+                .join(Person, Person.id == DingTalkPersonProfile.person_id)
+                .where(Person.legal_entity_id == entity.id, Person.archived_at.is_(None))
+            )
+        )
+        for profile in profiles:
+            current = profile.dingtalk_user_id in pending
+            profile.profile_data = {
+                **(profile.profile_data or {}),
+                "directory_status": "current" if current else "not_in_current_directory",
+                "directory_checked_at": checked_at,
+            }
+            if current:
+                current_person_ids.append(str(profile.person_id))
+                result.people_current += 1
+            else:
+                result.people_historical += 1
+                historical_person_ids.append(str(profile.person_id))
+                # Absence is evidence for the display snapshot only. Keep the
+                # person's placements, accounts and stored grants unchanged.
+        snapshot = self.db.scalar(
+            select(AppSetting).where(AppSetting.key == "dingtalk_directory_snapshot")
+        )
+        if snapshot is None:
+            snapshot = AppSetting(key="dingtalk_directory_snapshot", value={})
+            self.db.add(snapshot)
+        snapshot.value = {
+            "legal_entity_id": str(entity.id),
+            "department_codes": [f"DT-{item}" for item in sorted(directory_ids)],
+            "checked_at": checked_at,
+            "people_checked_at": checked_at,
+            "current_person_ids": sorted(current_person_ids),
+            "historical_person_ids": sorted(historical_person_ids),
+        }
+        self.db.add(
+            AuditLog(
+                actor_user_id=self.db.info.get("audit_actor_user_id"),
+                action="organization.directory_sync",
+                object_type="legal_entity",
+                object_id=entity.id,
+                after_data=result.as_dict(),
+            )
+        )
         self.db.commit()
         return result
 
@@ -553,7 +690,12 @@ class DingTalkDirectorySync:
         leadership_rows = data.get("leader_in_dept", [])
         if isinstance(leadership_rows, list):
             for leadership in leadership_rows:
-                if not isinstance(leadership, dict) or not leadership.get("leader"):
+                if not isinstance(leadership, dict) or leadership.get("leader") not in (
+                    True,
+                    1,
+                    "true",
+                    "True",
+                ):
                     continue
                 department_id = leadership.get("dept_id")
                 if department_id is not None:
@@ -565,8 +707,11 @@ class DingTalkDirectorySync:
                 select(DepartmentMembership).where(DepartmentMembership.person_id == person.id)
             )
         }
+        source_ids = {department.id for department in departments_by_dingtalk_id.values()}
         for membership in existing.values():
-            membership.is_active = False
+            if membership.department_id in source_ids:
+                membership.is_active = False
+                membership.is_primary = False
 
         primary_department = placements[0]
         person.department_id = primary_department.id

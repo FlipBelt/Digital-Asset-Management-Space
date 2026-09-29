@@ -9,7 +9,6 @@ from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_permission_codes, require_authenticated
-from app.core.config import get_settings
 from app.db.session import get_db
 from app.models import (
     AccessGrant,
@@ -19,10 +18,9 @@ from app.models import (
     Department,
     DepartmentMembership,
     Person,
-    Role,
     User,
-    UserRoleScope,
 )
+from app.services.organization_leadership import resolved_role_scopes
 
 
 @dataclass(frozen=True)
@@ -34,39 +32,21 @@ class AccessContext:
     department_scopes: frozenset[UUID]
 
     @property
-    def is_test_environment(self) -> bool:
-        """The isolated test service intentionally grants a full operator scope.
-
-        This is evaluated from server-side configuration only.  It can never be
-        enabled by a browser header, cookie, or client-supplied role claim.
-        Production keeps the normal RBAC checks below.
-        """
-        return get_settings().app_env.lower() == "test"
-
-    @property
     def is_global_manager(self) -> bool:
-        return self.is_test_environment or bool(self.roles & {"system_admin", "asset_manager"})
+        return bool(self.roles & {"system_admin", "asset_manager"})
 
     @property
     def is_read_all(self) -> bool:
-        return self.is_test_environment or self.is_global_manager or "auditor" in self.roles
+        return self.is_global_manager or "auditor" in self.roles
 
     def has_permission(self, permission: str) -> bool:
-        return (
-            self.is_test_environment
-            or "system_admin" in self.roles
-            or permission in self.permissions
-        )
+        return "system_admin" in self.roles or permission in self.permissions
 
 
 def get_access_context(
     user: User = Depends(require_authenticated), db: Session = Depends(get_db)
 ) -> AccessContext:
-    rows = db.execute(
-        select(Role.code, UserRoleScope.scope_type, UserRoleScope.scope_id)
-        .join(UserRoleScope, UserRoleScope.role_id == Role.id)
-        .where(UserRoleScope.user_id == user.id)
-    ).all()
+    rows = resolved_role_scopes(db, user.id)
     db.info["audit_actor_user_id"] = user.id
     roles = frozenset(row[0] for row in rows)
     roots = {
@@ -76,14 +56,26 @@ def get_access_context(
     }
     scopes = set(roots)
     if roots:
-        departments = list(db.execute(select(Department.id, Department.parent_id)).all())
+        departments = list(
+            db.execute(
+                select(Department.id, Department.parent_id, Department.legal_entity_id)
+            ).all()
+        )
+        entities_by_department = {row[0]: row[2] for row in departments}
         changed = True
         while changed:
             changed = False
-            for department_id, parent_id in departments:
-                if parent_id in scopes and department_id not in scopes:
+            for department_id, parent_id, entity_id in departments:
+                if (
+                    parent_id in scopes
+                    and department_id not in scopes
+                    and entity_id == entities_by_department.get(parent_id)
+                ):
                     scopes.add(department_id)
                     changed = True
+    scopes.update(
+        row[2] for row in rows if row[0] == "group_leader" and row[1] == "department" and row[2]
+    )
     permissions = frozenset(get_permission_codes(db, user.id))
     return AccessContext(user, user.person_id, roles, permissions, frozenset(scopes))
 

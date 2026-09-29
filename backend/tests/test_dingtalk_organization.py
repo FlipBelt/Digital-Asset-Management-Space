@@ -205,7 +205,7 @@ def test_bound_sync_creates_records_in_correct_entity(db):
     client.access_token.return_value = "synthetic-token"
     client.departments.return_value = [{"dept_id": external_id, "parent_id": 1, "name": "合成部门"}]
     client.users.return_value = [{"userid": user_id, "name": "合成成员"}]
-    client.user_detail.return_value = {"dept_id_list": [external_id]}
+    client.user_detail.return_value = {"userid": user_id, "dept_id_list": [external_id]}
     result = DingTalkDirectorySync(db, client).run(str(target.id))
     assert result.departments_created == 1
     assert result.people_created == 1

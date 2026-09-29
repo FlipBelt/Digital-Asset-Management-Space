@@ -30,6 +30,7 @@ const verifiedRoleLabel = computed(() => {
   if (roles.includes("system_admin")) return "系统管理员";
   if (roles.includes("asset_manager")) return "资产管理员";
   if (roles.includes("department_manager")) return "部门主管";
+  if (roles.includes("group_leader")) return "组长";
   if (roles.includes("auditor")) return "审计员";
   return "成员";
 });
@@ -169,7 +170,7 @@ const isHuduMode = computed(() => route.path === "/hudu" || route.path.startsWit
 const isTestEnvironment = window.location.pathname === "/test" || window.location.pathname.startsWith("/test/");
 const isLocalDevelopment = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const canManage = computed(() => Boolean(currentUser.value?.roles.some(
-  role => ["system_admin", "asset_manager", "department_manager", "auditor"].includes(role),
+  role => ["system_admin", "asset_manager", "department_manager", "group_leader", "auditor"].includes(role),
 )));
 const environmentLabel = computed(() => isLocalDevelopment ? "本地预览" : isTestEnvironment ? "测试环境" : "生产环境");
 const environmentTarget = computed(() => isTestEnvironment ? "/" : "/test/");
@@ -382,6 +383,7 @@ async function recognizeIdentity() {
       department_id: currentUser.value.department_id,
       job_title: currentUser.value.job_title,
       is_department_manager: login.user.roles.includes("department_manager"),
+      is_group_leader: login.user.roles.includes("group_leader"),
     };
     if (currentUser.value.person_id) localStorage.setItem("account-center-person-id", currentUser.value.person_id);
     identityState.value = "authenticated";
@@ -409,6 +411,7 @@ async function bootstrapSession() {
       department_id: currentUser.value.department_id,
       job_title: currentUser.value.job_title,
       is_department_manager: currentUser.value.roles.includes("department_manager"),
+      is_group_leader: currentUser.value.roles.includes("group_leader"),
     } : null;
     identityState.value = "authenticated";
     identityHint.value = "";

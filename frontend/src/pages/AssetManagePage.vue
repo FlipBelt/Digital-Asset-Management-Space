@@ -4,8 +4,9 @@ import { ArrowRight, Boxes, ClipboardCheck, FileInput, KeyRound, Network, Settin
 import PageHeader from "../components/PageHeader.vue";
 import { api, type CurrentUser } from "../lib/api";
 const user = ref<CurrentUser | null>(null); const error = ref(""); const loading = ref(true);
-const allowed = computed(() => Boolean(user.value?.roles.some(role => ["system_admin", "asset_manager", "department_manager", "auditor"].includes(role))));
+const allowed = computed(() => Boolean(user.value?.roles.some(role => ["system_admin", "asset_manager", "department_manager", "group_leader", "auditor"].includes(role))));
 const isAdmin = computed(() => Boolean(user.value?.roles.includes("system_admin")));
+const groupOnly = computed(() => Boolean(user.value?.roles.includes("group_leader") && !user.value?.roles.some(role => ["system_admin", "asset_manager", "department_manager", "auditor"].includes(role))));
 const cards = computed(() => [
   { to: "/map", title: "资产地图", description: "查看资产关系、归属及待复核的治理信息。", icon: Network },
   { to: "/assets", title: "资产底库", description: "维护原有资产字段、责任、关系及归档记录。", icon: Boxes },
@@ -16,7 +17,7 @@ const cards = computed(() => [
   { to: "/hudu", title: "原资产工作区", description: "继续使用原资产库、到期交接和资料接入。", icon: Archive },
   ...(user.value?.roles.some(role => ["system_admin", "asset_manager"].includes(role)) ? [{ to: "/imports", title: "资料接入", description: "导入预览、校验、人工核对和提交。", icon: FileInput }] : []),
   ...(isAdmin.value ? [{ to: "/admin", title: "系统设置与审计", description: "分类、字段、权限、连接器和审计记录。", icon: Settings }] : []),
-]);
+].filter(card => !groupOnly.value || ["/map", "/assets", "/organization"].includes(card.to)));
 async function load() { loading.value = true; error.value = ""; try { user.value = await api.currentSession(); } catch (reason) { error.value = reason instanceof Error ? reason.message : "读取失败"; } finally { loading.value = false; } }
 onMounted(load);
 </script>

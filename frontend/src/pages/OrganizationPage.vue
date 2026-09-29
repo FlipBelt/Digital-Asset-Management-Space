@@ -7,11 +7,12 @@ import {
   api, type Department, type DepartmentMembership, type DingTalkOrganization, type DingTalkProfile,
   type LegalEntity, type LegalEntityIdentifier, type LegalEntityProfile, type Person,
 } from "../lib/api";
-import { organizationScope } from "../lib/organizationScope";
+import { currentDirectoryScope, organizationScope } from "../lib/organizationScope";
 import { companyVerificationLabel, organizationStructure } from "../lib/organizationStructure";
 
 type TreeRow = Department & { depth: number; hasChildren: boolean };
 const loading = ref(true);
+const globalManager = ref(false);
 const syncingDingtalk = ref(false);
 const refreshingCompanies = ref(false);
 const error = ref("");
@@ -42,7 +43,9 @@ let companyProfileRequest = 0;
 
 const organizationEntity = computed(() => organizationBinding.value?.status === "bound"
   ? entities.value.find((item) => item.id === organizationBinding.value?.legal_entity_id) : undefined);
-const scoped = computed(() => organizationScope(organizationEntity.value?.id, departments.value, people.value, memberships.value));
+const allScoped = computed(() => organizationScope(organizationEntity.value?.id, departments.value, people.value, memberships.value));
+const scoped = computed(() => currentDirectoryScope(allScoped.value, [...dingtalkProfiles.value.map(item => item.person_id), ...(organizationBinding.value?.directory_snapshot?.current_person_ids ?? []), ...(organizationBinding.value?.directory_snapshot?.historical_person_ids ?? [])], organizationBinding.value?.directory_snapshot?.current_person_ids));
+const historicalPeople = computed(() => allScoped.value.people.filter(item => !scoped.value.people.some(current => current.id === item.id)));
 const structure = computed(() => organizationStructure(organizationEntity.value, entities.value, scoped.value,
   dingtalkProfiles.value, organizationBinding.value?.directory_snapshot?.department_codes));
 const peopleById = computed(() => Object.fromEntries(scoped.value.people.map((item) => [item.id, item])));
@@ -62,7 +65,8 @@ const selectedDepartment = computed(() => scoped.value.departments.find((item) =
 const selectedDepartmentIsStale = computed(() => structure.value.staleNodes.some((item) => item.id === selectedDepartmentId.value));
 const selectedEntity = computed(() => entities.value.find((item) => item.id === selectedEntityId.value));
 const selectedMemberships = computed(() => scoped.value.memberships.filter((item) => item.department_id === selectedDepartmentId.value));
-const selectedManagers = computed(() => selectedMemberships.value.filter((item) => item.is_manager));
+const selectedManagers = computed(() => selectedMemberships.value.filter((item) => item.leadership_role === "department_manager"));
+const selectedGroupLeaders = computed(() => selectedMemberships.value.filter((item) => item.leadership_role === "group_leader"));
 const selectedMembers = computed(() => {
   const keyword = search.value.trim().toLocaleLowerCase();
   return selectedMemberships.value
@@ -115,8 +119,11 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
+    const session = await api.currentSession();
+    globalManager.value = session.roles.some(role => ["system_admin", "asset_manager"].includes(role));
+    if (!globalManager.value) organizationView.value = "departments";
     [entities.value, departments.value, people.value, memberships.value, dingtalkProfiles.value, organizationBinding.value] = await Promise.all([
-      api.legalEntities(), api.departments(), api.people(), api.departmentMemberships(), api.dingtalkProfiles(), api.dingtalkOrganization(),
+      api.legalEntities(), api.departments(), api.people(), api.departmentMemberships(), globalManager.value ? api.dingtalkProfiles() : Promise.resolve([]), api.dingtalkOrganization(),
     ]);
     if (!structure.value.companies.some((item) => item.id === selectedCompanyId.value) && !pendingCompanySelected.value) {
       selectedCompanyId.value = structure.value.companies[0]?.id ?? "";
@@ -209,7 +216,11 @@ async function syncDingtalk() {
   const entity = organizationEntity.value;
   if (!entity) return;
   syncingDingtalk.value = true; error.value = ""; success.value = "";
-  try { await api.syncDingtalkDirectory(entity.id); await load(); }
+  try {
+    const result = await api.syncDingtalkDirectory(entity.id);
+    await load();
+    if (!error.value) success.value = `同步完成：当前 ${result.people_current} 名成员，新增 ${result.people_created} 名、更新 ${result.people_updated} 名；保留 ${result.people_historical} 份历史档案。`;
+  }
   catch (reason) { error.value = reason instanceof Error ? reason.message : "钉钉同步失败"; }
   finally { syncingDingtalk.value = false; }
 }
@@ -231,10 +242,10 @@ watch(showLegalProfile, async (visible) => {
 <template>
   <div class="page-stack">
     <PageHeader title="组织架构" description="分别查看公司主体归属与部门协作关系，找到成员、岗位和需要核验的组织资料。">
-      <button class="secondary-button" :aria-expanded="showLegalProfile" @click="showLegalProfile = !showLegalProfile"><Building2 :size="16" />主体档案</button>
-      <RouterLink class="secondary-button" to="/intake?mode=entity"><Plus :size="16" />登记公司主体</RouterLink>
-      <button class="secondary-button" :disabled="loading || syncingDingtalk || refreshingCompanies || !organizationEntity" @click="syncDingtalk"><RefreshCw :size="16" :class="{ spinning: syncingDingtalk }" />{{ syncingDingtalk ? "正在同步…" : "同步部门" }}</button>
-      <button class="primary-button" :disabled="loading || syncingDingtalk || refreshingCompanies || !organizationEntity" @click="refreshCompanies"><RefreshCw :size="16" :class="{ spinning: refreshingCompanies }" />{{ refreshingCompanies ? "正在核对…" : "核对公司归属" }}</button>
+      <button v-if="globalManager" class="secondary-button" :aria-expanded="showLegalProfile" @click="showLegalProfile = !showLegalProfile"><Building2 :size="16" />主体档案</button>
+      <RouterLink v-if="globalManager" class="secondary-button" to="/intake?mode=entity"><Plus :size="16" />登记公司主体</RouterLink>
+      <button v-if="globalManager" class="secondary-button" :disabled="loading || syncingDingtalk || refreshingCompanies || !organizationEntity" @click="syncDingtalk"><RefreshCw :size="16" :class="{ spinning: syncingDingtalk }" />{{ syncingDingtalk ? "正在同步…" : "同步通讯录" }}</button>
+      <button v-if="globalManager" class="primary-button" :disabled="loading || syncingDingtalk || refreshingCompanies || !organizationEntity" @click="refreshCompanies"><RefreshCw :size="16" :class="{ spinning: refreshingCompanies }" />{{ refreshingCompanies ? "正在核对…" : "核对公司归属" }}</button>
     </PageHeader>
     <div v-if="error" class="message-panel error-message" role="alert">{{ error }}</div>
     <div v-if="success" class="message-panel" role="status">{{ success }}</div>
@@ -242,7 +253,7 @@ watch(showLegalProfile, async (visible) => {
       <div class="org-company"><span class="record-icon"><Building2 :size="19" /></span><div><strong>{{ organizationEntity.name }}</strong><span>钉钉组织 · {{ organizationEntity.code }}</span></div></div>
       <div><strong>{{ structure.companies.length }}</strong><span>公司</span></div>
       <div><strong>{{ structure.departments.length }}</strong><span>部门</span></div>
-      <div><strong>{{ scoped.people.length }}</strong><span>成员档案</span></div>
+      <div><strong>{{ scoped.people.length }}</strong><span>当前成员</span></div>
     </section>
     <div v-else-if="loading" class="message-panel" role="status">正在加载组织…</div>
     <div v-else-if="!error" class="message-panel" role="status">{{ organizationBinding?.message || "暂未确定钉钉组织主体，请先核实绑定。" }}</div>
@@ -252,7 +263,7 @@ watch(showLegalProfile, async (visible) => {
     </div>
 
     <div class="organization-view-tabs" role="group" aria-label="组织查看方式">
-      <button :class="{ active: organizationView === 'companies' }" :aria-pressed="organizationView === 'companies'" @click="organizationView = 'companies'"><Building2 :size="17" />公司<span>{{ structure.companies.length }}</span></button>
+      <button v-if="globalManager" :class="{ active: organizationView === 'companies' }" :aria-pressed="organizationView === 'companies'" @click="organizationView = 'companies'"><Building2 :size="17" />公司<span>{{ structure.companies.length }}</span></button>
       <button :class="{ active: organizationView === 'departments' }" :aria-pressed="organizationView === 'departments'" @click="organizationView = 'departments'"><FolderTree :size="17" />部门<span>{{ structure.departments.length }}</span></button>
     </div>
     <section v-if="organizationView === 'companies'" class="content-panel organization-workspace">
@@ -304,7 +315,7 @@ watch(showLegalProfile, async (visible) => {
 
     <section v-else class="content-panel organization-workspace">
       <aside class="organization-tree">
-        <div class="tree-heading"><div><strong>部门</strong><span>{{ structure.departments.length }} 个部门 · 保留职能层级</span></div></div>
+        <div class="tree-heading"><div><strong>部门</strong><span>{{ structure.departments.length }} 个部门及小组 · 数字为直接成员</span></div></div>
         <div class="tree-root"><FolderTree :size="16" /><span>部门协作架构</span></div>
         <button v-for="department in treeRows" :key="department.id" class="tree-node" :class="{ active: selectedDepartmentId === department.id }" :style="{ paddingLeft: `${14 + department.depth * 20}px` }" :aria-pressed="selectedDepartmentId === department.id" @click="toggleDepartment(department)">
           <ChevronDown v-if="department.hasChildren && expandedDepartmentIds.includes(department.id)" :size="14" /><ChevronRight v-else-if="department.hasChildren" :size="14" /><i v-else />
@@ -318,7 +329,7 @@ watch(showLegalProfile, async (visible) => {
       </aside>
       <main class="organization-members">
         <header class="member-heading">
-          <div><p class="eyebrow">{{ selectedDepartmentIsStale ? "历史节点" : "当前部门" }}</p><h2>{{ selectedDepartment?.name || "请选择部门" }}</h2><span>{{ selectedMemberships.length }} 名成员 · {{ selectedManagers.length }} 名主管<span v-if="search"> · {{ selectedMembers.length }} 名匹配成员</span></span></div>
+          <div><p class="eyebrow">{{ selectedDepartmentIsStale ? "历史节点" : "当前部门" }}</p><h2>{{ selectedDepartment?.name || "请选择部门" }}</h2><span>{{ selectedMemberships.length }} 名成员 · {{ selectedManagers.length }} 名主管 · {{ selectedGroupLeaders.length }} 名组长<span v-if="search"> · {{ selectedMembers.length }} 名匹配成员</span></span></div>
           <label class="table-search"><Search :size="16" /><input v-model="search" placeholder="搜索成员或工号" aria-label="搜索部门成员或工号" /></label>
         </header>
         <p v-if="selectedDepartmentIsStale" class="organization-source-note">该节点不在最近可见的钉钉目录中，以下为保留的历史关系，需核验后再更新。</p>
@@ -328,7 +339,7 @@ watch(showLegalProfile, async (visible) => {
             <tbody>
               <tr v-for="{ membership, person } in selectedMembers" :key="membership.id">
                 <td><div class="member-name"><span class="avatar">{{ person.display_name.slice(0, 1) }}</span><strong>{{ person.display_name }}</strong></div></td>
-                <td><span class="role-tag" :class="{ manager: membership.is_manager }"><Crown v-if="membership.is_manager" :size="13" /><UserRound v-else :size="13" />{{ membership.is_manager ? "部门主管" : "部门成员" }}</span></td>
+                <td><span class="role-tag" :class="{ manager: membership.is_manager }"><Crown v-if="membership.is_manager" :size="13" /><UserRound v-else :size="13" />{{ membership.leadership_role === "group_leader" ? "组长" : membership.leadership_role === "department_manager" ? "部门主管" : membership.is_manager ? "负责人待核验" : "部门成员" }}</span></td>
                 <td>{{ titleLabel(person) }}</td><td>{{ companyLabel(person) }}<small v-if="profileFor(person)?.company_affiliation?.status !== 'available'" class="member-verification-note">{{ companyVerificationLabel(profileFor(person)) }}</small></td>
               </tr>
               <tr v-if="!selectedMembers.length"><td colspan="4" class="table-empty">{{ search ? "没有匹配成员，请调整搜索词。" : "该部门暂无已同步成员" }}</td></tr>
@@ -338,6 +349,11 @@ watch(showLegalProfile, async (visible) => {
         </div>
       </main>
     </section>
+    <details v-if="historicalPeople.length" class="content-panel" style="padding: 20px;">
+      <summary>保留的历史档案 · {{ historicalPeople.length }} 人</summary>
+      <p class="organization-source-note">以下人员未出现在本次钉钉目录中，原挂靠、账号与授权仍保留，需管理员核验后再处理。</p>
+      <div class="member-table-wrap"><table class="member-table"><thead><tr><th>人员</th><th>原岗位</th></tr></thead><tbody><tr v-for="person in historicalPeople" :key="person.id"><td>{{ person.display_name }}</td><td>{{ titleLabel(person) }}</td></tr></tbody></table></div>
+    </details>
     <section ref="legalProfilePanel" v-if="showLegalProfile && selectedEntity" class="content-panel legal-entity-profile">
       <header class="panel-heading"><div><p class="eyebrow">L1 法人主体</p><h2>法人主体档案</h2><p>名称和主体标识用于证明实体成立；其余法定资料按证据补充，不影响已有资产和关系。</p></div><select v-model="selectedEntityId"><option v-for="entity in entities" :key="entity.id" :value="entity.id">{{ entity.name }}</option></select></header>
       <form class="legal-profile-form" @submit.prevent="saveLegalProfile"><label><span>主体类型</span><select v-model="legalProfile.entity_type"><option value="">暂未确认</option><option value="domestic_company">境内公司</option><option value="branch">分公司</option><option value="individual_business">个体工商户</option><option value="overseas_entity">境外法人</option><option value="other">其他主体</option></select></label><label><span>司法辖区 / 注册地</span><input v-model="legalProfile.jurisdiction" placeholder="例如：中国浙江省杭州市" /></label><label><span>存续状态</span><select v-model="legalProfile.registration_status"><option value="">暂未确认</option><option value="active">存续</option><option value="inactive">注销 / 停业</option><option value="pending">待核验</option></select></label><label><span>法定代表人</span><input v-model="legalProfile.legal_representative" /></label><label><span>成立日期</span><input v-model="legalProfile.established_on" type="date" /></label><label><span>注册资本</span><input v-model="legalProfile.registered_capital" /></label><label class="wide"><span>注册地址</span><textarea v-model="legalProfile.registered_address" rows="2" /></label><label class="wide"><span>经营范围</span><textarea v-model="legalProfile.business_scope" rows="2" /></label><label class="wide"><span>来源说明</span><textarea v-model="legalProfile.source_note" rows="2" placeholder="例如：工商档案、原始资料文件名或人工核验说明" /></label><label><span>核验状态</span><select v-model="legalProfile.verification_status"><option value="pending">待核验</option><option value="verified">已核验</option><option value="unverified">未核验</option></select></label><div class="form-actions"><button class="primary-button" :disabled="savingLegalProfile || legalProfileReadyId !== selectedEntityId"><Save :size="16" />保存法人档案</button></div></form>

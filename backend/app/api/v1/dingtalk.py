@@ -46,6 +46,7 @@ from app.services.dingtalk import (
     resolve_dingtalk_organization,
 )
 from app.services.dingtalk_company import stored_company_affiliation
+from app.services.organization_leadership import department_leadership_role, leadership_policy
 
 router = APIRouter(prefix="/dingtalk", tags=["dingtalk"])
 # Exact public aliases requested by the web client.  The existing /api/v1
@@ -215,19 +216,26 @@ def _provision_dingtalk_user(
 def _identity_read(
     person: Person, profile: DingTalkPersonProfile, db: Session
 ) -> DingTalkIdentityRead:
-    is_department_manager = db.scalar(
-        select(DepartmentMembership.id).where(
-            DepartmentMembership.person_id == person.id,
-            DepartmentMembership.is_active.is_(True),
-            DepartmentMembership.is_manager.is_(True),
+    policy = leadership_policy(db)
+    roles = {
+        department_leadership_role(department, policy)
+        for department in db.scalars(
+            select(Department)
+            .join(DepartmentMembership, DepartmentMembership.department_id == Department.id)
+            .where(
+                DepartmentMembership.person_id == person.id,
+                DepartmentMembership.is_active.is_(True),
+                DepartmentMembership.is_manager.is_(True),
+            )
         )
-    )
+    }
     return DingTalkIdentityRead(
         person_id=person.id,
         display_name=person.display_name,
         department_id=person.department_id,
         job_title=profile.job_title,
-        is_department_manager=is_department_manager is not None,
+        is_department_manager="department_manager" in roles,
+        is_group_leader="group_leader" in roles,
     )
 
 
@@ -260,7 +268,10 @@ def create_verified_dingtalk_session(
         )
     )
     for department_id in manager_departments:
-        _ensure_role_scope(db, user, "department_manager", "department", department_id)
+        department = db.get(Department, department_id)
+        role = department_leadership_role(department, leadership_policy(db)) if department else None
+        if role:
+            _ensure_role_scope(db, user, role, "department", department_id)
     db.flush()
     token, session = create_session(db, user, request.headers.get("user-agent", "")[:300] or None)
     set_session_cookie(response, token)
@@ -281,6 +292,7 @@ def _primary_role(roles: list[str]) -> str:
         "system_admin",
         "asset_manager",
         "department_manager",
+        "group_leader",
         "auditor",
         "executive",
         "employee",
@@ -356,7 +368,11 @@ def organization_binding(
     ):
         try:
             directory_snapshot = DingTalkDirectorySnapshotRead(
-                department_codes=codes, checked_at=snapshot.get("checked_at")
+                department_codes=codes,
+                checked_at=snapshot.get("checked_at"),
+                current_person_ids=snapshot.get("current_person_ids"),
+                historical_person_ids=snapshot.get("historical_person_ids"),
+                people_checked_at=snapshot.get("people_checked_at"),
             )
         except ValidationError:
             directory_snapshot = None
@@ -409,6 +425,7 @@ def list_profiles(
             dingtalk_user_id=profile.dingtalk_user_id,
             job_title=profile.job_title,
             company_affiliation=stored_company_affiliation(profile.profile_data),
+            directory_status=(profile.profile_data or {}).get("directory_status"),
         )
         for profile in profiles
     ]

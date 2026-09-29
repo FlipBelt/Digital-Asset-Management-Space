@@ -28,6 +28,7 @@ from app.schemas.organizations import (
     PersonPatch,
     PersonRead,
 )
+from app.services.organization_leadership import department_leadership_role, leadership_policy
 
 router = APIRouter(tags=["organization"])
 require_organization_write = Depends(require_permission("organization.write"))
@@ -89,7 +90,9 @@ def get_legal_entity_profile(
     db: Session = Depends(get_db),
 ) -> LegalEntityProfile | None:
     require_legal_entity(db, entity_id)
-    return db.scalar(select(LegalEntityProfile).where(LegalEntityProfile.legal_entity_id == entity_id))
+    return db.scalar(
+        select(LegalEntityProfile).where(LegalEntityProfile.legal_entity_id == entity_id)
+    )
 
 
 @router.put("/legal-entities/{entity_id}/profile", response_model=LegalEntityProfileRead)
@@ -100,7 +103,9 @@ def save_legal_entity_profile(
     _: AccessContext = require_organization_write,
 ) -> LegalEntityProfile:
     require_legal_entity(db, entity_id)
-    item = db.scalar(select(LegalEntityProfile).where(LegalEntityProfile.legal_entity_id == entity_id))
+    item = db.scalar(
+        select(LegalEntityProfile).where(LegalEntityProfile.legal_entity_id == entity_id)
+    )
     if item is None:
         item = LegalEntityProfile(legal_entity_id=entity_id, **payload.model_dump())
         db.add(item)
@@ -112,7 +117,9 @@ def save_legal_entity_profile(
     return item
 
 
-@router.get("/legal-entities/{entity_id}/identifiers", response_model=list[LegalEntityIdentifierRead])
+@router.get(
+    "/legal-entities/{entity_id}/identifiers", response_model=list[LegalEntityIdentifierRead]
+)
 def list_legal_entity_identifiers(
     entity_id: str,
     db: Session = Depends(get_db),
@@ -125,7 +132,9 @@ def list_legal_entity_identifiers(
                 LegalEntityIdentifier.legal_entity_id == entity_id,
                 LegalEntityIdentifier.archived_at.is_(None),
             )
-            .order_by(LegalEntityIdentifier.is_primary.desc(), LegalEntityIdentifier.identifier_type)
+            .order_by(
+                LegalEntityIdentifier.is_primary.desc(), LegalEntityIdentifier.identifier_type
+            )
         )
     )
 
@@ -212,14 +221,22 @@ def list_people(db: Session = Depends(get_db)) -> list[Person]:
 
 
 @router.get("/department-memberships", response_model=list[DepartmentMembershipRead])
-def list_department_memberships(db: Session = Depends(get_db)) -> list[DepartmentMembership]:
-    return list(
-        db.scalars(
-            select(DepartmentMembership)
-            .where(DepartmentMembership.is_active.is_(True))
-            .order_by(DepartmentMembership.is_manager.desc(), DepartmentMembership.created_at)
-        )
+def list_department_memberships(db: Session = Depends(get_db)) -> list[DepartmentMembershipRead]:
+    policy = leadership_policy(db)
+    departments = {item.id: item for item in db.scalars(select(Department))}
+    rows = db.scalars(
+        select(DepartmentMembership)
+        .where(DepartmentMembership.is_active.is_(True))
+        .order_by(DepartmentMembership.is_manager.desc(), DepartmentMembership.created_at)
     )
+    result = []
+    for item in rows:
+        row = DepartmentMembershipRead.model_validate(item)
+        department = departments.get(item.department_id)
+        if item.is_manager and department:
+            row.leadership_role = department_leadership_role(department, policy)
+        result.append(row)
+    return result
 
 
 @router.post("/people", response_model=PersonRead, status_code=status.HTTP_201_CREATED)

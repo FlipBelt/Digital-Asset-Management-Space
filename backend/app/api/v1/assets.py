@@ -107,7 +107,8 @@ def create_asset(
     access: AccessContext = Depends(require_asset_write),
 ) -> Asset:
     if not access.is_global_manager and not (
-        "department_manager" in access.roles and payload.owner_department_id in access.department_scopes
+        bool(access.roles & {"department_manager", "group_leader"})
+        and payload.owner_department_id in access.department_scopes
     ):
         raise HTTPException(403, "请从登记成果入口创建本人草稿")
     return asset_service.create(db, payload, created_by_person_id=access.person_id)

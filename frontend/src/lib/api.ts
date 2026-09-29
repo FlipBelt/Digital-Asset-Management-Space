@@ -25,7 +25,7 @@ export interface LegalEntityIdentifier {
 }
 export interface Department { id: string; legal_entity_id: string; parent_id: string | null; code: string; name: string; status: string }
 export interface Person { id: string; legal_entity_id: string; department_id: string | null; employee_no: string; display_name: string; email: string | null; employment_status: string; person_type: string }
-export interface DepartmentMembership { id: string; person_id: string; department_id: string; is_manager: boolean; is_primary: boolean; is_active: boolean }
+export interface DepartmentMembership { id: string; person_id: string; department_id: string; is_manager: boolean; leadership_role?: "department_manager" | "group_leader" | null; is_primary: boolean; is_active: boolean }
 export interface AssetCategory { id: string; parent_id: string | null; code: string; name: string; sort_order: number }
 export interface AssetType { id: string; category_id: string; code: string; name: string; profile_kind: string; code_prefix: string; ownership_default: string; is_system: boolean; completeness_rules?: Record<string, unknown> }
 export interface AssetFieldDefinition { id: string; asset_type_id: string; field_key: string; label: string; data_type: string; is_required: boolean; options: string[] | null; group_name: string; help_text: string | null; unit: string | null; validation: Record<string, unknown>; confidentiality: string; is_searchable: boolean; completeness_weight: number; sort_order: number; entry_visibility: "core" | "optional" | "advanced" | "conditional"; requirement_stage: "create" | "activation" | "optional"; applies_to_existing: boolean; condition_rules: Record<string, unknown> }
@@ -123,7 +123,7 @@ export interface DingTalkOrganization {
   legal_entity_name: string | null;
   legal_entity_code: string | null;
   message: string | null;
-  directory_snapshot?: { department_codes: string[]; checked_at: string | null } | null;
+  directory_snapshot?: { department_codes: string[]; checked_at: string | null; current_person_ids?: string[] | null; historical_person_ids?: string[] | null; people_checked_at?: string | null } | null;
 }
 export interface CompanyAffiliation {
   name: string | null; source_field: string | null; checked_at: string | null;
@@ -132,8 +132,9 @@ export interface CompanyAffiliation {
 export interface DingTalkProfile {
   person_id: string; dingtalk_user_id: string; job_title: string | null;
   company_affiliation?: CompanyAffiliation | null;
+  directory_status?: "current" | "not_in_current_directory" | null;
 }
-export interface DingTalkIdentity { person_id: string; display_name: string; department_id: string | null; job_title: string | null; is_department_manager: boolean }
+export interface DingTalkIdentity { person_id: string; display_name: string; department_id: string | null; job_title: string | null; is_department_manager: boolean; is_group_leader?: boolean }
 export interface DingTalkSession { user: CurrentUser; identity: DingTalkIdentity; expires_at: string }
 export interface AssetAssignment { owner_department_id: string | null; ownership_scope: string; responsible_person_id: string | null; user_person_ids: string[] }
 export interface AssetIdentifier { id: string; asset_id: string; namespace: string; identifier_type: string; identifier_value: string; is_primary: boolean; verification_status: string; confidentiality: string; source_import_record_id: string | null; archived_at: string | null }
