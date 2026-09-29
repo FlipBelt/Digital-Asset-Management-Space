@@ -36,3 +36,9 @@
 - 后端：app/services/dingtalk.py、app/services/dingtalk_company.py、app/api/v1/dingtalk.py、app/schemas/dingtalk.py。
 - 前端：src/pages/OrganizationPage.vue、src/lib/organizationStructure.ts、src/lib/api.ts、src/styles.css。
 - 验证：backend/tests/test_dingtalk_organization.py、scripts/test-organization-structure.mjs。
+
+## 法定代表人独立维护
+
+用户于2026-09-29明确“创简下的廿一”指法定代表人。公司视图独立展示既有LegalEntityProfile.legal_representative及资料核验状态/来源；公司成员仍按钉钉主体字段分组，部门主管仍按DepartmentMembership展示。三个关系不互相代填。未登记/未填写/加载失败时明确提示；切换公司不会沿用前一公司的代表人，主体档案未完成读取前禁用保存。
+
+创简档案按用户确认记录孙伟强（廿一），来源注明用户确认及工商资料待补；不将用户确认或社保公司字段标为工商核验完成，也不修改人员租户、部门或角色。服务器实际保存及精确回退结果单列。

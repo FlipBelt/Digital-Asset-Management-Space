@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { Building2, ChevronDown, ChevronRight, Crown, FolderTree, Plus, RefreshCw, Save, Search, TriangleAlert, UserRound, Users } from "lucide-vue-next";
 import PageHeader from "../components/PageHeader.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import {
   api, type Department, type DepartmentMembership, type DingTalkOrganization, type DingTalkProfile,
-  type LegalEntity, type LegalEntityIdentifier, type Person,
+  type LegalEntity, type LegalEntityIdentifier, type LegalEntityProfile, type Person,
 } from "../lib/api";
 import { organizationScope } from "../lib/organizationScope";
 import { companyVerificationLabel, organizationStructure } from "../lib/organizationStructure";
@@ -33,6 +33,12 @@ const legalProfile = reactive({ entity_type: "", jurisdiction: "", registration_
 const legalIdentifiers = ref<LegalEntityIdentifier[]>([]);
 const legalIdentifierForm = reactive({ namespace: "cn", identifier_type: "unified_social_credit_code", identifier_value: "", is_primary: true, verification_status: "pending", source_note: "" });
 const savingLegalProfile = ref(false);
+const legalProfileReadyId = ref("");
+const companyStatutoryProfile = ref<LegalEntityProfile | null>(null);
+const loadingCompanyProfile = ref(false);
+const companyProfileError = ref("");
+const legalProfilePanel = ref<HTMLElement | null>(null);
+let companyProfileRequest = 0;
 
 const organizationEntity = computed(() => organizationBinding.value?.status === "bound"
   ? entities.value.find((item) => item.id === organizationBinding.value?.legal_entity_id) : undefined);
@@ -126,19 +132,54 @@ async function load() {
   } catch (reason) { error.value = reason instanceof Error ? reason.message : "组织数据加载失败"; }
   finally { loading.value = false; }
 }
+async function loadCompanyProfile() {
+  const request = ++companyProfileRequest;
+  const entityId = selectedCompany.value?.legalEntityId;
+  companyStatutoryProfile.value = null;
+  companyProfileError.value = "";
+  loadingCompanyProfile.value = Boolean(entityId);
+  if (!entityId) return;
+  try {
+    const profile = await api.legalEntityProfile(entityId);
+    if (request === companyProfileRequest) companyStatutoryProfile.value = profile;
+  } catch (reason) {
+    if (request === companyProfileRequest) companyProfileError.value = reason instanceof Error ? reason.message : "公司主体档案加载失败";
+  } finally {
+    if (request === companyProfileRequest) loadingCompanyProfile.value = false;
+  }
+}
+async function openCompanyProfile() {
+  const entityId = selectedCompany.value?.legalEntityId;
+  if (!entityId) return;
+  selectedEntityId.value = entityId;
+  await nextTick();
+  showLegalProfile.value = true;
+  await nextTick();
+  legalProfilePanel.value?.scrollIntoView({ block: "start" });
+}
 async function loadLegalProfile() {
   const entityId = selectedEntityId.value;
+  legalProfileReadyId.value = "";
   if (!entityId) return;
   const [profile, identifiers] = await Promise.all([api.legalEntityProfile(entityId), api.legalEntityIdentifiers(entityId)]);
   if (entityId !== selectedEntityId.value) return;
   Object.assign(legalProfile, { entity_type: profile?.entity_type ?? "", jurisdiction: profile?.jurisdiction ?? "", registration_status: profile?.registration_status ?? "", legal_representative: profile?.legal_representative ?? "", established_on: profile?.established_on ?? "", registered_address: profile?.registered_address ?? "", registered_capital: profile?.registered_capital ?? "", business_scope: profile?.business_scope ?? "", source_note: profile?.source_note ?? "", verification_status: profile?.verification_status ?? "pending" });
   legalIdentifiers.value = identifiers;
+  legalProfileReadyId.value = entityId;
 }
 async function saveLegalProfile() {
-  if (!selectedEntityId.value) return;
+  if (!selectedEntityId.value || legalProfileReadyId.value !== selectedEntityId.value) return;
+  const entityId = selectedEntityId.value;
   savingLegalProfile.value = true; error.value = "";
   try {
-    await api.saveLegalEntityProfile(selectedEntityId.value, { ...legalProfile, entity_type: legalProfile.entity_type || null, jurisdiction: legalProfile.jurisdiction || null, registration_status: legalProfile.registration_status || null, legal_representative: legalProfile.legal_representative || null, established_on: legalProfile.established_on || null, registered_address: legalProfile.registered_address || null, registered_capital: legalProfile.registered_capital || null, business_scope: legalProfile.business_scope || null, source_note: legalProfile.source_note || null });
+    const saved = await api.saveLegalEntityProfile(entityId, { ...legalProfile, entity_type: legalProfile.entity_type || null, jurisdiction: legalProfile.jurisdiction || null, registration_status: legalProfile.registration_status || null, legal_representative: legalProfile.legal_representative || null, established_on: legalProfile.established_on || null, registered_address: legalProfile.registered_address || null, registered_capital: legalProfile.registered_capital || null, business_scope: legalProfile.business_scope || null, source_note: legalProfile.source_note || null });
+    if (selectedCompany.value?.legalEntityId === entityId) {
+      companyProfileRequest += 1;
+      companyStatutoryProfile.value = saved;
+      loadingCompanyProfile.value = false;
+      companyProfileError.value = "";
+    }
+    success.value = "公司主体档案已保存。";
   } catch (reason) { error.value = reason instanceof Error ? reason.message : "法人档案保存失败"; }
   finally { savingLegalProfile.value = false; }
 }
@@ -174,6 +215,7 @@ async function syncDingtalk() {
 }
 onMounted(load);
 watch(organizationView, () => { search.value = ""; });
+watch(() => selectedCompany.value?.legalEntityId, loadCompanyProfile);
 watch(selectedEntityId, async () => {
   if (loading.value || !showLegalProfile.value) return;
   try { await loadLegalProfile(); }
@@ -229,7 +271,20 @@ watch(showLegalProfile, async (visible) => {
           <div><p class="eyebrow">{{ pendingCompanySelected ? "待核验资料" : "当前公司" }}</p><h2>{{ pendingCompanySelected ? "公司归属待核验" : selectedCompany?.name || "请选择公司" }}</h2><span>{{ selectedCompanyPeople.length }} 名{{ search ? "匹配" : "" }}成员<span v-if="selectedCompany"> · {{ selectedCompany.legalEntityId ? "已有主体档案" : "主体档案待登记" }}</span></span></div>
           <label class="table-search"><Search :size="16" /><input v-model="search" placeholder="搜索成员或工号" aria-label="搜索公司成员或工号" /></label>
         </header>
-        <p class="organization-source-note">公司归属来源：钉钉“主体（社保公司）”。公司负责人、法定代表人及劳动合同关系需单独核验。</p>
+        <section v-if="selectedCompany" class="company-statutory-panel" aria-label="公司法定资料">
+          <div v-if="loadingCompanyProfile" role="status">正在读取公司主体档案…</div>
+          <div v-else-if="companyProfileError" class="company-profile-error" role="alert">{{ companyProfileError }}<button class="text-button" @click="loadCompanyProfile">重新加载</button></div>
+          <template v-else>
+            <dl>
+              <div><dt>法定代表人</dt><dd>{{ companyStatutoryProfile?.legal_representative || "待补充" }}</dd></div>
+              <div><dt>法定资料状态</dt><dd><span class="role-tag" :class="{ 'verification-pending': !companyStatutoryProfile?.legal_representative || companyStatutoryProfile.verification_status !== 'verified' }">{{ !companyStatutoryProfile?.legal_representative ? "待补充" : companyStatutoryProfile.verification_status === "verified" ? "档案已核验" : "待工商资料核验" }}</span></dd></div>
+            </dl>
+            <p>{{ companyStatutoryProfile?.source_note || "法定代表人依据独立公司档案维护，不从部门成员或社保公司字段推断。" }}</p>
+            <button v-if="selectedCompany.legalEntityId" class="text-button" @click="openCompanyProfile">查看 / 编辑主体档案<ChevronRight :size="14" /></button>
+            <span v-else class="muted-text">尚未登记公司主体档案</span>
+          </template>
+        </section>
+        <p class="organization-source-note">以下为公司成员，归属来源：钉钉“主体（社保公司）”；与法定代表人、部门主管分别维护。</p>
         <div class="member-table-wrap">
           <table v-if="selectedCompany || pendingCompanySelected" class="member-table company-member-table">
             <thead><tr><th>成员</th><th>部门</th><th>岗位</th><th>资料状态</th></tr></thead>
@@ -283,9 +338,9 @@ watch(showLegalProfile, async (visible) => {
         </div>
       </main>
     </section>
-    <section v-if="showLegalProfile && selectedEntity" class="content-panel legal-entity-profile">
+    <section ref="legalProfilePanel" v-if="showLegalProfile && selectedEntity" class="content-panel legal-entity-profile">
       <header class="panel-heading"><div><p class="eyebrow">L1 法人主体</p><h2>法人主体档案</h2><p>名称和主体标识用于证明实体成立；其余法定资料按证据补充，不影响已有资产和关系。</p></div><select v-model="selectedEntityId"><option v-for="entity in entities" :key="entity.id" :value="entity.id">{{ entity.name }}</option></select></header>
-      <form class="legal-profile-form" @submit.prevent="saveLegalProfile"><label><span>主体类型</span><select v-model="legalProfile.entity_type"><option value="">暂未确认</option><option value="domestic_company">境内公司</option><option value="branch">分公司</option><option value="individual_business">个体工商户</option><option value="overseas_entity">境外法人</option><option value="other">其他主体</option></select></label><label><span>司法辖区 / 注册地</span><input v-model="legalProfile.jurisdiction" placeholder="例如：中国浙江省杭州市" /></label><label><span>存续状态</span><select v-model="legalProfile.registration_status"><option value="">暂未确认</option><option value="active">存续</option><option value="inactive">注销 / 停业</option><option value="pending">待核验</option></select></label><label><span>法定代表人</span><input v-model="legalProfile.legal_representative" /></label><label><span>成立日期</span><input v-model="legalProfile.established_on" type="date" /></label><label><span>注册资本</span><input v-model="legalProfile.registered_capital" /></label><label class="wide"><span>注册地址</span><textarea v-model="legalProfile.registered_address" rows="2" /></label><label class="wide"><span>经营范围</span><textarea v-model="legalProfile.business_scope" rows="2" /></label><label class="wide"><span>来源说明</span><textarea v-model="legalProfile.source_note" rows="2" placeholder="例如：工商档案、原始资料文件名或人工核验说明" /></label><label><span>核验状态</span><select v-model="legalProfile.verification_status"><option value="pending">待核验</option><option value="verified">已核验</option><option value="unverified">未核验</option></select></label><div class="form-actions"><button class="primary-button" :disabled="savingLegalProfile"><Save :size="16" />保存法人档案</button></div></form>
+      <form class="legal-profile-form" @submit.prevent="saveLegalProfile"><label><span>主体类型</span><select v-model="legalProfile.entity_type"><option value="">暂未确认</option><option value="domestic_company">境内公司</option><option value="branch">分公司</option><option value="individual_business">个体工商户</option><option value="overseas_entity">境外法人</option><option value="other">其他主体</option></select></label><label><span>司法辖区 / 注册地</span><input v-model="legalProfile.jurisdiction" placeholder="例如：中国浙江省杭州市" /></label><label><span>存续状态</span><select v-model="legalProfile.registration_status"><option value="">暂未确认</option><option value="active">存续</option><option value="inactive">注销 / 停业</option><option value="pending">待核验</option></select></label><label><span>法定代表人</span><input v-model="legalProfile.legal_representative" /></label><label><span>成立日期</span><input v-model="legalProfile.established_on" type="date" /></label><label><span>注册资本</span><input v-model="legalProfile.registered_capital" /></label><label class="wide"><span>注册地址</span><textarea v-model="legalProfile.registered_address" rows="2" /></label><label class="wide"><span>经营范围</span><textarea v-model="legalProfile.business_scope" rows="2" /></label><label class="wide"><span>来源说明</span><textarea v-model="legalProfile.source_note" rows="2" placeholder="例如：工商档案、原始资料文件名或人工核验说明" /></label><label><span>核验状态</span><select v-model="legalProfile.verification_status"><option value="pending">待核验</option><option value="verified">已核验</option><option value="unverified">未核验</option></select></label><div class="form-actions"><button class="primary-button" :disabled="savingLegalProfile || legalProfileReadyId !== selectedEntityId"><Save :size="16" />保存法人档案</button></div></form>
       <section class="legal-identifiers"><header><div><h3>主体标识</h3><p>统一社会信用代码、注册号等真实标识；未掌握时可以不填。</p></div></header><div class="identifier-chips"><span v-for="item in legalIdentifiers" :key="item.id" :class="{ primary: item.is_primary }"><small>{{ item.identifier_type }}</small><b>{{ item.identifier_value }}</b></span><span v-if="!legalIdentifiers.length" class="empty-chip">暂无已录入主体标识</span></div><form class="identifier-form-v2" @submit.prevent="addLegalIdentifier"><input v-model="legalIdentifierForm.identifier_type" placeholder="标识类型，如统一社会信用代码" /><input v-model="legalIdentifierForm.identifier_value" placeholder="标识值" required /><input v-model="legalIdentifierForm.source_note" placeholder="来源说明（可选）" /><button class="secondary-button" :disabled="savingLegalProfile"><Plus :size="15" />添加标识</button></form></section>
     </section>
     <p class="organization-note"><StatusBadge tone="success">钉钉资料</StatusBadge> 公司字段与部门挂靠分别展示；主体档案和组织同步范围独立维护。</p>

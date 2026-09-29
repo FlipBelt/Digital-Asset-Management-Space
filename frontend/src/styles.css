@@ -1111,3 +1111,10 @@ button:disabled { cursor: not-allowed; opacity: .6; }
   .organization-view-tabs { width: 100%; }
   .organization-view-tabs button { flex: 1; justify-content: center; }
 }
+
+.company-statutory-panel { margin: 20px 0 16px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-soft); }
+.company-statutory-panel dl { display: flex; flex-wrap: wrap; gap: 20px 48px; margin: 0; }
+.company-statutory-panel dt { margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+.company-statutory-panel dd { margin: 0; font-size: 17px; font-weight: 700; }
+.company-statutory-panel p { margin: 14px 0 8px; color: var(--muted); font-size: 12px; line-height: 1.65; }
+.company-profile-error { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; color: #b42318; }
