@@ -123,8 +123,16 @@ export interface DingTalkOrganization {
   legal_entity_name: string | null;
   legal_entity_code: string | null;
   message: string | null;
+  directory_snapshot?: { department_codes: string[]; checked_at: string | null } | null;
 }
-export interface DingTalkProfile { person_id: string; dingtalk_user_id: string; job_title: string | null }
+export interface CompanyAffiliation {
+  name: string | null; source_field: string | null; checked_at: string | null;
+  status: "available" | "missing" | "invalid" | "conflict" | "unavailable" | "unknown";
+}
+export interface DingTalkProfile {
+  person_id: string; dingtalk_user_id: string; job_title: string | null;
+  company_affiliation?: CompanyAffiliation | null;
+}
 export interface DingTalkIdentity { person_id: string; display_name: string; department_id: string | null; job_title: string | null; is_department_manager: boolean }
 export interface DingTalkSession { user: CurrentUser; identity: DingTalkIdentity; expires_at: string }
 export interface AssetAssignment { owner_department_id: string | null; ownership_scope: string; responsible_person_id: string | null; user_person_ids: string[] }
@@ -264,6 +272,7 @@ export const api = {
   dingtalkOrganization: () => request<DingTalkOrganization>("/api/v1/dingtalk/organization"),
   dingtalkProfiles: () => request<DingTalkProfile[]>("/api/v1/dingtalk/profiles"),
   syncDingtalkDirectory: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/sync", json("POST", { legal_entity_id: legalEntityId })),
+  refreshCompanyAffiliations: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/organization/companies/refresh", json("POST", { legal_entity_id: legalEntityId })),
   assetAttachments: (id: string) => request<{id: string; file_name: string; size_bytes: number}[]>(`/api/v1/assets/${id}/attachments`),
   uploadAssetZip: (id: string, file: File) => { const body = new FormData(); body.append("file", file); return request(`/api/v1/assets/${id}/attachments`, {method: "POST", body}); },
   downloadAssetZip: (id: string, attachment: string) => request<Blob>(`/api/v1/assets/${id}/attachments/${attachment}/download`),

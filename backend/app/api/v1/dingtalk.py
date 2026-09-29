@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -29,6 +30,7 @@ from app.models import (
 from app.schemas.dingtalk import (
     DingTalkAuthCode,
     DingTalkClientDiagnostic,
+    DingTalkDirectorySnapshotRead,
     DingTalkIdentityRead,
     DingTalkLoginRequest,
     DingTalkLoginUser,
@@ -43,6 +45,7 @@ from app.services.dingtalk import (
     DingTalkDirectorySync,
     resolve_dingtalk_organization,
 )
+from app.services.dingtalk_company import stored_company_affiliation
 
 router = APIRouter(prefix="/dingtalk", tags=["dingtalk"])
 # Exact public aliases requested by the web client.  The existing /api/v1
@@ -340,12 +343,30 @@ def organization_binding(
 ) -> DingTalkOrganizationRead:
     binding = resolve_dingtalk_organization(db)
     entity = binding.entity
+    setting = db.scalar(select(AppSetting).where(AppSetting.key == "dingtalk_directory_snapshot"))
+    snapshot = setting.value if setting and isinstance(setting.value, dict) else {}
+    directory_snapshot = None
+    codes = snapshot.get("department_codes")
+    if (
+        entity
+        and snapshot.get("legal_entity_id") == str(entity.id)
+        and isinstance(codes, list)
+        and codes
+        and all(isinstance(code, str) and code.startswith("DT-") for code in codes)
+    ):
+        try:
+            directory_snapshot = DingTalkDirectorySnapshotRead(
+                department_codes=codes, checked_at=snapshot.get("checked_at")
+            )
+        except ValidationError:
+            directory_snapshot = None
     return DingTalkOrganizationRead(
         status=binding.status,
         legal_entity_id=entity.id if entity else None,
         legal_entity_name=entity.name if entity else None,
         legal_entity_code=entity.code if entity else None,
         message=binding.message,
+        directory_snapshot=directory_snapshot,
     )
 
 
@@ -359,6 +380,18 @@ def sync_directory(
     return {"status": "success", **result.as_dict()}
 
 
+@router.post("/organization/companies/refresh")
+def refresh_company_affiliations(
+    payload: DingTalkSyncRequest,
+    db: Session = Depends(get_db),
+    _: AccessContext = Depends(require_global_manager),
+) -> dict:
+    result = DingTalkDirectorySync(db, DingTalkClient()).refresh_company_affiliations(
+        payload.legal_entity_id
+    )
+    return {"status": "success", **result}
+
+
 @router.get(
     "/profiles",
     response_model=list[DingTalkPersonProfileRead],
@@ -366,7 +399,16 @@ def sync_directory(
 def list_profiles(
     db: Session = Depends(get_db),
     _: AccessContext = Depends(require_global_manager),
-) -> list[DingTalkPersonProfile]:
-    return list(
-        db.scalars(select(DingTalkPersonProfile).order_by(DingTalkPersonProfile.updated_at.desc()))
+) -> list[DingTalkPersonProfileRead]:
+    profiles = db.scalars(
+        select(DingTalkPersonProfile).order_by(DingTalkPersonProfile.updated_at.desc())
     )
+    return [
+        DingTalkPersonProfileRead(
+            person_id=profile.person_id,
+            dingtalk_user_id=profile.dingtalk_user_id,
+            job_title=profile.job_title,
+            company_affiliation=stored_company_affiliation(profile.profile_data),
+        )
+        for profile in profiles
+    ]

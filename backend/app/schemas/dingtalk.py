@@ -46,22 +46,36 @@ class DingTalkClientDiagnostic(BaseModel):
     user_agent: str = Field(default="", max_length=500)
 
 
+class DingTalkDirectorySnapshotRead(BaseModel):
+    department_codes: list[str]
+    checked_at: datetime | None
+
+
 class DingTalkOrganizationRead(BaseModel):
     status: Literal["bound", "unbound", "invalid", "ambiguous"]
     legal_entity_id: UUID | None = None
     legal_entity_name: str | None = None
     legal_entity_code: str | None = None
     message: str | None = None
+    directory_snapshot: DingTalkDirectorySnapshotRead | None = None
 
 
 class DingTalkSyncRequest(BaseModel):
     legal_entity_id: str
 
 
+class DingTalkCompanyAffiliationRead(BaseModel):
+    name: str | None
+    status: Literal["available", "missing", "invalid", "conflict", "unavailable", "unknown"]
+    source_field: str | None
+    checked_at: datetime | None
+
+
 class DingTalkPersonProfileRead(ORMModel):
     person_id: UUID
     dingtalk_user_id: str
     job_title: str | None
+    company_affiliation: DingTalkCompanyAffiliationRead | None = None
 
 
 class DingTalkIdentityRead(BaseModel):

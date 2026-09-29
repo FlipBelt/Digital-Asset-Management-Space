@@ -12,12 +12,17 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.models import (
     AppSetting,
+    AuditLog,
     Department,
     DepartmentMembership,
     DingTalkDepartmentLink,
     DingTalkPersonProfile,
     LegalEntity,
     Person,
+)
+from app.services.dingtalk_company import (
+    company_affiliation_from_detail,
+    unavailable_company_affiliation,
 )
 
 _OAPI_BASE = "https://oapi.dingtalk.com"
@@ -324,7 +329,7 @@ class DingTalkDirectorySync:
         self.client = client
         self._seen_user_ids: set[str] = set()
 
-    def run(self, legal_entity_id: str) -> SyncResult:
+    def _require_entity(self, legal_entity_id: str) -> LegalEntity:
         entity = self.db.get(LegalEntity, legal_entity_id)
         if entity is None or entity.archived_at is not None:
             raise HTTPException(status_code=404, detail="legal entity not found")
@@ -333,6 +338,73 @@ class DingTalkDirectorySync:
             raise HTTPException(status_code=409, detail=binding.message)
         if entity.id != binding.entity.id:
             raise HTTPException(status_code=409, detail="同步目标与绑定的钉钉组织主体不一致")
+        return entity
+
+    def refresh_company_affiliations(self, legal_entity_id: str) -> dict[str, int]:
+        entity = self._require_entity(legal_entity_id)
+        profiles = list(
+            self.db.scalars(
+                select(DingTalkPersonProfile)
+                .join(Person, Person.id == DingTalkPersonProfile.person_id)
+                .where(Person.legal_entity_id == entity.id, Person.archived_at.is_(None))
+            )
+        )
+        token = self.client.access_token()
+        directory = self.client.departments(token)
+        directory_ids = [str(row["dept_id"]) for row in directory if row.get("dept_id") is not None]
+        if not directory_ids:
+            raise HTTPException(status_code=502, detail="钉钉组织目录为空，请核实通讯录可见范围")
+        counts = dict.fromkeys(
+            ("checked", "available", "missing", "invalid", "conflict", "unavailable"), 0
+        )
+        pending = []
+        # Finish all reads before staging writes. Transient failures leave the old snapshot intact.
+        for profile in profiles:
+            try:
+                detail = self.client.user_detail(token, profile.dingtalk_user_id)
+            except HTTPException as exc:
+                code = exc.detail.get("code") if isinstance(exc.detail, dict) else None
+                if code not in (60121, "60121"):
+                    raise
+                affiliation = unavailable_company_affiliation()
+            else:
+                if detail.get("userid") != profile.dingtalk_user_id:
+                    raise HTTPException(status_code=502, detail="钉钉成员详情与查询身份不一致")
+                affiliation = company_affiliation_from_detail(detail)
+            pending.append((profile, affiliation))
+            counts["checked"] += 1
+            counts[affiliation["status"]] += 1
+        for profile, affiliation in pending:
+            profile.profile_data = {
+                **(profile.profile_data or {}),
+                "company_affiliation": affiliation,
+            }
+        snapshot = self.db.scalar(
+            select(AppSetting).where(AppSetting.key == "dingtalk_directory_snapshot")
+        )
+        if snapshot is None:
+            snapshot = AppSetting(key="dingtalk_directory_snapshot", value={})
+            self.db.add(snapshot)
+        snapshot.value = {
+            "legal_entity_id": str(entity.id),
+            "department_codes": [f"DT-{value}" for value in directory_ids],
+            "checked_at": pending[0][1]["checked_at"] if pending else None,
+        }
+        counts["directory_nodes_checked"] = len(directory_ids)
+        self.db.add(
+            AuditLog(
+                actor_user_id=self.db.info.get("audit_actor_user_id"),
+                action="organization.company_affiliations_refresh",
+                object_type="legal_entity",
+                object_id=entity.id,
+                after_data=counts,
+            )
+        )
+        self.db.commit()
+        return counts
+
+    def run(self, legal_entity_id: str) -> SyncResult:
+        entity = self._require_entity(legal_entity_id)
         token = self.client.access_token()
         result = SyncResult()
         links = self._upsert_departments(entity, self.client.departments(token), result)
@@ -445,8 +517,10 @@ class DingTalkDirectorySync:
         profile.union_id = data.get("unionid") or data.get("union_id")
         profile.job_title = data.get("title") or data.get("position")
         profile.profile_data = {
+            **(profile.profile_data or {}),
             "department_ids": data.get("dept_id_list", []),
             "hired_date": data.get("hired_date"),
+            "company_affiliation": company_affiliation_from_detail(data),
         }
         self._sync_department_memberships(
             person, department, data, departments_by_dingtalk_id, result

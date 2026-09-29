@@ -41,3 +41,8 @@ fa37442已推送现有融合分支并部署 `/test/`，schema保持f13c20260928�
 - 后端：`backend/app/services/dingtalk.py`、`backend/app/api/v1/dingtalk.py`、`backend/app/schemas/dingtalk.py`。
 - 前端：`frontend/src/pages/OrganizationPage.vue`、`frontend/src/lib/api.ts`、`frontend/src/lib/organizationScope.ts`。
 - 验证/文档：`backend/tests/test_dingtalk_organization.py`、`scripts/test-organization-scope.mjs`、`docs/ORGANIZATION-BINDING.md`。
+
+
+## 公司与部门的后续分离
+
+上述40个部门是旧页面对钉钉目录节点的计数，包含公司名节点。本次主体绑定修复不等同于所有组织资料核验。公司字段读取、职能部门分类及待核验状态的后续实现见 [公司与部门分离](ORGANIZATION-STRUCTURE.md)。原绑定保护、组织范围与权限边界继续保持。
