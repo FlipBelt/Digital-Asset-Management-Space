@@ -213,3 +213,61 @@
 @media (prefers-reduced-motion: reduce) {
   :root[data-theme="boss-v4"] .primary-sidebar, .fusion-space * { transition: none !important; animation: none !important; }
 }
+
+/* Classified discovery, direct registration and employee applications share one workbench. */
+.workspace-tabs { gap: 18px; scrollbar-width: thin; }
+.workspace-tabs button { display: flex; flex: none; align-items: center; gap: 7px; min-height: 48px; }
+.workspace-tab-count { padding: 2px 6px; border-radius: 5px; color: var(--muted); background: var(--surface-soft); font-size: 11px; }
+.workspace-tabs button.active .workspace-tab-count { color: var(--text); background: #eff3de; }
+.discovery-sections, .management-operations { display: grid; gap: 28px; min-width: 0; }
+.discovery-section-heading { display: flex; align-items: center; gap: 15px; margin: 0 0 16px; font-size: 18px; font-weight: 650; }
+.discovery-section-heading span { color: var(--muted); font-size: 12px; font-weight: 400; }
+.management-registration > header, .management-records > header, .employee-request-form > header, .request-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+.management-registration h2, .management-records h2, .employee-request-form h2, .request-list-heading h2 { margin: 0; font-size: 18px; font-weight: 650; }
+.management-registration p, .employee-request-form header p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.registration-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.registration-shortcuts > a { display: flex; align-items: center; min-height: 94px; gap: 15px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.registration-shortcuts > a:hover { border-color: #a9b88b; background: #f7f9f0; }
+.registration-shortcuts > a > svg:first-child { flex: none; color: #607246; }
+.registration-shortcuts > a > div { display: grid; flex: 1; gap: 7px; }
+.registration-shortcuts strong { font-size: 15px; font-weight: 650; }
+.registration-shortcuts small, .management-records header > span { color: var(--muted); font-size: 12px; }
+.management-records { padding: 24px; }
+.management-record-link { display: flex; align-items: center; gap: 18px; padding: 17px 4px; border-top: 1px solid var(--border); }
+.management-record-link > svg { flex: none; color: var(--muted); }
+.management-record-link > div { flex: 1; min-width: 0; }
+.management-record-link strong { font-size: 15px; }
+.management-record-link p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.management-record-link:hover strong { text-decoration: underline; text-underline-offset: 4px; }
+.settings-layout { margin-top: 24px; }
+.employee-request-form { padding: 26px; }
+.request-kind-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 0 24px; padding: 0; border: 0; }
+.request-kind-options legend { margin-bottom: 13px; font-size: 14px; font-weight: 600; }
+.request-kind-options label { position: relative; display: grid; gap: 8px; padding: 18px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.request-kind-options label.active { border-color: #829459; background: #f5f8e9; }
+.request-kind-options label:focus-within { outline: 2px solid #829459; outline-offset: 3px; }
+.request-kind-options input { position: absolute; top: 16px; right: 16px; width: 16px; height: 16px; accent-color: #61743c; }
+.request-kind-options small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.request-list-heading { margin-bottom: 0; }
+.request-list-heading > span { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.request-records { display: grid; gap: 15px; }
+.request-record { padding: 22px; border: 1px solid var(--border); border-radius: var(--radius); }
+.request-record > header, .request-record > footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.request-record small, .request-record time, .request-record footer > span { color: var(--muted); font-size: 12px; }
+.request-record h3 { margin: 7px 0 0; font-size: 16px; line-height: 1.5; }
+.request-record p { margin: 13px 0; color: var(--muted); font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.request-record > footer { align-items: center; margin-top: 16px; }
+@media (max-width: 1050px) { .registration-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .registration-shortcuts, .request-kind-options { grid-template-columns: 1fr; }
+  .management-registration > header, .management-records > header, .employee-request-form > header, .request-list-heading { flex-wrap: wrap; }
+  .employee-request-form, .management-records { padding: 20px; }
+  .registration-shortcuts > a { min-height: 80px; }
+  .request-record > header, .request-record > footer { flex-wrap: wrap; }
+  .workspace-tabs { max-width: 100%; gap: 18px; }
+}
+
+.discovery-result-panel { display: grid; gap: 24px; min-width: 0; }
+
+.management-registration .text-button { display: inline-flex; flex: none; align-items: center; gap: 8px; color: var(--text); font-size: 13px; }
+.fusion-review-state { align-self: flex-start; margin-top: -8px; padding: 4px 7px; border-radius: 5px; color: #806126; background: #fcf4df; font-size: 11px; }

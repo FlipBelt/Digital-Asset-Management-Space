@@ -347,7 +347,7 @@ onMounted(loadActiveView);
       title="资产底库"
       :description="currentDisplayMode.description"
     >
-      <RouterLink class="secondary-button" to="/map">资产地图</RouterLink
+      <RouterLink class="secondary-button" to="/discover">资产发现</RouterLink
       ><a class="secondary-button" :href="apiPath('/api/v1/exports/assets.xlsx')"
         ><Download :size="16" />导出</a
       ><RouterLink class="secondary-button" to="/imports"

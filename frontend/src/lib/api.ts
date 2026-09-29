@@ -27,6 +27,7 @@ export interface Department { id: string; legal_entity_id: string; parent_id: st
 export interface Person { id: string; legal_entity_id: string; department_id: string | null; employee_no: string; display_name: string; email: string | null; employment_status: string; person_type: string }
 export interface DepartmentMembership { id: string; person_id: string; department_id: string; is_manager: boolean; leadership_role?: "department_manager" | "group_leader" | null; is_primary: boolean; is_active: boolean }
 export interface AssetCategory { id: string; parent_id: string | null; code: string; name: string; sort_order: number }
+export interface SpaceGroups { total: number; categories: (AssetCategory & { count: number })[] }
 export interface AssetType { id: string; category_id: string; code: string; name: string; profile_kind: string; code_prefix: string; ownership_default: string; is_system: boolean; completeness_rules?: Record<string, unknown> }
 export interface AssetFieldDefinition { id: string; asset_type_id: string; field_key: string; label: string; data_type: string; is_required: boolean; options: string[] | null; group_name: string; help_text: string | null; unit: string | null; validation: Record<string, unknown>; confidentiality: string; is_searchable: boolean; completeness_weight: number; sort_order: number; entry_visibility: "core" | "optional" | "advanced" | "conditional"; requirement_stage: "create" | "activation" | "optional"; applies_to_existing: boolean; condition_rules: Record<string, unknown> }
 export interface AssetFieldValue { id: string; asset_id: string; field_definition_id: string; value: { value: unknown } }
@@ -278,6 +279,10 @@ export const api = {
   uploadAssetZip: (id: string, file: File) => { const body = new FormData(); body.append("file", file); return request(`/api/v1/assets/${id}/attachments`, {method: "POST", body}); },
   downloadAssetZip: (id: string, attachment: string) => request<Blob>(`/api/v1/assets/${id}/attachments/${attachment}/download`),
   registerMembership: (body: Record<string, unknown>) => request<Asset>("/api/v1/space/memberships", json("POST", body)),
+  spaceGroups: (params: Record<string, string>) => request<SpaceGroups>(`/api/v1/space/groups?${new URLSearchParams(params)}`),
+  myRequests: () => request<WorkflowRequest[]>("/api/v1/space/requests"),
+  createMyRequest: (body: Record<string, unknown>) => request<WorkflowRequest>("/api/v1/space/requests", json("POST", body)),
+  cancelMyRequest: (id: string, version: number) => request<WorkflowRequest>(`/api/v1/space/requests/${id}/cancel`, json("POST", { version })),
   spaceAssets: (params: Record<string, string>) => request<{data: Asset[]; pagination: {page: number; page_size: number; total: number}}>(`/api/v1/space/assets?${new URLSearchParams(params)}`),
   createAssetDraft: (body: Record<string, unknown>) => request<Asset>("/api/v1/assets/draft", json("POST", body)),
   myAssets: () => request<Asset[]>("/api/v1/workspace/my-assets"),

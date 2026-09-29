@@ -2,12 +2,20 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.core.access import AccessContext, require_permission
+from app.core.access import AccessContext, require_global_manager, require_permission
 from app.db.session import get_db
-from app.models import Asset, AssetResponsibility, RiskFinding, WorkflowRequest
+from app.models import (
+    Asset,
+    AssetResponsibility,
+    AuditLog,
+    DepartmentMembership,
+    Person,
+    RiskFinding,
+    WorkflowRequest,
+)
 from app.schemas.inventory import (
     RiskFindingRead,
     WorkflowRequestCreate,
@@ -15,15 +23,61 @@ from app.schemas.inventory import (
 )
 
 router = APIRouter(tags=["governance"])
-require_governance_write = Depends(require_permission("governance.write"))
+governance_read_permission = require_permission("governance.read")
+
+
+def require_governance_read(access: AccessContext = Depends(governance_read_permission)):
+    if not access.roles & {
+        "system_admin",
+        "asset_manager",
+        "department_manager",
+        "group_leader",
+        "auditor",
+    }:
+        raise HTTPException(403, "请通过我的申请查看本人申请")
+    return access
+
+
+def require_governance_writer(access: AccessContext = Depends(require_governance_read)):
+    if not access.has_permission("governance.write"):
+        raise HTTPException(403, "无权处理申请或风险")
+    return access
+
+
+require_governance_write = Depends(require_governance_writer)
+
+
+def request_scope(access: AccessContext):
+    if access.is_read_all:
+        return WorkflowRequest.id.is_not(None)
+    if not access.department_scopes:
+        return False
+    people = select(Person.id).where(
+        or_(
+            Person.department_id.in_(access.department_scopes),
+            Person.id.in_(
+                select(DepartmentMembership.person_id).where(
+                    DepartmentMembership.department_id.in_(access.department_scopes),
+                    DepartmentMembership.is_active.is_(True),
+                )
+            ),
+        )
+    )
+    assets = select(Asset.id).where(Asset.owner_department_id.in_(access.department_scopes))
+    return or_(
+        WorkflowRequest.requester_person_id.in_(people), WorkflowRequest.asset_id.in_(assets)
+    )
 
 
 @router.get("/requests", response_model=list[WorkflowRequestRead])
-def list_requests(db: Session = Depends(get_db)) -> list[WorkflowRequest]:
+def list_requests(
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(require_governance_read),
+) -> list[WorkflowRequest]:
     return list(
         db.scalars(
             select(WorkflowRequest)
-            .where(WorkflowRequest.archived_at.is_(None))
+            .where(WorkflowRequest.archived_at.is_(None), request_scope(access))
             .order_by(WorkflowRequest.created_at.desc())
         )
     )
@@ -48,9 +102,13 @@ def transition_request(
     target_status: str,
     version: int,
     db: Session = Depends(get_db),
-    _: AccessContext = require_governance_write,
+    access: AccessContext = require_governance_write,
 ) -> WorkflowRequest:
-    item = db.get(WorkflowRequest, request_id)
+    item = db.scalar(
+        select(WorkflowRequest)
+        .where(WorkflowRequest.id == request_id, request_scope(access))
+        .with_for_update()
+    )
     if item is None or item.archived_at is not None:
         raise HTTPException(status_code=404, detail="申请不存在")
     if item.version != version:
@@ -63,19 +121,43 @@ def transition_request(
     }
     if target_status not in allowed.get(item.status, set()):
         raise HTTPException(status_code=409, detail="当前状态不能执行此操作")
+    before = {"status": item.status, "version": item.version}
     item.status = target_status
     item.version += 1
+    db.add(
+        AuditLog(
+            actor_user_id=access.user.id,
+            action="request.transition",
+            object_type="workflow_request",
+            object_id=item.id,
+            before_data=before,
+            after_data={"status": item.status, "version": item.version},
+        )
+    )
     db.commit()
     db.refresh(item)
     return item
 
 
+def risk_scope(access: AccessContext):
+    if access.is_read_all:
+        return RiskFinding.id.is_not(None)
+    if not access.department_scopes:
+        return False
+    return RiskFinding.asset_id.in_(
+        select(Asset.id).where(Asset.owner_department_id.in_(access.department_scopes))
+    )
+
+
 @router.get("/risk-findings", response_model=list[RiskFindingRead])
-def list_risks(db: Session = Depends(get_db)) -> list[RiskFinding]:
+def list_risks(
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(require_governance_read),
+) -> list[RiskFinding]:
     return list(
         db.scalars(
             select(RiskFinding)
-            .where(RiskFinding.archived_at.is_(None))
+            .where(RiskFinding.archived_at.is_(None), risk_scope(access))
             .order_by(RiskFinding.detected_at.desc())
         )
     )
@@ -84,7 +166,7 @@ def list_risks(db: Session = Depends(get_db)) -> list[RiskFinding]:
 @router.post("/risk-findings/scan", response_model=list[RiskFindingRead])
 def scan_risks(
     db: Session = Depends(get_db),
-    _: AccessContext = require_governance_write,
+    _: AccessContext = Depends(require_global_manager),
 ) -> list[RiskFinding]:
     existing = {
         (item.rule_key, item.asset_id)
@@ -141,9 +223,13 @@ def resolve_risk(
     finding_id: UUID,
     version: int,
     db: Session = Depends(get_db),
-    _: AccessContext = require_governance_write,
+    access: AccessContext = require_governance_write,
 ) -> RiskFinding:
-    item = db.get(RiskFinding, finding_id)
+    item = db.scalar(
+        select(RiskFinding)
+        .where(RiskFinding.id == finding_id, risk_scope(access))
+        .with_for_update()
+    )
     if item is None:
         raise HTTPException(status_code=404, detail="风险项不存在")
     if item.version != version:

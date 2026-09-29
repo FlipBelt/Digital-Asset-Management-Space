@@ -24,6 +24,7 @@ const bookmarkLabel = computed(() => `${props.bookmarked ? '取消收藏' : '收
       <button class="icon-button fusion-bookmark" :class="{ saved: bookmarked }" :aria-label="bookmarkLabel" :title="bookmarkLabel" :aria-pressed="bookmarked" :disabled="busy" @click="$emit('bookmark', asset)"><Bookmark :size="19" aria-hidden="true" /></button>
     </div>
     <h2><RouterLink :to="detailLink">{{ asset.name }}</RouterLink></h2>
+    <span v-if="asset.review_status === 'pending_review'" class="fusion-review-state">待审核</span>
     <p>{{ asset.description || '暂无说明，待负责人补充。' }}</p>
     <div class="fusion-card-footer">
       <span class="fusion-owner"><Users :size="14" aria-hidden="true" />{{ teamName || '归属待确认' }}</span>

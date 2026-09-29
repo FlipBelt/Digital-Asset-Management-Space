@@ -17,7 +17,10 @@ from app.db.session import SessionLocal, engine
 from app.main import app
 from app.models import (
     AccessGrant,
+    Account,
+    Asset,
     AssetBookmark,
+    AssetCategory,
     AssetConfirmation,
     AssetEvidence,
     AssetType,
@@ -26,6 +29,7 @@ from app.models import (
     DepartmentMembership,
     LegalEntity,
     Person,
+    Platform,
     Provider,
     Role,
     ServiceInstance,
@@ -541,3 +545,196 @@ def test_concurrent_cancel_and_confirm_have_one_outcome(actors):
     with SessionLocal() as db:
         row = db.get(AssetConfirmation, UUID(receipt["id"]))
         assert bool(row.consumed_at) != bool(row.cancelled_at)
+
+
+# Discovery and self-service applications must not weaken the registration boundary.
+def employee_request_payload(**fields):
+    body = dict(
+        request_id=str(uuid4()),
+        request_type="seat",
+        resource_name="隔离测试工具",
+        purpose="仅用于隔离申请验证",
+    )
+    body.update(fields)
+    return body
+
+
+def test_employee_request_is_self_bound_idempotent_and_does_not_allocate(actors):
+    with SessionLocal() as db:
+        before = [
+            db.scalar(select(func.count()).select_from(model))
+            for model in (Asset, Account, Platform, AccessGrant)
+        ]
+    payload = employee_request_payload()
+    response = actors.owner.post("/api/v1/space/requests", json=payload)
+    assert response.status_code == 201, response.text
+    request = response.json()
+    assert request["requester_person_id"] == str(actors.person["owner"])
+    assert request["status"] == "pending"
+    assert actors.owner.post("/api/v1/space/requests", json=payload).json()["id"] == request["id"]
+    assert (
+        actors.owner.post(
+            "/api/v1/space/requests", json={**payload, "purpose": "变更内容"}
+        ).status_code
+        == 409
+    )
+    own = actors.owner.get("/api/v1/space/requests").json()
+    assert [item["id"] for item in own] == [request["id"]]
+    assert actors.other.get("/api/v1/space/requests").json() == []
+    with SessionLocal() as db:
+        after = [
+            db.scalar(select(func.count()).select_from(model))
+            for model in (Asset, Account, Platform, AccessGrant)
+        ]
+        assert after == before
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(AuditLog)
+                .where(
+                    AuditLog.object_id == UUID(request["id"]), AuditLog.action == "request.submit"
+                )
+            )
+            == 1
+        )
+
+
+def test_employee_cannot_claim_another_requester_or_approve(actors):
+    for field, value in [
+        ("requester_person_id", str(actors.person["other"])),
+        ("status", "approved"),
+        ("detail", {"admin": True}),
+    ]:
+        response = actors.owner.post(
+            "/api/v1/space/requests", json=employee_request_payload(**{field: value})
+        )
+        assert response.status_code == 422
+    assert (
+        actors.owner.post(
+            "/api/v1/space/requests", json=employee_request_payload(request_type="permission")
+        ).status_code
+        == 422
+    )
+    request = actors.owner.post("/api/v1/space/requests", json=employee_request_payload()).json()
+    assert actors.owner.get("/api/v1/requests").status_code == 403
+    assert actors.owner.get("/api/v1/risk-findings").status_code == 403
+    assert (
+        actors.owner.post(
+            f"/api/v1/requests/{request['id']}/transition?target_status=approved&version=1"
+        ).status_code
+        == 403
+    )
+    assert actors.owner.post(
+        "/api/v1/access-grants",
+        json={"person_id": str(actors.person["owner"]), "asset_id": str(uuid4())},
+    ).status_code in {403, 404, 422}
+    approved = actors.admin.post(
+        f"/api/v1/requests/{request['id']}/transition?target_status=approved&version=1"
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["version"] == 2
+    assert actors.owner.get("/api/v1/space/requests").json()[0]["status"] == "approved"
+    assert (
+        actors.owner.post(
+            f"/api/v1/space/requests/{request['id']}/cancel", json={"version": 2}
+        ).status_code
+        == 409
+    )
+
+
+def test_employee_request_private_asset_and_cancel_version_boundaries(actors):
+    hidden = draft(actors.other, actors)
+    assert (
+        actors.owner.post(
+            "/api/v1/space/requests", json=employee_request_payload(asset_id=hidden["id"])
+        ).status_code
+        == 404
+    )
+    assert (
+        actors.owner.post(
+            "/api/v1/space/requests", json=employee_request_payload(platform_id=str(uuid4()))
+        ).status_code
+        == 422
+    )
+    request = actors.owner.post(
+        "/api/v1/space/requests", json=employee_request_payload(request_type="account")
+    ).json()
+    url = f"/api/v1/space/requests/{request['id']}/cancel"
+    assert actors.other.post(url, json={"version": 1}).status_code == 404
+    assert actors.owner.post(url, json={"version": 2}).status_code == 409
+    cancelled = actors.owner.post(url, json={"version": 1})
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "cancelled"
+    assert cancelled.json()["version"] == 2
+    assert actors.owner.post(url, json={"version": 1}).status_code == 409
+
+
+def test_employee_application_cookie_requires_csrf_and_login(actors):
+    with TestClient(app) as anonymous:
+        assert anonymous.get("/api/v1/space/requests").status_code == 401
+        assert (
+            anonymous.post("/api/v1/space/requests", json=employee_request_payload()).status_code
+            == 401
+        )
+        anonymous.cookies.set(
+            get_settings().session_cookie_name, actors.owner.headers["X-PM-Session"]
+        )
+        assert (
+            anonymous.post("/api/v1/space/requests", json=employee_request_payload()).status_code
+            == 403
+        )
+
+
+def test_management_applications_respect_department_scope(actors):
+    own = actors.owner.post("/api/v1/space/requests", json=employee_request_payload()).json()
+    other = actors.other.post("/api/v1/space/requests", json=employee_request_payload()).json()
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.person_id == actors.person["owner"]))
+        role_id = db.scalar(select(Role.id).where(Role.code == "department_manager"))
+        db.add(
+            UserRoleScope(
+                user_id=user.id, role_id=role_id, scope_type="department", scope_id=actors.teams[0]
+            )
+        )
+        db.commit()
+    response = actors.owner.get("/api/v1/requests")
+    assert response.status_code == 200, response.text
+    ids = {item["id"] for item in response.json()}
+    assert own["id"] in ids and other["id"] not in ids
+
+
+def test_category_projection_preserves_private_drafts_and_custom_ai_types(actors):
+    with SessionLocal() as db:
+        category = db.scalar(select(AssetCategory).where(AssetCategory.code == "internal_system"))
+        group_id = str(category.id)
+    custom = actors.admin.post(
+        "/api/v1/asset-types",
+        json=dict(
+            category_id=group_id,
+            code="test-ai-" + uuid4().hex[:10],
+            name="隔离 AI 类型",
+            profile_kind="generic",
+            code_prefix="TST",
+            ownership_default="manual",
+        ),
+    )
+    assert custom.status_code == 201, custom.text
+    custom_id = custom.json()["id"]
+    before = actors.other.get("/api/v1/space/groups?scope=discover").json()
+    own = draft(actors.owner, actors, asset_type_id=custom_id)
+    own_groups = actors.owner.get("/api/v1/space/groups?scope=discover").json()
+    other_groups = actors.other.get("/api/v1/space/groups?scope=discover").json()
+    assert other_groups == before
+    assert own_groups["total"] == other_groups["total"] + 1
+    assert sum(item["count"] for item in own_groups["categories"]) == own_groups["total"]
+    url = (
+        f"/api/v1/space/assets?scope=discover&asset_category_id={group_id}"
+        f"&asset_type_id={custom_id}"
+    )
+    assert [item["id"] for item in actors.owner.get(url).json()["data"]] == [own["id"]]
+    assert actors.other.get(url).json()["data"] == []
+    wrong_group = next(item["id"] for item in own_groups["categories"] if item["id"] != group_id)
+    assert actors.owner.get(url.replace(group_id, wrong_group)).json()["data"] == []
+    receipt = prepare(actors.owner, own)
+    assert confirm(actors.owner, own, receipt).status_code == 200
+    assert actors.other.get(url).json()["data"] == []

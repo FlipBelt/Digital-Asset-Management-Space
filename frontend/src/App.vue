@@ -4,11 +4,12 @@ import { useRoute, useRouter } from "vue-router";
 import {
   Bookmark, Boxes, CalendarClock, ChevronDown, Clock3, CreditCard, FileInput,
   Hexagon, Home, LibraryBig, List, Menu, Pencil, Plus, Search, Shield,
-  SlidersHorizontal, Sparkles, Star, UserRound, Users, Workflow, LayoutGrid, X,
+  SlidersHorizontal, Sparkles, Star, UserRound, Users, Workflow, LayoutGrid, Send, X,
 } from "lucide-vue-next";
 
 import { useTheme } from "./composables/useTheme";
 import { assetReturnContext } from "./lib/assetNavigation";
+import { legacyWorkspaceEnabled } from "./lib/workspaceNavigation";
 import { safeLoginRedirect } from "./lib/loginNavigation";
 import { api, ApiError, setPmSessionToken, resetPmSessionCache, type Asset, type CurrentUser, type DingTalkIdentity, type Person, type PmSessionUser } from "./lib/api";
 
@@ -151,6 +152,7 @@ const personalNav = [
   { to: "/my/responsible", label: "负责", icon: Shield },
   { to: "/my/subscriptions", label: "订阅", icon: CreditCard },
   { to: "/my/using", label: "使用", icon: Clock3 },
+  { to: "/my/requests", label: "申请", icon: Send },
   { to: "/my/ai", label: "AI 能力", icon: Hexagon },
   { to: "/my/contributions", label: "贡献", icon: Star },
   { to: "/my/drafts", label: "草稿", icon: List },
@@ -166,7 +168,7 @@ const huduNav = [
   { to: "/hudu/expirations", label: "到期与交接", icon: CalendarClock },
   { to: "/hudu/intake", label: "资料接入", icon: FileInput },
 ];
-const isHuduMode = computed(() => route.path === "/hudu" || route.path.startsWith("/hudu/"));
+const isHuduMode = computed(() => legacyWorkspaceEnabled(import.meta.env.BASE_URL, window.location.hostname) && (route.path === "/hudu" || route.path.startsWith("/hudu/")));
 const isTestEnvironment = window.location.pathname === "/test" || window.location.pathname.startsWith("/test/");
 const isLocalDevelopment = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const canManage = computed(() => Boolean(currentUser.value?.roles.some(
@@ -206,7 +208,7 @@ watch(query, (value) => {
 function openAsset(id: string) {
   searchOpen.value = false;
   query.value = "";
-  router.push(`/assets/${id}`);
+  router.push(`/discover/${id}`);
 }
 
 function closeSearchDelayed() {

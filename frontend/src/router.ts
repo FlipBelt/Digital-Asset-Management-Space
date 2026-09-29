@@ -1,8 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 
-import AdminPage from "./pages/AdminPage.vue";
 import AccountsPage from "./pages/AccountsPage.vue";
-import AssetMapPage from "./pages/AssetMapPage.vue";
 import AssetsPage from "./pages/AssetsPage.vue";
 import AssetDetailPage from "./pages/AssetDetailPage.vue";
 import DashboardPage from "./pages/DashboardPage.vue";
@@ -30,6 +28,8 @@ import MembershipRegisterPage from "./pages/MembershipRegisterPage.vue";
 import AssetOverviewPage from "./pages/AssetOverviewPage.vue";
 import AssetEvidencePage from "./pages/AssetEvidencePage.vue";
 import AssetManagePage from "./pages/AssetManagePage.vue";
+import MyRequestsPage from "./pages/MyRequestsPage.vue";
+import { legacyWorkspaceEnabled } from "./lib/workspaceNavigation";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -46,6 +46,7 @@ const router = createRouter({
     { path: "/hudu/assets/:id", name: "hudu-asset-detail", component: HuduAssetDetailPage },
     { path: "/hudu/expirations", name: "hudu-expirations", component: HuduExpirationsPage },
     { path: "/hudu/intake", name: "hudu-intake", component: HuduIntakePage },
+    { path: "/my/requests", component: MyRequestsPage },
     { path: "/my/contributions", component: AssetEvidencePage },
     { path: "/my/:category(created|responsible|subscriptions|using|ai|drafts|bookmarks)", component: AssetSpacePage, props: { scope: "mine" } },
     { path: "/manage", component: AssetManagePage },
@@ -53,7 +54,7 @@ const router = createRouter({
     { path: "/workflows", redirect: "/discover?category=workflows" },
     { path: "/my", name: "my-usage", component: AssetSpacePage, props: { scope: "mine" } },
     { path: "/department", name: "department-assets", component: DepartmentAssetsPage },
-    { path: "/map", name: "asset-map", component: AssetMapPage },
+    { path: "/map", name: "asset-map", redirect: "/discover" },
     { path: "/intake", name: "intake", component: IntakePage },
     { path: "/imports", name: "imports", component: ImportWorkbenchPage },
     { path: "/assets", name: "assets", component: AssetsPage },
@@ -66,8 +67,15 @@ const router = createRouter({
     { path: "/services/alerts", name: "usage-monitoring", component: UsageMonitoringPage },
     { path: "/services/:platformCode(deepseek|minimax|aliyun)", name: "platform-usage-detail", component: PlatformUsageDetailPage },
     { path: "/governance", name: "governance", component: GovernancePage },
-    { path: "/admin", name: "admin", component: AdminPage },
+    { path: "/admin", name: "admin", redirect: { path: "/manage", query: { tab: "settings" } } },
   ],
+});
+
+router.beforeEach(to => {
+  if (!legacyWorkspaceEnabled(import.meta.env.BASE_URL, window.location.hostname)
+      && (to.path === "/hudu" || to.path.startsWith("/hudu/"))) {
+    return to.name === "hudu-asset-detail" ? { path: `/discover/${to.params.id}` } : { path: "/discover" };
+  }
 });
 
 export default router;

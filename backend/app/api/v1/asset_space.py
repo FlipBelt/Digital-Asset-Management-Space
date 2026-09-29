@@ -24,6 +24,7 @@ from app.models import (
     Account,
     Asset,
     AssetBookmark,
+    AssetCategory,
     AssetEvidence,
     AssetResponsibility,
     AssetType,
@@ -136,6 +137,7 @@ def space_assets(
     ] = "all",
     department_id: UUID | None = None,
     asset_type_id: UUID | None = None,
+    asset_category_id: UUID | None = None,
     keyword: str = Query(default="", max_length=200),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=24, ge=1, le=100),
@@ -159,6 +161,12 @@ def space_assets(
         )
     if asset_type_id:
         conditions.append(Asset.asset_type_id == asset_type_id)
+    if asset_category_id:
+        conditions.append(
+            Asset.asset_type_id.in_(
+                select(AssetType.id).where(AssetType.category_id == asset_category_id)
+            )
+        )
     if keyword.strip():
         conditions.append(
             or_(
@@ -167,10 +175,15 @@ def space_assets(
             )
         )
     total = db.scalar(select(func.count()).select_from(Asset).where(*conditions)) or 0
+    statement = select(Asset).where(*conditions)
+    if scope != "mine" and category != "workflows":
+        statement = (
+            statement.join(AssetType, Asset.asset_type_id == AssetType.id)
+            .join(AssetCategory, AssetType.category_id == AssetCategory.id)
+            .order_by(AssetCategory.sort_order, AssetCategory.id)
+        )
     rows = db.scalars(
-        select(Asset)
-        .where(*conditions)
-        .order_by(Asset.updated_at.desc(), Asset.id)
+        statement.order_by(Asset.updated_at.desc(), Asset.id)
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -178,6 +191,48 @@ def space_assets(
         data=[AssetRead.model_validate(a) for a in rows],
         pagination=Pagination(page=page, page_size=page_size, total=total),
     )
+
+
+@router.get("/space/groups")
+def space_groups(
+    scope: Literal["discover", "team"] = "discover",
+    department_id: UUID | None = None,
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(get_access_context),
+):
+    conditions = [Asset.archived_at.is_(None), asset_visibility_clause(access)]
+    if scope == "team":
+        person = db.get(Person, access.person_id) if access.person_id else None
+        selected = department_id or (person.department_id if person else None)
+        conditions.append(Asset.owner_department_id == selected if selected else False)
+    counts = dict(
+        db.execute(
+            select(AssetType.category_id, func.count(Asset.id))
+            .join(Asset, Asset.asset_type_id == AssetType.id)
+            .where(*conditions)
+            .group_by(AssetType.category_id)
+        ).all()
+    )
+    # Keep historical categories with visible records discoverable.
+    categories = db.scalars(
+        select(AssetCategory)
+        .where(or_(AssetCategory.archived_at.is_(None), AssetCategory.id.in_(counts)))
+        .order_by(AssetCategory.sort_order, AssetCategory.id)
+    )
+    return {
+        "total": sum(counts.values()),
+        "categories": [
+            {
+                "id": row.id,
+                "parent_id": row.parent_id,
+                "code": row.code,
+                "name": row.name,
+                "sort_order": row.sort_order,
+                "count": counts.get(row.id, 0),
+            }
+            for row in categories
+        ],
+    }
 
 
 class DraftInput(BaseModel):

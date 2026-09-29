@@ -19,7 +19,7 @@ const spaceLabels: Record<string, string> = {
   "/team": "团队空间",
 };
 const fallback: AssetReturnContext = { to: "/discover", path: "/discover", category: "all", label: "资产发现" };
-const allowedQuery = new Set(["q", "type", "team", "page", "category", "subscription"]);
+const allowedQuery = new Set(["q", "type", "team", "page", "category", "subscription", "group"]);
 
 // A detail link may preserve list context, but never redirect outside a known workspace.
 export function assetReturnContext(value: unknown): AssetReturnContext {

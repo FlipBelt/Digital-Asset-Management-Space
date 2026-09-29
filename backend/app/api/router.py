@@ -10,6 +10,7 @@ from app.api.v1 import (
     dashboard,
     developer,
     dingtalk,
+    employee_requests,
     governance,
     health,
     hudu,
@@ -42,6 +43,7 @@ api_router.include_router(scenarios.router, dependencies=authenticated)
 api_router.include_router(dashboard.router, dependencies=authenticated)
 api_router.include_router(developer.router)
 api_router.include_router(admin.router, dependencies=[Depends(require_system_admin)])
+api_router.include_router(employee_requests.router, dependencies=authenticated)
 api_router.include_router(governance.router, dependencies=authenticated)
 api_router.include_router(transfers.router, dependencies=authenticated)
 api_router.include_router(hudu.router, dependencies=authenticated)

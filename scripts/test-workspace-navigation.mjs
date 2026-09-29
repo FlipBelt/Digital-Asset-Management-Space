@@ -1,0 +1,13 @@
+import assert from "node:assert/strict";
+import { legacyWorkspaceEnabled, assetCategoryLabel } from "../frontend/src/lib/workspaceNavigation.ts";
+import { assetReturnContext } from "../frontend/src/lib/assetNavigation.ts";
+assert.equal(legacyWorkspaceEnabled("/test/", "jtzhzt.flipbeltchina.com"), false);
+assert.equal(legacyWorkspaceEnabled("/", "127.0.0.1"), false);
+assert.equal(legacyWorkspaceEnabled("/", "localhost"), false);
+assert.equal(legacyWorkspaceEnabled("/", "jtzhzt.flipbeltchina.com"), true);
+assert.equal(assetCategoryLabel({ code: "future_ai", name: "新的 AI 成果分类" }), "新的 AI 成果分类");
+const returnTo = "/discover?group=category-1&type=type-1&q=cloud&page=2";
+assert.equal(assetReturnContext(returnTo).to, returnTo);
+assert.equal(assetReturnContext("https://untrusted.example/discover?group=1").to, "/discover");
+assert.equal(assetReturnContext("/discover?group=1&admin=true").to, "/discover?group=1");
+console.log("Workspace navigation: 8 assertions passed for test isolation, future categories and safe list context.");
