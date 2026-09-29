@@ -1118,3 +1118,5 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .company-statutory-panel dd { margin: 0; font-size: 17px; font-weight: 700; }
 .company-statutory-panel p { margin: 14px 0 8px; color: var(--muted); font-size: 12px; line-height: 1.65; }
 .company-profile-error { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; color: #b42318; }
+
+.company-statutory-panel .text-button { display: inline-flex; min-height: 36px; align-items: center; gap: 6px; padding: 4px 0; border: 0; background: transparent; color: var(--primary); font-size: 12px; font-weight: 650; cursor: pointer; }
