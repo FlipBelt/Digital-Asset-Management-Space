@@ -19,12 +19,13 @@ import {
   api,
   type Department,
   type DepartmentMembership,
+  type DingTalkOrganization,
   type DingTalkProfile,
   type LegalEntity,
   type LegalEntityIdentifier,
-  type LegalEntityProfile,
   type Person,
 } from "../lib/api";
+import { organizationScope } from "../lib/organizationScope";
 
 type TreeRow = Department & { depth: number; hasChildren: boolean };
 
@@ -39,27 +40,32 @@ const departments = ref<Department[]>([]);
 const people = ref<Person[]>([]);
 const memberships = ref<DepartmentMembership[]>([]);
 const dingtalkProfiles = ref<DingTalkProfile[]>([]);
+const organizationBinding = ref<DingTalkOrganization | null>(null);
 const selectedEntityId = ref("");
 const legalProfile = reactive({ entity_type: "", jurisdiction: "", registration_status: "", legal_representative: "", established_on: "", registered_address: "", registered_capital: "", business_scope: "", source_note: "", verification_status: "pending" });
 const legalIdentifiers = ref<LegalEntityIdentifier[]>([]);
 const legalIdentifierForm = reactive({ namespace: "cn", identifier_type: "unified_social_credit_code", identifier_value: "", is_primary: true, verification_status: "pending", source_note: "" });
 const savingLegalProfile = ref(false);
 
-const peopleById = computed(() => Object.fromEntries(people.value.map((item) => [item.id, item])));
+const organizationEntity = computed(() => organizationBinding.value?.status === "bound"
+  ? entities.value.find((item) => item.id === organizationBinding.value?.legal_entity_id) : undefined);
+const scoped = computed(() => organizationScope(organizationEntity.value?.id, departments.value, people.value, memberships.value));
+const peopleById = computed(() => Object.fromEntries(scoped.value.people.map((item) => [item.id, item])));
 const profilesByPerson = computed(() => Object.fromEntries(dingtalkProfiles.value.map((item) => [item.person_id, item])));
 const childrenByParent = computed(() => {
   const grouped: Record<string, Department[]> = {};
-  for (const department of departments.value) {
-    const key = department.parent_id ?? "root";
+  const departmentIds = new Set(scoped.value.departments.map((item) => item.id));
+  for (const department of scoped.value.departments) {
+    const key = department.parent_id && departmentIds.has(department.parent_id) ? department.parent_id : "root";
     (grouped[key] ??= []).push(department);
   }
   Object.values(grouped).forEach((rows) => rows.sort((a, b) => a.name.localeCompare(b.name, "zh-CN")));
   return grouped;
 });
 const rootDepartments = computed(() => childrenByParent.value.root ?? []);
-const selectedDepartment = computed(() => departments.value.find((item) => item.id === selectedDepartmentId.value));
+const selectedDepartment = computed(() => scoped.value.departments.find((item) => item.id === selectedDepartmentId.value));
 const selectedEntity = computed(() => entities.value.find((item) => item.id === selectedEntityId.value));
-const selectedMemberships = computed(() => memberships.value.filter((item) => item.department_id === selectedDepartmentId.value));
+const selectedMemberships = computed(() => scoped.value.memberships.filter((item) => item.department_id === selectedDepartmentId.value));
 const selectedManagers = computed(() => selectedMemberships.value.filter((item) => item.is_manager));
 const selectedMembers = computed(() => {
   const keyword = search.value.trim().toLocaleLowerCase();
@@ -96,14 +102,17 @@ function toggleDepartment(department: TreeRow) {
 }
 async function load() {
   loading.value = true;
+  error.value = "";
   try {
-    [entities.value, departments.value, people.value, memberships.value, dingtalkProfiles.value] = await Promise.all([
-      api.legalEntities(), api.departments(), api.people(), api.departmentMemberships(), api.dingtalkProfiles(),
+    [entities.value, departments.value, people.value, memberships.value, dingtalkProfiles.value, organizationBinding.value] = await Promise.all([
+      api.legalEntities(), api.departments(), api.people(), api.departmentMemberships(), api.dingtalkProfiles(), api.dingtalkOrganization(),
     ]);
-    if (!selectedDepartmentId.value || !departments.value.some((item) => item.id === selectedDepartmentId.value)) {
-      selectedDepartmentId.value = rootDepartments.value[0]?.id ?? departments.value[0]?.id ?? "";
+    if (!scoped.value.departments.some((item) => item.id === selectedDepartmentId.value)) {
+      selectedDepartmentId.value = rootDepartments.value[0]?.id ?? scoped.value.departments[0]?.id ?? "";
     }
-    selectedEntityId.value ||= entities.value[0]?.id ?? "";
+    if (!entities.value.some((item) => item.id === selectedEntityId.value)) {
+      selectedEntityId.value = organizationEntity.value?.id ?? entities.value[0]?.id ?? "";
+    }
     await loadLegalProfile();
     expandedDepartmentIds.value = [...new Set([...expandedDepartmentIds.value, ...rootDepartments.value.map((item) => item.id)])];
   } catch (reason) {
@@ -113,8 +122,10 @@ async function load() {
   }
 }
 async function loadLegalProfile() {
-  if (!selectedEntityId.value) return;
-  const [profile, identifiers] = await Promise.all([api.legalEntityProfile(selectedEntityId.value), api.legalEntityIdentifiers(selectedEntityId.value)]);
+  const entityId = selectedEntityId.value;
+  if (!entityId) return;
+  const [profile, identifiers] = await Promise.all([api.legalEntityProfile(entityId), api.legalEntityIdentifiers(entityId)]);
+  if (entityId !== selectedEntityId.value) return;
   Object.assign(legalProfile, { entity_type: profile?.entity_type ?? "", jurisdiction: profile?.jurisdiction ?? "", registration_status: profile?.registration_status ?? "", legal_representative: profile?.legal_representative ?? "", established_on: profile?.established_on ?? "", registered_address: profile?.registered_address ?? "", registered_capital: profile?.registered_capital ?? "", business_scope: profile?.business_scope ?? "", source_note: profile?.source_note ?? "", verification_status: profile?.verification_status ?? "pending" });
   legalIdentifiers.value = identifiers;
 }
@@ -137,8 +148,8 @@ async function addLegalIdentifier() {
   finally { savingLegalProfile.value = false; }
 }
 async function syncDingtalk() {
-  const entity = entities.value[0];
-  if (!entity) { error.value = "请先建立公司主体，再同步钉钉组织。"; return; }
+  const entity = organizationEntity.value;
+  if (!entity) { error.value = organizationBinding.value?.message || "请先核实钉钉组织绑定。"; return; }
   syncingDingtalk.value = true;
   error.value = "";
   try {
@@ -152,23 +163,29 @@ async function syncDingtalk() {
 }
 
 onMounted(load);
-watch(selectedEntityId, () => { void loadLegalProfile(); });
+watch(selectedEntityId, async () => {
+  if (loading.value) return;
+  try { await loadLegalProfile(); }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : "法人档案加载失败"; }
+});
 </script>
 
 <template>
   <div class="page-stack">
     <PageHeader title="组织架构" description="以钉钉组织树呈现部门层级、成员岗位与部门主管身份，为数字资产归属和责任管理提供依据。">
-      <RouterLink class="secondary-button" to="/intake?mode=entity"><Plus :size="16" />登记公司主体</RouterLink><button class="primary-button" :disabled="syncingDingtalk" @click="syncDingtalk"><RefreshCw :size="16" :class="{ spinning: syncingDingtalk }" />{{ syncingDingtalk ? "正在同步…" : "同步钉钉组织" }}</button>
+      <RouterLink class="secondary-button" to="/intake?mode=entity"><Plus :size="16" />登记公司主体</RouterLink><button class="primary-button" :disabled="loading || syncingDingtalk || !organizationEntity" @click="syncDingtalk"><RefreshCw :size="16" :class="{ spinning: syncingDingtalk }" />{{ syncingDingtalk ? "正在同步…" : "同步钉钉组织" }}</button>
     </PageHeader>
 
     <div v-if="error" class="message-panel error-message">{{ error }}</div>
 
-    <section class="org-summary" v-if="selectedEntity">
-      <div class="org-company"><span class="record-icon"><Building2 :size="19" /></span><div><strong>{{ selectedEntity.name }}</strong><span>钉钉组织已接入 · {{ selectedEntity.code }}</span></div></div>
-      <div><strong>{{ departments.length }}</strong><span>部门</span></div>
-      <div><strong>{{ people.length }}</strong><span>成员</span></div>
-      <div><strong>{{ memberships.filter((item) => item.is_manager).length }}</strong><span>部门主管</span></div>
+    <section class="org-summary" v-if="organizationEntity">
+      <div class="org-company"><span class="record-icon"><Building2 :size="19" /></span><div><strong>{{ organizationEntity.name }}</strong><span>钉钉同步主体 · {{ organizationEntity.code }}</span></div></div>
+      <div><strong>{{ scoped.departments.length }}</strong><span>部门</span></div>
+      <div><strong>{{ scoped.people.length }}</strong><span>成员</span></div>
+      <div><strong>{{ scoped.memberships.filter((item) => item.is_manager).length }}</strong><span>部门主管</span></div>
     </section>
+    <div v-else-if="loading" class="message-panel" role="status">正在加载组织…</div>
+    <div v-else-if="!error" class="message-panel" role="status">{{ organizationBinding?.message || "暂未确定钉钉组织主体，请先核实绑定。" }}</div>
 
     <section v-if="selectedEntity" class="content-panel legal-entity-profile">
       <header class="panel-heading"><div><p class="eyebrow">L1 法人主体</p><h2>法人主体档案</h2><p>名称和主体标识用于证明实体成立；其余法定资料按证据补充，不影响已有资产和关系。</p></div><select v-model="selectedEntityId"><option v-for="entity in entities" :key="entity.id" :value="entity.id">{{ entity.name }}</option></select></header>
@@ -178,8 +195,8 @@ watch(selectedEntityId, () => { void loadLegalProfile(); });
 
     <section class="content-panel organization-workspace">
       <aside class="organization-tree">
-        <div class="tree-heading"><div><strong>组织架构</strong><span>{{ departments.length }} 个部门</span></div></div>
-        <div class="tree-root"><Building2 :size="16" /><span>{{ entities[0]?.name || "公司主体" }}</span></div>
+        <div class="tree-heading"><div><strong>组织架构</strong><span>{{ scoped.departments.length }} 个部门</span></div></div>
+        <div class="tree-root"><Building2 :size="16" /><span>{{ organizationEntity?.name || "尚未绑定组织" }}</span></div>
         <button
           v-for="department in treeRows"
           :key="department.id"
@@ -192,7 +209,7 @@ watch(selectedEntityId, () => { void loadLegalProfile(); });
           <ChevronRight v-else-if="department.hasChildren" :size="14" />
           <i v-else />
           <span>{{ department.name }}</span>
-          <small>{{ memberships.filter((item) => item.department_id === department.id).length }}</small>
+          <small>{{ scoped.memberships.filter((item) => item.department_id === department.id).length }}</small>
         </button>
         <div v-if="!loading && !treeRows.length" class="mini-empty">尚未同步部门</div>
       </aside>

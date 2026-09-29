@@ -6,7 +6,12 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.sessions import serialize_current_user, set_session_cookie
 from app.core.access import AccessContext, require_global_manager
-from app.core.auth import create_session, get_permission_codes, get_role_codes
+from app.core.auth import (
+    create_session,
+    get_permission_codes,
+    get_role_codes,
+    require_authenticated,
+)
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models import (
@@ -27,12 +32,17 @@ from app.schemas.dingtalk import (
     DingTalkIdentityRead,
     DingTalkLoginRequest,
     DingTalkLoginUser,
+    DingTalkOrganizationRead,
     DingTalkPersonProfileRead,
     DingTalkPublicConfig,
     DingTalkSessionRead,
     DingTalkSyncRequest,
 )
-from app.services.dingtalk import DingTalkClient, DingTalkDirectorySync
+from app.services.dingtalk import (
+    DingTalkClient,
+    DingTalkDirectorySync,
+    resolve_dingtalk_organization,
+)
 
 router = APIRouter(prefix="/dingtalk", tags=["dingtalk"])
 # Exact public aliases requested by the web client.  The existing /api/v1
@@ -320,6 +330,22 @@ def identify_dingtalk_user(
         user=serialize_current_user(db, user, session),
         identity=_identity_read(person, profile, db),
         expires_at=session.expires_at,
+    )
+
+
+@router.get("/organization", response_model=DingTalkOrganizationRead)
+def organization_binding(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_authenticated),
+) -> DingTalkOrganizationRead:
+    binding = resolve_dingtalk_organization(db)
+    entity = binding.entity
+    return DingTalkOrganizationRead(
+        status=binding.status,
+        legal_entity_id=entity.id if entity else None,
+        legal_entity_name=entity.name if entity else None,
+        legal_entity_code=entity.code if entity else None,
+        message=binding.message,
     )
 
 

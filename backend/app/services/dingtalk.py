@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from fastapi import HTTPException, status
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.models import (
+    AppSetting,
     Department,
     DepartmentMembership,
     DingTalkDepartmentLink,
@@ -20,6 +21,61 @@ from app.models import (
 )
 
 _OAPI_BASE = "https://oapi.dingtalk.com"
+
+
+@dataclass
+class DingTalkOrganizationBinding:
+    status: Literal["bound", "unbound", "invalid", "ambiguous"]
+    entity: LegalEntity | None = None
+    message: str | None = None
+
+
+def resolve_dingtalk_organization(db: Session) -> DingTalkOrganizationBinding:
+    """Use the configured organization, corroborated by existing directory links."""
+    setting = db.scalar(select(AppSetting).where(AppSetting.key == "organization_bootstrap"))
+    config = setting.value if setting and isinstance(setting.value, dict) else {}
+    code = config.get("legal_entity_code")
+    name = config.get("legal_entity_name")
+    code = code.strip() if isinstance(code, str) else ""
+    name = name.strip() if isinstance(name, str) else ""
+    linked_ids = set(
+        db.scalars(
+            select(Department.legal_entity_id)
+            .join(DingTalkDepartmentLink, DingTalkDepartmentLink.department_id == Department.id)
+            .where(Department.archived_at.is_(None))
+            .distinct()
+        )
+    )
+    entity = None
+    if code:
+        entity = db.scalar(select(LegalEntity).where(LegalEntity.code == code))
+    elif name:
+        matches = list(db.scalars(select(LegalEntity).where(LegalEntity.name == name)))
+        if len(matches) > 1:
+            return DingTalkOrganizationBinding(
+                "ambiguous", message="组织名称对应多个主体，请核实组织代码。"
+            )
+        entity = matches[0] if matches else None
+    elif len(linked_ids) == 1:
+        entity = db.get(LegalEntity, next(iter(linked_ids)))
+    elif linked_ids:
+        return DingTalkOrganizationBinding(
+            "ambiguous", message="钉钉部门关联多个主体，请先核实组织绑定。"
+        )
+    else:
+        return DingTalkOrganizationBinding(
+            "unbound", message="尚未绑定钉钉组织，请先配置组织主体。"
+        )
+
+    if entity is None or entity.archived_at is not None or entity.status != "active":
+        return DingTalkOrganizationBinding(
+            "invalid", message="绑定的组织主体不存在或已停用，请先核实配置。"
+        )
+    if linked_ids - {entity.id}:
+        return DingTalkOrganizationBinding(
+            "ambiguous", message="钉钉部门与配置的组织主体不一致，请先核实绑定。"
+        )
+    return DingTalkOrganizationBinding("bound", entity=entity)
 
 
 @dataclass
@@ -272,6 +328,11 @@ class DingTalkDirectorySync:
         entity = self.db.get(LegalEntity, legal_entity_id)
         if entity is None or entity.archived_at is not None:
             raise HTTPException(status_code=404, detail="legal entity not found")
+        binding = resolve_dingtalk_organization(self.db)
+        if binding.entity is None:
+            raise HTTPException(status_code=409, detail=binding.message)
+        if entity.id != binding.entity.id:
+            raise HTTPException(status_code=409, detail="同步目标与绑定的钉钉组织主体不一致")
         token = self.client.access_token()
         result = SyncResult()
         links = self._upsert_departments(entity, self.client.departments(token), result)

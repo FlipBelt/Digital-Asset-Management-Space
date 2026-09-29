@@ -117,6 +117,13 @@ export interface DingTalkStatus { enabled: boolean; configured: boolean; corp_id
 export interface DingTalkConfig { corpId: string | null; agentId: string | null; configured: boolean }
 export interface DingTalkWebConfig { enabled: boolean; configured: boolean }
 export interface PmSessionUser { dingUserId: string; name: string; avatar: string | null; department: string | null; role: string; roles: string[]; permissions: string[]; sessionToken: string }
+export interface DingTalkOrganization {
+  status: "bound" | "unbound" | "invalid" | "ambiguous";
+  legal_entity_id: string | null;
+  legal_entity_name: string | null;
+  legal_entity_code: string | null;
+  message: string | null;
+}
 export interface DingTalkProfile { person_id: string; dingtalk_user_id: string; job_title: string | null }
 export interface DingTalkIdentity { person_id: string; display_name: string; department_id: string | null; job_title: string | null; is_department_manager: boolean }
 export interface DingTalkSession { user: CurrentUser; identity: DingTalkIdentity; expires_at: string }
@@ -254,6 +261,7 @@ export const api = {
     setCsrfToken(session.user.csrf_token);
     return session;
   },
+  dingtalkOrganization: () => request<DingTalkOrganization>("/api/v1/dingtalk/organization"),
   dingtalkProfiles: () => request<DingTalkProfile[]>("/api/v1/dingtalk/profiles"),
   syncDingtalkDirectory: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/sync", json("POST", { legal_entity_id: legalEntityId })),
   assetAttachments: (id: string) => request<{id: string; file_name: string; size_bytes: number}[]>(`/api/v1/assets/${id}/attachments`),

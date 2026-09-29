@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -43,6 +44,14 @@ class DingTalkClientDiagnostic(BaseModel):
     bridge: str | None = Field(default=None, max_length=80)
     message: str = Field(default="", max_length=1000)
     user_agent: str = Field(default="", max_length=500)
+
+
+class DingTalkOrganizationRead(BaseModel):
+    status: Literal["bound", "unbound", "invalid", "ambiguous"]
+    legal_entity_id: UUID | None = None
+    legal_entity_name: str | None = None
+    legal_entity_code: str | None = None
+    message: str | None = None
 
 
 class DingTalkSyncRequest(BaseModel):
