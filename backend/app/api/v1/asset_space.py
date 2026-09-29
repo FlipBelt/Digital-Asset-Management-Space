@@ -34,11 +34,59 @@ from app.models import (
     ServiceProduct,
 )
 from app.schemas.assets import AssetRead
+from app.schemas.catalog import AssetTypeRead
 from app.schemas.common import ListResponse, Pagination
 from app.services.assets import allocate_asset_code, ensure_internal_identifier
 
 router = APIRouter(tags=["asset-space"])
-AI_CODES = ("ai_skill", "ai_plugin", "ai_agent", "ai_workflow", "automation_script")
+AI_ASSISTED_CODES = ("internal_system", "automation_script")
+AI_DEVELOPMENT_METHODS = ("vibe_coding", "mixed")
+
+
+def ai_registration_type_clause():
+    return or_(
+        AssetType.code.startswith("ai_", autoescape=True), AssetType.code.in_(AI_ASSISTED_CODES)
+    )
+
+
+def ai_outcome_clause():
+    return or_(
+        Asset.asset_type_id.in_(
+            select(AssetType.id).where(AssetType.code.startswith("ai_", autoescape=True))
+        ),
+        and_(
+            Asset.asset_type_id.in_(
+                select(AssetType.id).where(AssetType.code.in_(AI_ASSISTED_CODES))
+            ),
+            Asset.development_method.in_(AI_DEVELOPMENT_METHODS),
+        ),
+    )
+
+
+class AIRegistrationTypeRead(AssetTypeRead):
+    registration_name: str
+    requires_ai_development: bool
+
+
+@router.get("/space/registration-types", response_model=list[AIRegistrationTypeRead])
+def ai_registration_types(
+    db: Session = Depends(get_db),
+    _: AccessContext = Depends(get_access_context),
+):
+    types = db.scalars(
+        select(AssetType)
+        .where(AssetType.archived_at.is_(None), ai_registration_type_clause())
+        .order_by(AssetType.name)
+    )
+    names = {"internal_system": "AI 辅助开发系统", "automation_script": "AI 辅助自动化脚本"}
+    return [
+        AIRegistrationTypeRead(
+            **AssetTypeRead.model_validate(item).model_dump(),
+            registration_name=names.get(item.code, item.name),
+            requires_ai_development=item.code in AI_ASSISTED_CODES,
+        )
+        for item in types
+    ]
 
 
 def active_period(model):
@@ -115,9 +163,7 @@ def personal_scope(person_id, department_id, category):
             ),
         )
     if category == "ai":
-        return and_(
-            mine, Asset.asset_type_id.in_(select(AssetType.id).where(AssetType.code.in_(AI_CODES)))
-        )
+        return and_(mine, ai_outcome_clause())
     return mine
 
 
@@ -135,6 +181,7 @@ def space_assets(
         "workflows",
         "bookmarks",
     ] = "all",
+    workflow_view: Literal["all", "created", "bookmarks"] = "all",
     department_id: UUID | None = None,
     asset_type_id: UUID | None = None,
     asset_category_id: UUID | None = None,
@@ -159,6 +206,12 @@ def space_assets(
         conditions.append(
             Asset.asset_type_id.in_(select(AssetType.id).where(AssetType.code == "ai_workflow"))
         )
+        if workflow_view != "all":
+            conditions.append(
+                personal_scope(access.person_id, None, workflow_view) if access.person_id else False
+            )
+    elif workflow_view != "all":
+        raise HTTPException(422, "工作流视图仅用于工作流列表")
     if asset_type_id:
         conditions.append(Asset.asset_type_id == asset_type_id)
     if asset_category_id:
@@ -263,8 +316,6 @@ def create_draft(
     asset_type = db.get(AssetType, payload.asset_type_id)
     if asset_type is None or asset_type.archived_at is not None:
         raise HTTPException(422, "资产类型不可用")
-    if payload.development_method and asset_type.code != "internal_system":
-        raise HTTPException(422, "开发方式仅适用于系统资产")
     identity = draft_id(access.user.id, payload.request_id)
     fields = payload.model_dump(exclude={"request_id"})
     existing = db.get(Asset, identity)
@@ -274,6 +325,17 @@ def create_draft(
         ):
             raise HTTPException(409, "该请求编号已经用于其他草稿内容")
         return existing
+    if asset_type.code in AI_ASSISTED_CODES:
+        if payload.development_method not in AI_DEVELOPMENT_METHODS:
+            raise HTTPException(
+                422, "AI 成果需注明 AI 辅助编程或混合开发；其他系统和脚本请由管理后台登记"
+            )
+    elif not asset_type.code.startswith("ai_"):
+        raise HTTPException(
+            403, "成果登记仅支持 AI 相关类型；订阅请在我的订阅登记，其他资产请由管理后台登记"
+        )
+    elif payload.development_method:
+        raise HTTPException(422, "开发方式仅适用于 AI 辅助系统或脚本")
     person = db.get(Person, access.person_id)
     if person is None or person.archived_at is not None:
         raise HTTPException(422, "员工身份不可用")

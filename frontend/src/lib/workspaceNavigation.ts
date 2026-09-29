@@ -1,3 +1,8 @@
+export type WorkflowView = "all" | "created" | "bookmarks";
+export function workflowView(value: unknown): WorkflowView {
+  return value === "created" || value === "bookmarks" ? value : "all";
+}
+
 // Historical workspaces remain available in production, but are absent from the test experience.
 export function legacyWorkspaceEnabled(baseUrl: string, hostname: string): boolean {
   return !baseUrl.startsWith("/test") && !["localhost", "127.0.0.1"].includes(hostname);

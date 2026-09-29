@@ -105,6 +105,7 @@ def actors():
         db.commit()
         ids = dict(
             person=people,
+            entity=str(entity.id),
             teams=[team.id for team in teams],
             product=str(product.id),
             skill=str(db.scalar(select(AssetType.id).where(AssetType.code == "ai_skill"))),
@@ -711,7 +712,7 @@ def test_category_projection_preserves_private_drafts_and_custom_ai_types(actors
         "/api/v1/asset-types",
         json=dict(
             category_id=group_id,
-            code="test-ai-" + uuid4().hex[:10],
+            code="ai_test_" + uuid4().hex[:10],
             name="隔离 AI 类型",
             profile_kind="generic",
             code_prefix="TST",
@@ -738,3 +739,228 @@ def test_category_projection_preserves_private_drafts_and_custom_ai_types(actors
     receipt = prepare(actors.owner, own)
     assert confirm(actors.owner, own, receipt).status_code == 200
     assert actors.other.get(url).json()["data"] == []
+
+
+def test_employee_ai_registration_rejects_non_ai_and_keeps_management_creation(actors):
+    catalog = actors.owner.get("/api/v1/space/registration-types")
+    assert catalog.status_code == 200
+    rows = catalog.json()
+    codes = {row["code"] for row in rows}
+    assert {"ai_skill", "ai_workflow", "internal_system", "automation_script"} <= codes
+    assert (
+        not {"saas_subscription", "registration_identity", "cloud_server", "code_repository"}
+        & codes
+    )
+    assert all(
+        row["requires_ai_development"]
+        for row in rows
+        if row["code"] in {"internal_system", "automation_script"}
+    )
+    with SessionLocal() as db:
+        before = db.scalar(select(func.count()).select_from(Asset))
+        rejected = list(
+            db.scalars(
+                select(AssetType).where(
+                    AssetType.code.in_(
+                        (
+                            "saas_subscription",
+                            "registration_identity",
+                            "cloud_server",
+                            "code_repository",
+                        )
+                    )
+                )
+            )
+        )
+        type_ids = [str(row.id) for row in rejected]
+    assert len(type_ids) == 4
+    for type_id in type_ids:
+        response = actors.owner.post(
+            "/api/v1/assets/draft",
+            json=dict(
+                request_id=str(uuid4()),
+                name="不应登记",
+                description="隔离负向检查",
+                asset_type_id=type_id,
+            ),
+        )
+        assert response.status_code == 403, response.text
+        assert (
+            actors.owner.post(
+                "/api/v1/assets", json=dict(name="绕过员工入口", asset_type_id=type_id)
+            ).status_code
+            == 403
+        )
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Asset)) == before
+    managed = actors.admin.post(
+        "/api/v1/assets",
+        json=dict(name="后台管理登记", asset_type_id=type_ids[0], legal_entity_id=actors.entity),
+    )
+    assert managed.status_code == 201, managed.text
+    assert actors.owner.get(f"/api/v1/assets/{managed.json()['id']}").status_code == 200
+
+
+def test_ai_assisted_systems_require_ai_method_and_ai_projection_is_exact(actors):
+    with SessionLocal() as db:
+        type_ids = {
+            row.code: str(row.id)
+            for row in db.scalars(
+                select(AssetType).where(
+                    AssetType.code.in_(("internal_system", "automation_script"))
+                )
+            )
+        }
+    for type_id in type_ids.values():
+        for method in (None, "traditional", "low_code"):
+            response = actors.owner.post(
+                "/api/v1/assets/draft",
+                json=dict(
+                    request_id=str(uuid4()),
+                    name="非 AI 开发",
+                    description="隔离负向检查",
+                    asset_type_id=type_id,
+                    development_method=method,
+                ),
+            )
+            assert response.status_code == 422, response.text
+    system = draft(
+        actors.owner,
+        actors,
+        asset_type_id=type_ids["internal_system"],
+        development_method="vibe_coding",
+    )
+    script = draft(
+        actors.owner,
+        actors,
+        asset_type_id=type_ids["automation_script"],
+        development_method="mixed",
+    )
+    assert system["sharing_scope"] == "private" and script["status"] == "draft"
+    with SessionLocal() as db:
+        legacy = Asset(
+            name="历史传统系统",
+            asset_type_id=UUID(type_ids["internal_system"]),
+            asset_code="AI-LEGACY-" + uuid4().hex[:10],
+            legal_entity_id=UUID(actors.entity),
+            created_by_person_id=actors.person["owner"],
+            sharing_scope="private",
+            development_method="traditional",
+        )
+        db.add(legacy)
+        db.commit()
+        legacy_id = str(legacy.id)
+    result = actors.owner.get("/api/v1/space/assets?scope=mine&category=ai").json()
+    ids = {row["id"] for row in result["data"]}
+    assert {system["id"], script["id"]} <= ids and legacy_id not in ids
+    assert actors.owner.get(f"/api/v1/assets/{legacy_id}").status_code == 200
+    assert actors.other.get(f"/api/v1/assets/{system['id']}").status_code == 404
+
+
+def test_subscription_registration_remains_separate_from_ai_outcome_registration(actors):
+    with SessionLocal() as db:
+        type_id = str(db.scalar(select(AssetType.id).where(AssetType.code == "saas_subscription")))
+    rejected = actors.owner.post(
+        "/api/v1/assets/draft",
+        json=dict(
+            request_id=str(uuid4()),
+            name="重复订阅入口",
+            description="不能作为 AI 成果",
+            asset_type_id=type_id,
+        ),
+    )
+    assert rejected.status_code == 403
+    asset, instance = membership(actors.owner, actors)
+    own = actors.owner.get("/api/v1/space/assets?scope=mine&category=subscriptions").json()
+    assert [row["id"] for row in own["data"]] == [asset["id"]]
+    ai = actors.owner.get("/api/v1/space/assets?scope=mine&category=ai").json()
+    assert asset["id"] not in {row["id"] for row in ai["data"]}
+    assert actors.other.get("/api/v1/space/memberships").json() == []
+    with SessionLocal() as db:
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(ServiceInstance)
+                .where(ServiceInstance.asset_id == UUID(asset["id"]))
+            )
+            == 1
+        )
+        assert db.get(ServiceInstance, UUID(instance["id"])).funding_source == "personal"
+
+
+def test_workflow_views_only_return_visible_workflows_and_preserve_personal_scope(actors):
+    with SessionLocal() as db:
+        workflow_type = str(db.scalar(select(AssetType.id).where(AssetType.code == "ai_workflow")))
+    marker = "工作流隔离-" + uuid4().hex[:10]
+    own = draft(actors.owner, actors, asset_type_id=workflow_type, name=marker + "-本人")
+    hidden = draft(actors.other, actors, asset_type_id=workflow_type, name=marker + "-私有")
+    shared = draft(actors.other, actors, asset_type_id=workflow_type, name=marker + "-团队")
+    receipt = prepare(actors.other, shared, "team")
+    assert confirm(actors.other, shared, receipt).status_code == 200
+    skill = draft(actors.owner, actors, name=marker + "-技能")
+    for item in (shared, skill):
+        assert actors.owner.put(f"/api/v1/assets/{item['id']}/bookmark").status_code == 204
+    path = "/api/v1/space/assets?scope=discover&category=workflows&keyword=" + marker
+
+    def ids(view):
+        response = actors.owner.get(path + "&workflow_view=" + view)
+        assert response.status_code == 200, response.text
+        return {row["id"] for row in response.json()["data"]}
+
+    assert ids("all") == {own["id"], shared["id"]}
+    assert ids("created") == {own["id"]}
+    assert ids("bookmarks") == {shared["id"]}
+    assert hidden["id"] not in ids("all") and skill["id"] not in ids("all")
+    assert actors.owner.get(path + "&workflow_view=invalid").status_code == 422
+    assert (
+        actors.owner.get("/api/v1/space/assets?category=all&workflow_view=created").status_code
+        == 422
+    )
+
+
+def test_historical_non_ai_draft_retry_is_read_only_but_cannot_create_another(actors):
+    from app.api.v1.asset_space import draft_id
+
+    nonce = uuid4()
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.person_id == actors.person["owner"]))
+        type_id = db.scalar(select(AssetType.id).where(AssetType.code == "code_repository"))
+        item = Asset(
+            id=draft_id(user.id, nonce),
+            asset_code="LEGACY-" + uuid4().hex[:10],
+            name="旧登记草稿",
+            description="隔离历史兼容资料",
+            asset_type_id=type_id,
+            legal_entity_id=UUID(actors.entity),
+            created_by_person_id=actors.person["owner"],
+            sharing_scope="private",
+            source_type="manual",
+            status="draft",
+        )
+        db.add(item)
+        db.commit()
+        item_id, version = str(item.id), item.version
+        before = db.scalar(select(func.count()).select_from(Asset))
+    payload = dict(
+        request_id=str(nonce),
+        name="旧登记草稿",
+        description="隔离历史兼容资料",
+        asset_type_id=str(type_id),
+    )
+    retry = actors.owner.post("/api/v1/assets/draft", json=payload)
+    assert retry.status_code == 200 and retry.json()["id"] == item_id
+    assert retry.json()["version"] == version
+    assert actors.other.post("/api/v1/assets/draft", json=payload).status_code == 403
+    assert (
+        actors.owner.post(
+            "/api/v1/assets/draft", json={**payload, "request_id": str(uuid4())}
+        ).status_code
+        == 403
+    )
+    assert (
+        actors.owner.post("/api/v1/assets/draft", json={**payload, "name": "新内容"}).status_code
+        == 409
+    )
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Asset)) == before
+        assert db.get(Asset, UUID(item_id)).version == version

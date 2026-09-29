@@ -16,10 +16,11 @@ const spaceLabels: Record<string, string> = {
   "/my/drafts": "我的草稿",
   "/my/bookmarks": "我的收藏",
   "/discover": "资产发现",
+  "/workflows": "工作流",
   "/team": "团队空间",
 };
 const fallback: AssetReturnContext = { to: "/discover", path: "/discover", category: "all", label: "资产发现" };
-const allowedQuery = new Set(["q", "type", "team", "page", "category", "subscription", "group"]);
+const allowedQuery = new Set(["q", "type", "team", "page", "category", "subscription", "group", "view"]);
 
 // A detail link may preserve list context, but never redirect outside a known workspace.
 export function assetReturnContext(value: unknown): AssetReturnContext {
@@ -28,7 +29,7 @@ export function assetReturnContext(value: unknown): AssetReturnContext {
     const url = new URL(value, "http://asset-center.invalid");
     if (url.origin !== "http://asset-center.invalid" || !Object.hasOwn(spaceLabels, url.pathname)) return { ...fallback };
     for (const key of [...url.searchParams.keys()]) if (!allowedQuery.has(key)) url.searchParams.delete(key);
-    const category = url.searchParams.get("category") === "workflows" ? "workflows" : "all";
+    const category = url.pathname === "/workflows" || url.searchParams.get("category") === "workflows" ? "workflows" : "all";
     const label = url.pathname === "/discover" && category === "workflows" ? "工作流" : spaceLabels[url.pathname]!;
     return { to: url.pathname + url.search, path: url.pathname, category, label };
   } catch { return { ...fallback }; }

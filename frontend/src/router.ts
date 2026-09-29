@@ -51,7 +51,7 @@ const router = createRouter({
     { path: "/my/:category(created|responsible|subscriptions|using|ai|drafts|bookmarks)", component: AssetSpacePage, props: { scope: "mine" } },
     { path: "/manage", component: AssetManagePage },
     { path: "/exploration", redirect: "/my/subscriptions" },
-    { path: "/workflows", redirect: "/discover?category=workflows" },
+    { path: "/workflows", component: AssetSpacePage, props: { scope: "workflows" } },
     { path: "/my", name: "my-usage", component: AssetSpacePage, props: { scope: "mine" } },
     { path: "/department", name: "department-assets", component: DepartmentAssetsPage },
     { path: "/map", name: "asset-map", redirect: "/discover" },
@@ -72,6 +72,10 @@ const router = createRouter({
 });
 
 router.beforeEach(to => {
+  if (to.path === "/discover" && to.query.category === "workflows") {
+    const { category: _category, group: _group, ...query } = to.query;
+    return { path: "/workflows", query };
+  }
   if (!legacyWorkspaceEnabled(import.meta.env.BASE_URL, window.location.hostname)
       && (to.path === "/hudu" || to.path.startsWith("/hudu/"))) {
     return to.name === "hudu-asset-detail" ? { path: `/discover/${to.params.id}` } : { path: "/discover" };

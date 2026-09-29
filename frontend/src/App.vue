@@ -160,7 +160,7 @@ const personalNav = [
 ];
 const sharedNav = [
   { to: "/discover", label: "资产发现", icon: LayoutGrid },
-  { to: "/discover?category=workflows", label: "工作流", icon: Workflow },
+  { to: "/workflows", label: "工作流", icon: Workflow },
   { to: "/team", label: "团队空间", icon: Users },
 ];
 const huduNav = [
@@ -180,10 +180,9 @@ const environmentTarget = computed(() => isTestEnvironment ? "/" : "/test/");
 const navigationContext = computed(() => route.path.startsWith("/discover/")
   ? assetReturnContext(route.query.returnTo)
   : { path: route.path, category: route.query.category === "workflows" ? "workflows" : "all" });
-// Query-based shortcuts share the asset route, but only one navigation item is selected.
 function isNavActive(to: string) {
-  if (to === "/discover?category=workflows") {
-    return navigationContext.value.path === "/discover" && navigationContext.value.category === "workflows";
+  if (to === "/workflows") {
+    return navigationContext.value.path === "/workflows" || (navigationContext.value.path === "/discover" && navigationContext.value.category === "workflows");
   }
   if (to === "/discover") {
     return (navigationContext.value.path === "/discover" && navigationContext.value.category !== "workflows") || navigationContext.value.path.startsWith("/discover/");
@@ -514,7 +513,7 @@ onBeforeUnmount(() => { window.removeEventListener("keydown", onHotkey); window.
           </div>
         </div>
         <div class="topbar-actions">
-          <RouterLink :to="isHuduMode ? '/hudu' : '/register'" class="primary-button compact"><Plus :size="16" />登记成果</RouterLink>
+          <RouterLink :to="isHuduMode ? '/hudu' : '/register'" class="primary-button compact"><Plus :size="16" />登记 AI 成果</RouterLink>
           <a v-if="!isLocalDevelopment" class="environment-switcher" :href="environmentTarget" :title="`切换到${isTestEnvironment ? '生产' : '测试'}环境`"><span class="environment-dot" :class="{ test: isTestEnvironment }" /><span>{{ environmentLabel }}</span><ChevronDown :size="14" /></a>
           <button class="user-menu" type="button" :aria-label="identityLabel + (currentUser ? '，刷新登录状态' : '，登录')" :disabled="identityState === 'recognizing'" :title="identityHint || identityLabel" @click="openIdentityEntry">
             <span class="avatar"><UserRound :size="16" aria-hidden="true" /></span>
