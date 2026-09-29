@@ -191,7 +191,7 @@ export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message) }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 12000): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (pmSessionToken) headers.set("X-PM-Session", pmSessionToken);
@@ -200,7 +200,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set("X-CSRF-Token", csrfToken);
   }
   const controller = init.signal ? null : new AbortController();
-  const timeout = controller ? window.setTimeout(() => controller.abort(), 12000) : null;
+  const timeout = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
   let response: Response;
   const requestPath = apiPath(path);
   try {
@@ -271,8 +271,8 @@ export const api = {
   },
   dingtalkOrganization: () => request<DingTalkOrganization>("/api/v1/dingtalk/organization"),
   dingtalkProfiles: () => request<DingTalkProfile[]>("/api/v1/dingtalk/profiles"),
-  syncDingtalkDirectory: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/sync", json("POST", { legal_entity_id: legalEntityId })),
-  refreshCompanyAffiliations: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/organization/companies/refresh", json("POST", { legal_entity_id: legalEntityId })),
+  syncDingtalkDirectory: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/sync", json("POST", { legal_entity_id: legalEntityId }), 120000),
+  refreshCompanyAffiliations: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/organization/companies/refresh", json("POST", { legal_entity_id: legalEntityId }), 120000),
   assetAttachments: (id: string) => request<{id: string; file_name: string; size_bytes: number}[]>(`/api/v1/assets/${id}/attachments`),
   uploadAssetZip: (id: string, file: File) => { const body = new FormData(); body.append("file", file); return request(`/api/v1/assets/${id}/attachments`, {method: "POST", body}); },
   downloadAssetZip: (id: string, attachment: string) => request<Blob>(`/api/v1/assets/${id}/attachments/${attachment}/download`),
