@@ -32,6 +32,25 @@ SESSION_SECURE_COOKIE=true
 
 配置由服务端固定，不根据任意 Host/Forwarded 请求头或客户端参数生成回调域名。HTTPS 登录要求 Secure Cookie；回调和前端必须同源。仅本地开发允许回环 HTTP 地址。以上配置属于 `/test/`，不会自动开启生产网页登录。
 
+## 正式环境配置
+
+在同一钉钉内部应用的「安全设置」中保留测试回调，并以英文逗号追加正式回调：
+
+```text
+https://jtzhzt.flipbeltchina.com/api/dingtalk/web/callback
+```
+
+正式服务沿用其已有企业身份配置，设置 `DINGTALK_WEB_ENABLED=true`、
+`DINGTALK_WEB_REDIRECT_URI=https://jtzhzt.flipbeltchina.com/api/dingtalk/web/callback`、
+`DINGTALK_WEB_FRONTEND_URL=https://jtzhzt.flipbeltchina.com/`，并保持
+`SESSION_SECURE_COOKIE=true`。在启用前安装生产回调的 Nginx 精确匹配规则，
+关闭该地址访问日志并设置 `Referrer-Policy: no-referrer`；测试回调规则继续保留。
+
+验证正式 `/api/dingtalk/web/config` 已启用、授权跳转的回调地址准确，
+匿名业务接口仍为 401，并由本人完成扫码、身份与权限核验；同时复测 `/test/`。
+回退时将正式服务的 `DINGTALK_WEB_ENABLED=false` 并重启，恢复先前 Nginx 配置；
+钉钉后台删除新增的正式回调但保留测试回调。不要在 URL、日志或文档中记录授权码。
+
 ## 数据迁移和回滚
 
 新增迁移 `f13c20260928`，只增加 `dingtalk_web_login_states`。该表只保存随机状态、浏览器绑定的哈希、内部回跳路径及过期时间，不保存授权码或 token。成功/取消请求后消费状态；新登录请求会清理过期状态。
@@ -55,6 +74,8 @@ SESSION_SECURE_COOKIE=true
 测试回调专用代理已安装，测试网页登录开关已启用，`/api/dingtalk/web/config` 返回 `enabled=true, configured=true`。官方授权跳转、HttpOnly/Secure/SameSite Cookie、无效回调拒绝及生产边界检查通过，浏览器已到达官方授权页。未创建新的钉钉应用版本，未增加 API 权限；用户本人已完成官方授权并成功回到测试应用；2026-09-28 17:46:46 的服务端网页登录审计与既有员工映射一致，未创建重复身份。
 
 真实网页登录及本人身份已核验；资产范围、原页面恢复、重新登录及钉钉内免登仍待验收。测试环境现有全量权限策略不能证明正式 RBAC 或真实业务 UAT 通过，不得以本地演示员工身份或 mock 测试代替此验收。
+
+2026-09-30 正式环境已登记第二条回调，重新载入钉钉开发者后台确认测试与正式地址均保留；正式服务开启网页扫码，生产 Nginx 精确匹配回调已关闭访问日志并设置 `Referrer-Policy: no-referrer`。正式与测试配置接口均返回已启用、已配置；公网静态页和 ready 为 200，匿名资产接口为 401。正式登录按钮跳转到钉钉官方授权页，`redirect_uri` 为正式回调。正式员工扫码、身份映射、角色权限与业务流程仍须本人验收，不能以跳转成功代替。
 
 ## 官方依据
 
