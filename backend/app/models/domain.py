@@ -309,6 +309,11 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, ArchiveMixin, VersionMixin, Bas
     criticality: Mapped[str] = mapped_column(String(32), default="normal", nullable=False)
     confidentiality: Mapped[str] = mapped_column(String(32), default="internal", nullable=False)
     source_type: Mapped[str] = mapped_column(String(32), default="manual", nullable=False)
+    sharing_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source_system: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_agent: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    source_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    development_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
     started_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     last_verified_at: Mapped[datetime | None] = mapped_column(
@@ -701,6 +706,10 @@ class ServiceInstance(UUIDPrimaryKeyMixin, TimestampMixin, ArchiveMixin, Base):
     purchase_tenant_asset_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("assets.id"), nullable=True
     )
+    funding_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    payer_person_id: Mapped[UUID | None] = mapped_column(ForeignKey("people.id"), nullable=True)
+    usage_frequency: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    primary_purpose: Mapped[str | None] = mapped_column(String(500), nullable=True)
     subscription_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="CNY", nullable=False)
     starts_at: Mapped[date | None] = mapped_column(Date, nullable=True)

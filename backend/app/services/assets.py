@@ -51,13 +51,22 @@ class AssetService:
         return asset
 
     def update(self, db: Session, asset_id: UUID, payload: AssetPatch) -> Asset:
-        asset = self.require(db, asset_id)
+        asset = db.scalar(
+            select(Asset).where(Asset.id == asset_id).with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if asset is None:
+            raise HTTPException(404, "资产不存在")
         if asset.version != payload.version:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="记录已被其他用户修改")
         before = self._snapshot(asset)
         for field, value in payload.model_dump(exclude={"version"}, exclude_unset=True).items():
             setattr(asset, field, value)
         asset.version += 1
+        if asset.sharing_scope is not None:
+            asset.confirmed_at = None
+            asset.confirmed_by_person_id = None
+            asset.review_status = "pending_review"
         db.flush()
         self._audit(db, "asset.update", asset.id, before, self._snapshot(asset))
         db.commit()
@@ -65,7 +74,12 @@ class AssetService:
         return asset
 
     def archive(self, db: Session, asset_id: UUID, version: int) -> Asset:
-        asset = self.require(db, asset_id)
+        asset = db.scalar(
+            select(Asset).where(Asset.id == asset_id).with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if asset is None:
+            raise HTTPException(404, "资产不存在")
         if asset.version != version:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="记录已被其他用户修改")
         before = self._snapshot(asset)
@@ -79,14 +93,21 @@ class AssetService:
         return asset
 
     def restore(self, db: Session, asset_id: UUID, version: int) -> Asset:
-        asset = asset_repository.get(db, asset_id, include_archived=True)
+        asset = db.scalar(
+            select(Asset).where(Asset.id == asset_id).with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if asset is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="资产不存在")
         if asset.version != version:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="记录已被其他用户修改")
         before = self._snapshot(asset)
         asset.archived_at = None
-        asset.status = "active"
+        asset.status = "draft" if asset.sharing_scope is not None else "active"
+        if asset.sharing_scope is not None:
+            asset.confirmed_at = None
+            asset.confirmed_by_person_id = None
+            asset.review_status = "pending_review"
         asset.version += 1
         db.flush()
         self._audit(db, "asset.restore", asset.id, before, self._snapshot(asset))
@@ -172,7 +193,7 @@ class AssetService:
     ) -> None:
         db.add(
             AuditLog(
-                actor_user_id=None,
+                actor_user_id=db.info.get("audit_actor_user_id"),
                 action=action,
                 object_type="asset",
                 object_id=object_id,

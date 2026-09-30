@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -45,14 +46,40 @@ class DingTalkClientDiagnostic(BaseModel):
     user_agent: str = Field(default="", max_length=500)
 
 
+class DingTalkDirectorySnapshotRead(BaseModel):
+    department_codes: list[str]
+    checked_at: datetime | None
+    current_person_ids: list[UUID] | None = None
+    historical_person_ids: list[UUID] | None = None
+    people_checked_at: datetime | None = None
+
+
+class DingTalkOrganizationRead(BaseModel):
+    status: Literal["bound", "unbound", "invalid", "ambiguous"]
+    legal_entity_id: UUID | None = None
+    legal_entity_name: str | None = None
+    legal_entity_code: str | None = None
+    message: str | None = None
+    directory_snapshot: DingTalkDirectorySnapshotRead | None = None
+
+
 class DingTalkSyncRequest(BaseModel):
     legal_entity_id: str
+
+
+class DingTalkCompanyAffiliationRead(BaseModel):
+    name: str | None
+    status: Literal["available", "missing", "invalid", "conflict", "unavailable", "unknown"]
+    source_field: str | None
+    checked_at: datetime | None
 
 
 class DingTalkPersonProfileRead(ORMModel):
     person_id: UUID
     dingtalk_user_id: str
     job_title: str | None
+    company_affiliation: DingTalkCompanyAffiliationRead | None = None
+    directory_status: Literal["current", "not_in_current_directory"] | None = None
 
 
 class DingTalkIdentityRead(BaseModel):
@@ -61,6 +88,7 @@ class DingTalkIdentityRead(BaseModel):
     department_id: UUID | None
     job_title: str | None
     is_department_manager: bool
+    is_group_leader: bool = False
 
 
 class DingTalkSessionRead(BaseModel):

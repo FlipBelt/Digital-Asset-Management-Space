@@ -31,7 +31,7 @@ onMounted(async () => {
         <h2>知道资产在哪里，也知道由谁负责</h2>
         <p>平台账号、云资源、业务系统和人员授权已经可以在同一张关系图中查看。</p>
         <div class="hero-actions">
-          <RouterLink to="/map" class="primary-button"><Network :size="17" />打开资产地图</RouterLink>
+          <RouterLink to="/discover" class="primary-button"><Network :size="17" />查看资产分类</RouterLink>
           <RouterLink to="/imports" class="secondary-button"><FileInput :size="17" />导入已有资料</RouterLink>
         </div>
       </div>

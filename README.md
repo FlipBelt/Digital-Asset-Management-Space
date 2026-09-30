@@ -1,6 +1,8 @@
-# 集团账号管理中台
+# FlipBelt 资产中心
 
 以账号为重要入口的公司账号与数字资产统一底库。当前本地版本已经具备真实数据保存、查询、编辑、归档、关系、责任、服务指标、Excel导入导出、流程风险、审计、连接器预留和统一的 FlipBelt v4 视觉主题。
+
+V1.3 以统一 Asset 底库融合个人空间、成果发现、订阅与探索和管理入口。迁移、验证及本地正式前端预览见 [融合记录](docs/ASSET-CENTER-V1.3-MIGRATION.md)；原账号与治理能力继续保留。
 
 ## 直接使用
 
@@ -33,7 +35,7 @@
 - 工作台：我的/部门/公司视角入口、实时指标、类型和状态看板、最近更新。
 - 资产中心：统一资产CRUD、搜索筛选、四种分组视角、归档恢复、责任、关系和变更历史。
 - 平台与账号：供应商、平台、企业租户、平台账号、MFA状态及外部密码库安全引用。
-- 组织与人员：公司主体、部门层级和人员档案。
+- 组织与人员：公司主体归属、职能部门层级与人员档案分开展示；资料来源及待核验规则见[组织视图说明](docs/ORGANIZATION-STRUCTURE.md)。
 - 服务与用量：服务产品、购买实例、余额、额度、调用量、Token和费用历史。
 - 流程与风险：固定申请状态流转、资产风险扫描及处理。
 - 管理员控制台：分类与自定义类型、主题、功能配置、连接器、模拟同步和审计。
@@ -48,7 +50,7 @@
 
 服务器测试环境使用独立的 `account_center_test` 数据库、`account-center-test.service`（回环端口 `8200`）和 `/var/www/account-center-test` 静态目录。生产仍使用 `/` 与 `/api/`，测试只通过 `/test/` 与 `/test-api/` 访问。进入任一环境后，顶部“生产环境 / 测试环境”按钮可在同一个钉钉应用内切换；两套环境使用不同会话 Cookie，互不串会话。测试库首次创建前的生产快照保存在服务器备份目录，后续新方案、新迁移和版本升级先在测试环境验证，再安排生产发布。
 
-测试环境部署单元见 [`deploy/account-center-test.service`](./deploy/account-center-test.service)，Nginx 路由见 [`deploy/account-center.https.nginx.conf`](./deploy/account-center.https.nginx.conf)。测试环境沿用现有钉钉登录配置；在普通浏览器中打开时，若出现“请从钉钉打开”属于预期行为。测试服务的 `APP_ENV=test` 会在完成身份认证后授予全量测试操作权限，便于自由探索；该授权分支只存在于隔离测试服务，生产服务仍按正式 RBAC 校验。
+测试环境部署单元见 [`deploy/account-center-test.service`](./deploy/account-center-test.service)，Nginx 路由见 [`deploy/account-center.https.nginx.conf`](./deploy/account-center.https.nginx.conf)。测试环境沿用现有钉钉内部应用身份配置。钉钉内支持免登；普通浏览器的 `/login` 提供钉钉网页扫码入口，启用前需完成[网页登录配置](docs/DINGTALK_WEB_LOGIN.md)。未配置时入口显示原因并保持禁用，也可使用管理员已开通的系统账号。测试服务与生产使用相同 RBAC 逻辑；`APP_ENV=test` 不授予额外操作权限。中心/职能部门主管可管理自己的部门及下级，小组组长仅管理本组，系统设置仍只向已明确授权的系统管理员开放。
 
 完整校验：
 

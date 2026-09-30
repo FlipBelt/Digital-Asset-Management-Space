@@ -106,6 +106,11 @@ def create_asset(
     db: Session = Depends(get_db),
     access: AccessContext = Depends(require_asset_write),
 ) -> Asset:
+    if not access.is_global_manager and not (
+        bool(access.roles & {"department_manager", "group_leader"})
+        and payload.owner_department_id in access.department_scopes
+    ):
+        raise HTTPException(403, "请从登记成果入口创建本人草稿")
     return asset_service.create(db, payload, created_by_person_id=access.person_id)
 
 
@@ -173,6 +178,7 @@ def create_platform_link(
     access: AccessContext = Depends(require_asset_write),
 ) -> AssetPlatformLink:
     asset = asset_service.require(db, asset_id)
+    require_asset_visible(db, access, asset)
     if not can_manage_asset(db, access, asset):
         from fastapi import HTTPException
 
@@ -305,16 +311,15 @@ def patch_asset(
     access: AccessContext = Depends(get_access_context),
 ) -> Asset:
     asset = asset_service.require(db, asset_id)
+    require_asset_visible(db, access, asset)
     if not can_manage_asset(db, access, asset):
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=403, detail="无权修改该资产")
     changes = payload.model_dump(exclude_unset=True)
+    if asset.sharing_scope is not None and asset.status == "draft" and changes.get("status") == "active":
+        raise HTTPException(409, "请先预览具体版本，再确认登记")
     if ("owner_department_id" in changes or "status" in changes) and not can_govern_asset(
         access, asset
     ):
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=403, detail="归属与状态只能由部门负责人或资产管理员修改")
     return asset_service.update(db, asset_id, payload)
 
@@ -396,10 +401,17 @@ def list_relations(
 ) -> list[AssetRelationRead]:
     asset = asset_service.require(db, asset_id)
     require_asset_visible(db, access, asset)
-    return [
-        AssetRelationRead.model_validate(item)
-        for item in asset_repository.list_relations(db, asset_id)
-    ]
+    visible_ids = select(Asset.id).where(
+        Asset.archived_at.is_(None), asset_visibility_clause(access)
+    )
+    return [AssetRelationRead.model_validate(item) for item in db.scalars(
+        select(AssetRelation).where(
+            AssetRelation.archived_at.is_(None),
+            (AssetRelation.source_asset_id == asset_id) | (AssetRelation.target_asset_id == asset_id),
+            AssetRelation.source_asset_id.in_(visible_ids),
+            AssetRelation.target_asset_id.in_(visible_ids),
+        )
+    )]
 
 
 def _relationship_layer(type_code: str | None) -> int:
@@ -1149,6 +1161,8 @@ def create_relation(
         from fastapi import HTTPException
 
         raise HTTPException(status_code=403, detail="无权维护该资产关系")
+    target = asset_service.require(db, payload.target_asset_id)
+    require_asset_visible(db, access, target)
     return AssetRelationRead.model_validate(asset_service.add_relation(db, asset_id, payload))
 
 

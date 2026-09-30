@@ -9,7 +9,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.access import AccessContext, require_asset_write
+from app.core.access import (
+    AccessContext,
+    asset_visibility_clause,
+    get_access_context,
+    require_asset_write,
+)
 from app.db.session import get_db
 from app.models import Asset, AssetType, Department, LegalEntity
 
@@ -149,9 +154,9 @@ def commit_import(
 
 
 @router.get("/exports/assets.xlsx")
-def export_assets(db: Session = Depends(get_db)) -> StreamingResponse:
+def export_assets(db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)) -> StreamingResponse:
     assets = list(
-        db.scalars(select(Asset).where(Asset.archived_at.is_(None)).order_by(Asset.asset_code))
+        db.scalars(select(Asset).where(Asset.archived_at.is_(None), asset_visibility_clause(access)).order_by(Asset.asset_code))
     )
     types = {item.id: item.code for item in db.scalars(select(AssetType))}
     entities = {item.id: item.code for item in db.scalars(select(LegalEntity))}

@@ -1,12 +1,18 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.v1.sessions import serialize_current_user, set_session_cookie
 from app.core.access import AccessContext, require_global_manager
-from app.core.auth import create_session, get_permission_codes, get_role_codes
+from app.core.auth import (
+    create_session,
+    get_permission_codes,
+    get_role_codes,
+    require_authenticated,
+)
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models import (
@@ -24,15 +30,23 @@ from app.models import (
 from app.schemas.dingtalk import (
     DingTalkAuthCode,
     DingTalkClientDiagnostic,
+    DingTalkDirectorySnapshotRead,
     DingTalkIdentityRead,
     DingTalkLoginRequest,
     DingTalkLoginUser,
+    DingTalkOrganizationRead,
     DingTalkPersonProfileRead,
     DingTalkPublicConfig,
     DingTalkSessionRead,
     DingTalkSyncRequest,
 )
-from app.services.dingtalk import DingTalkClient, DingTalkDirectorySync
+from app.services.dingtalk import (
+    DingTalkClient,
+    DingTalkDirectorySync,
+    resolve_dingtalk_organization,
+)
+from app.services.dingtalk_company import stored_company_affiliation
+from app.services.organization_leadership import department_leadership_role, leadership_policy
 
 router = APIRouter(prefix="/dingtalk", tags=["dingtalk"])
 # Exact public aliases requested by the web client.  The existing /api/v1
@@ -202,26 +216,45 @@ def _provision_dingtalk_user(
 def _identity_read(
     person: Person, profile: DingTalkPersonProfile, db: Session
 ) -> DingTalkIdentityRead:
-    is_department_manager = db.scalar(
-        select(DepartmentMembership.id).where(
-            DepartmentMembership.person_id == person.id,
-            DepartmentMembership.is_active.is_(True),
-            DepartmentMembership.is_manager.is_(True),
+    policy = leadership_policy(db)
+    roles = {
+        department_leadership_role(department, policy)
+        for department in db.scalars(
+            select(Department)
+            .join(DepartmentMembership, DepartmentMembership.department_id == Department.id)
+            .where(
+                DepartmentMembership.person_id == person.id,
+                DepartmentMembership.is_active.is_(True),
+                DepartmentMembership.is_manager.is_(True),
+            )
         )
-    )
+    }
     return DingTalkIdentityRead(
         person_id=person.id,
         display_name=person.display_name,
         department_id=person.department_id,
         job_title=profile.job_title,
-        is_department_manager=is_department_manager is not None,
+        is_department_manager="department_manager" in roles,
+        is_group_leader="group_leader" in roles,
     )
 
 
 def _create_dingtalk_session(
     auth_code: str, request: Request, response: Response, db: Session
 ) -> tuple[User, Person, DingTalkPersonProfile, str, object]:
-    profile_data = DingTalkClient().user_from_auth_code(auth_code)
+    return create_verified_dingtalk_session(
+        DingTalkClient().user_from_auth_code(auth_code), request, response, db
+    )
+
+
+def create_verified_dingtalk_session(
+    profile_data: dict,
+    request: Request,
+    response: Response,
+    db: Session,
+    *,
+    audit_action: str = "session.dingtalk_login",
+) -> tuple[User, Person, DingTalkPersonProfile, str, object]:
     user, person, profile, _ = _provision_dingtalk_user(db, profile_data)
     if not user.is_active or user.archived_at is not None or person.archived_at is not None:
         raise HTTPException(status_code=403, detail="DingTalk user is not active in this system")
@@ -235,14 +268,17 @@ def _create_dingtalk_session(
         )
     )
     for department_id in manager_departments:
-        _ensure_role_scope(db, user, "department_manager", "department", department_id)
+        department = db.get(Department, department_id)
+        role = department_leadership_role(department, leadership_policy(db)) if department else None
+        if role:
+            _ensure_role_scope(db, user, role, "department", department_id)
     db.flush()
     token, session = create_session(db, user, request.headers.get("user-agent", "")[:300] or None)
     set_session_cookie(response, token)
     db.add(
         AuditLog(
             actor_user_id=user.id,
-            action="session.dingtalk_login",
+            action=audit_action,
             object_type="user",
             object_id=user.id,
         )
@@ -256,6 +292,7 @@ def _primary_role(roles: list[str]) -> str:
         "system_admin",
         "asset_manager",
         "department_manager",
+        "group_leader",
         "auditor",
         "executive",
         "employee",
@@ -311,6 +348,44 @@ def identify_dingtalk_user(
     )
 
 
+@router.get("/organization", response_model=DingTalkOrganizationRead)
+def organization_binding(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_authenticated),
+) -> DingTalkOrganizationRead:
+    binding = resolve_dingtalk_organization(db)
+    entity = binding.entity
+    setting = db.scalar(select(AppSetting).where(AppSetting.key == "dingtalk_directory_snapshot"))
+    snapshot = setting.value if setting and isinstance(setting.value, dict) else {}
+    directory_snapshot = None
+    codes = snapshot.get("department_codes")
+    if (
+        entity
+        and snapshot.get("legal_entity_id") == str(entity.id)
+        and isinstance(codes, list)
+        and codes
+        and all(isinstance(code, str) and code.startswith("DT-") for code in codes)
+    ):
+        try:
+            directory_snapshot = DingTalkDirectorySnapshotRead(
+                department_codes=codes,
+                checked_at=snapshot.get("checked_at"),
+                current_person_ids=snapshot.get("current_person_ids"),
+                historical_person_ids=snapshot.get("historical_person_ids"),
+                people_checked_at=snapshot.get("people_checked_at"),
+            )
+        except ValidationError:
+            directory_snapshot = None
+    return DingTalkOrganizationRead(
+        status=binding.status,
+        legal_entity_id=entity.id if entity else None,
+        legal_entity_name=entity.name if entity else None,
+        legal_entity_code=entity.code if entity else None,
+        message=binding.message,
+        directory_snapshot=directory_snapshot,
+    )
+
+
 @router.post("/sync")
 def sync_directory(
     payload: DingTalkSyncRequest,
@@ -321,6 +396,18 @@ def sync_directory(
     return {"status": "success", **result.as_dict()}
 
 
+@router.post("/organization/companies/refresh")
+def refresh_company_affiliations(
+    payload: DingTalkSyncRequest,
+    db: Session = Depends(get_db),
+    _: AccessContext = Depends(require_global_manager),
+) -> dict:
+    result = DingTalkDirectorySync(db, DingTalkClient()).refresh_company_affiliations(
+        payload.legal_entity_id
+    )
+    return {"status": "success", **result}
+
+
 @router.get(
     "/profiles",
     response_model=list[DingTalkPersonProfileRead],
@@ -328,7 +415,17 @@ def sync_directory(
 def list_profiles(
     db: Session = Depends(get_db),
     _: AccessContext = Depends(require_global_manager),
-) -> list[DingTalkPersonProfile]:
-    return list(
-        db.scalars(select(DingTalkPersonProfile).order_by(DingTalkPersonProfile.updated_at.desc()))
+) -> list[DingTalkPersonProfileRead]:
+    profiles = db.scalars(
+        select(DingTalkPersonProfile).order_by(DingTalkPersonProfile.updated_at.desc())
     )
+    return [
+        DingTalkPersonProfileRead(
+            person_id=profile.person_id,
+            dingtalk_user_id=profile.dingtalk_user_id,
+            job_title=profile.job_title,
+            company_affiliation=stored_company_affiliation(profile.profile_data),
+            directory_status=(profile.profile_data or {}).get("directory_status"),
+        )
+        for profile in profiles
+    ]

@@ -27,3 +27,5 @@ try {
   console.error("account center bootstrap error", error);
   showRuntimeError();
 }
+
+import "./styles/tokens.css";

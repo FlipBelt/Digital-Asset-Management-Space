@@ -25,14 +25,28 @@ export interface LegalEntityIdentifier {
 }
 export interface Department { id: string; legal_entity_id: string; parent_id: string | null; code: string; name: string; status: string }
 export interface Person { id: string; legal_entity_id: string; department_id: string | null; employee_no: string; display_name: string; email: string | null; employment_status: string; person_type: string }
-export interface DepartmentMembership { id: string; person_id: string; department_id: string; is_manager: boolean; is_primary: boolean; is_active: boolean }
+export interface DepartmentMembership { id: string; person_id: string; department_id: string; is_manager: boolean; leadership_role?: "department_manager" | "group_leader" | null; is_primary: boolean; is_active: boolean }
 export interface AssetCategory { id: string; parent_id: string | null; code: string; name: string; sort_order: number }
+export interface SpaceGroups { total: number; categories: (AssetCategory & { count: number })[] }
+export interface AIRegistrationType extends AssetType { registration_name: string; requires_ai_development: boolean }
 export interface AssetType { id: string; category_id: string; code: string; name: string; profile_kind: string; code_prefix: string; ownership_default: string; is_system: boolean; completeness_rules?: Record<string, unknown> }
 export interface AssetFieldDefinition { id: string; asset_type_id: string; field_key: string; label: string; data_type: string; is_required: boolean; options: string[] | null; group_name: string; help_text: string | null; unit: string | null; validation: Record<string, unknown>; confidentiality: string; is_searchable: boolean; completeness_weight: number; sort_order: number; entry_visibility: "core" | "optional" | "advanced" | "conditional"; requirement_stage: "create" | "activation" | "optional"; applies_to_existing: boolean; condition_rules: Record<string, unknown> }
 export interface AssetFieldValue { id: string; asset_id: string; field_definition_id: string; value: { value: unknown } }
+export interface SpaceSummary { created: number; responsible: number; using: number; subscriptions: number; ai: number; drafts: number; bookmarks: number; evidence: number }
+export interface Membership { id: string; asset_id: string; service_product_id: string; subscription_name: string | null; funding_source: string | null; payer_person_id: string | null; starts_at: string | null; expires_at: string | null; usage_frequency: string | null; primary_purpose: string | null }
+export interface AssetEvidence { id: string; asset_id: string | null; subscription_id: string | null; kind: string; title: string; problem: string; method: string; output: string; observed_effect: string | null; review_status: string; created_at: string }
+export interface AssetConfirmation {
+  id: string; asset_version: number; content_digest: string; sharing_scope: string; expires_at: string;
+  preview: {
+    asset: { name: string; description: string | null; source_system: string | null; source_agent: string | null };
+    attachments: { id: string; file_name: string; size_bytes: number }[];
+    subscriptions: Membership[];
+  };
+}
 export interface Asset {
   id: string; asset_code: string; name: string; asset_type_id: string; legal_entity_id: string | null;
   owner_department_id: string | null; ownership_scope: string; status: string; criticality: string; confidentiality: string;
+  sharing_scope?: string | null; source_system?: string | null; source_agent?: string | null; source_reference?: string | null; development_method?: string | null;
   source_type: string; started_at: string | null; expires_at: string | null; last_verified_at: string | null;
   description: string | null; version: number; created_at: string; updated_at: string; archived_at: string | null;
   created_by_person_id?: string | null; confirmed_by_person_id?: string | null; confirmed_at?: string | null; review_status?: string;
@@ -103,9 +117,26 @@ export interface CurrentUser { id: string; username: string; person_id: string |
 export interface Session { user: CurrentUser; expires_at: string; session_token?: string | null }
 export interface DingTalkStatus { enabled: boolean; configured: boolean; corp_id: string | null }
 export interface DingTalkConfig { corpId: string | null; agentId: string | null; configured: boolean }
+export interface DingTalkWebConfig { enabled: boolean; configured: boolean }
 export interface PmSessionUser { dingUserId: string; name: string; avatar: string | null; department: string | null; role: string; roles: string[]; permissions: string[]; sessionToken: string }
-export interface DingTalkProfile { person_id: string; dingtalk_user_id: string; job_title: string | null }
-export interface DingTalkIdentity { person_id: string; display_name: string; department_id: string | null; job_title: string | null; is_department_manager: boolean }
+export interface DingTalkOrganization {
+  status: "bound" | "unbound" | "invalid" | "ambiguous";
+  legal_entity_id: string | null;
+  legal_entity_name: string | null;
+  legal_entity_code: string | null;
+  message: string | null;
+  directory_snapshot?: { department_codes: string[]; checked_at: string | null; current_person_ids?: string[] | null; historical_person_ids?: string[] | null; people_checked_at?: string | null } | null;
+}
+export interface CompanyAffiliation {
+  name: string | null; source_field: string | null; checked_at: string | null;
+  status: "available" | "missing" | "invalid" | "conflict" | "unavailable" | "unknown";
+}
+export interface DingTalkProfile {
+  person_id: string; dingtalk_user_id: string; job_title: string | null;
+  company_affiliation?: CompanyAffiliation | null;
+  directory_status?: "current" | "not_in_current_directory" | null;
+}
+export interface DingTalkIdentity { person_id: string; display_name: string; department_id: string | null; job_title: string | null; is_department_manager: boolean; is_group_leader?: boolean }
 export interface DingTalkSession { user: CurrentUser; identity: DingTalkIdentity; expires_at: string }
 export interface AssetAssignment { owner_department_id: string | null; ownership_scope: string; responsible_person_id: string | null; user_person_ids: string[] }
 export interface AssetIdentifier { id: string; asset_id: string; namespace: string; identifier_type: string; identifier_value: string; is_primary: boolean; verification_status: string; confidentiality: string; source_import_record_id: string | null; archived_at: string | null }
@@ -152,12 +183,18 @@ let pmSessionToken = "";
 export function setCsrfToken(value: string) { csrfToken = value; }
 export function setPmSessionToken(value: string) { pmSessionToken = value; }
 export function clearPmSessionToken() { pmSessionToken = ""; }
+export function resetPmSessionCache() {
+  clearPmSessionToken();
+  setCsrfToken("");
+  localStorage.removeItem("pm-current-user");
+  localStorage.removeItem("account-center-person-id");
+}
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message) }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 12000): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (pmSessionToken) headers.set("X-PM-Session", pmSessionToken);
@@ -166,7 +203,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set("X-CSRF-Token", csrfToken);
   }
   const controller = init.signal ? null : new AbortController();
-  const timeout = controller ? window.setTimeout(() => controller.abort(), 12000) : null;
+  const timeout = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
   let response: Response;
   const requestPath = apiPath(path);
   try {
@@ -185,6 +222,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(response.status, message);
   }
   if (response.status === 204) return undefined as T;
+  if (response.headers.get("content-type")?.startsWith("application/zip")) return await response.blob() as T;
   return await response.json() as T;
 }
 
@@ -198,6 +236,16 @@ export function apiPath(path: string): string {
 const json = (method: string, body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) });
 
 export const api = {
+  spaceSummary: () => request<SpaceSummary>("/api/v1/space/summary"),
+  spaceBookmarks: () => request<string[]>("/api/v1/space/bookmarks"),
+  addBookmark: (id: string) => request<void>(`/api/v1/assets/${id}/bookmark`, json("PUT")),
+  removeBookmark: (id: string) => request<void>(`/api/v1/assets/${id}/bookmark`, json("DELETE")),
+  spaceMemberships: () => request<Membership[]>("/api/v1/space/memberships"),
+  spaceEvidence: (params: Record<string, string> = {}) => request<{ data: AssetEvidence[]; pagination: { page: number; page_size: number; total: number } }>(`/api/v1/space/evidence?${new URLSearchParams(params)}`),
+  createEvidence: (body: Record<string, unknown>) => request<AssetEvidence>("/api/v1/space/evidence", json("POST", body)),
+  prepareAssetConfirmation: (id: string, body: Record<string, unknown>) => request<AssetConfirmation>(`/api/v1/assets/${id}/confirmation`, json("POST", body)),
+  confirmAssetDraft: (id: string, body: Record<string, unknown>) => request<Asset>(`/api/v1/assets/${id}/confirm`, json("POST", body)),
+  cancelAssetConfirmation: (id: string, confirmation: string) => request<void>(`/api/v1/assets/${id}/confirmation/${confirmation}`, json("DELETE")),
   login: async (username: string, password: string) => {
     const session = await request<Session>("/api/v1/sessions", json("POST", { username, password }));
     setCsrfToken(session.user.csrf_token);
@@ -211,6 +259,8 @@ export const api = {
   },
   logout: async () => { await request<void>("/api/v1/sessions/current", { method: "DELETE" }); setCsrfToken(""); clearPmSessionToken(); },
   dingtalkStatus: () => request<DingTalkStatus>("/api/v1/dingtalk/status"),
+  dingtalkWebConfig: () => request<DingTalkWebConfig>("/api/dingtalk/web/config"),
+  dingtalkWebAuthorizeUrl: (returnPath: string) => apiPath(`/api/dingtalk/web/authorize?${new URLSearchParams({ next: returnPath })}`),
   dingtalkConfig: async () => {
     const config = await request<DingTalkConfig>("/api/dingtalk/config");
     return { enabled: config.configured, configured: config.configured, corp_id: config.corpId } as DingTalkStatus;
@@ -222,8 +272,21 @@ export const api = {
     setCsrfToken(session.user.csrf_token);
     return session;
   },
+  dingtalkOrganization: () => request<DingTalkOrganization>("/api/v1/dingtalk/organization"),
   dingtalkProfiles: () => request<DingTalkProfile[]>("/api/v1/dingtalk/profiles"),
-  syncDingtalkDirectory: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/sync", json("POST", { legal_entity_id: legalEntityId })),
+  syncDingtalkDirectory: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/sync", json("POST", { legal_entity_id: legalEntityId }), 120000),
+  refreshCompanyAffiliations: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/organization/companies/refresh", json("POST", { legal_entity_id: legalEntityId }), 120000),
+  assetAttachments: (id: string) => request<{id: string; file_name: string; size_bytes: number}[]>(`/api/v1/assets/${id}/attachments`),
+  uploadAssetZip: (id: string, file: File) => { const body = new FormData(); body.append("file", file); return request(`/api/v1/assets/${id}/attachments`, {method: "POST", body}); },
+  downloadAssetZip: (id: string, attachment: string) => request<Blob>(`/api/v1/assets/${id}/attachments/${attachment}/download`),
+  registerMembership: (body: Record<string, unknown>) => request<Asset>("/api/v1/space/memberships", json("POST", body)),
+  spaceGroups: (params: Record<string, string>) => request<SpaceGroups>(`/api/v1/space/groups?${new URLSearchParams(params)}`),
+  myRequests: () => request<WorkflowRequest[]>("/api/v1/space/requests"),
+  createMyRequest: (body: Record<string, unknown>) => request<WorkflowRequest>("/api/v1/space/requests", json("POST", body)),
+  cancelMyRequest: (id: string, version: number) => request<WorkflowRequest>(`/api/v1/space/requests/${id}/cancel`, json("POST", { version })),
+  spaceAssets: (params: Record<string, string>) => request<{data: Asset[]; pagination: {page: number; page_size: number; total: number}}>(`/api/v1/space/assets?${new URLSearchParams(params)}`),
+  aiRegistrationTypes: () => request<AIRegistrationType[]>("/api/v1/space/registration-types"),
+  createAssetDraft: (body: Record<string, unknown>) => request<Asset>("/api/v1/assets/draft", json("POST", body)),
   myAssets: () => request<Asset[]>("/api/v1/workspace/my-assets"),
   health: () => request<HealthStatus>("/api/v1/health/ready"),
   scenarios: () => request<ScenarioSummary[]>("/api/v1/workspace/scenarios"),
