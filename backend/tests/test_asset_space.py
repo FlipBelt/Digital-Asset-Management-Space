@@ -57,12 +57,16 @@ def test_draft_requires_employee_and_system_development_type():
         development_method="vibe_coding",
     )
     db = Mock()
-    db.get.return_value = SimpleNamespace(code="ai_skill", archived_at=None)
+    db.get.side_effect = lambda model, identity: (
+        SimpleNamespace(code="ai_skill", archived_at=None) if model is AssetType else None
+    )
     with pytest.raises(HTTPException) as exc:
         create_draft(payload, db, SimpleNamespace(person_id=None))
     assert exc.value.status_code == 422
     with pytest.raises(HTTPException) as exc:
-        create_draft(payload, db, SimpleNamespace(person_id=uuid4()))
+        create_draft(
+            payload, db, SimpleNamespace(person_id=uuid4(), user=SimpleNamespace(id=uuid4()))
+        )
     assert exc.value.status_code == 422
 
 

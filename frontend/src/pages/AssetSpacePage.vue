@@ -1,19 +1,27 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowRight, CheckCircle2, CreditCard, FileSearch, LoaderCircle, Pencil, Plus, Search, Shield, Star } from "lucide-vue-next";
+import { ArrowRight, CheckCircle2, CreditCard, FileSearch, LoaderCircle, Pencil, Plus, Search, Shield, Sparkles, Star } from "lucide-vue-next";
 import PageHeader from "../components/PageHeader.vue";
 import AssetCard from "../components/AssetCard.vue";
 import WorkspaceTabs from "../components/WorkspaceTabs.vue";
-import { assetCategoryLabel, workflowView } from "../lib/workspaceNavigation";
+import { workflowView } from "../lib/workspaceNavigation";
+import { aiDiscoveryCounts, aiDiscoveryGroup, aiDiscoveryGroups, aiTypeName, filterAIDiscoveryAssets, loadAIDiscoveryAssets } from "../lib/aiDiscovery";
 import { assetListPage } from "../lib/assetNavigation";
-import { api, type Asset, type AssetCategory, type AssetType, type Department, type Membership, type SpaceSummary } from "../lib/api";
+import { api, type Asset, type AIRegistrationType, type AssetType, type Department, type Membership, type SpaceSummary } from "../lib/api";
 
 const props = defineProps<{ scope: "mine" | "discover" | "team" | "workflows" }>();
 const route = useRoute(); const router = useRouter();
 const assets = ref<Asset[]>([]); const types = ref<AssetType[]>([]); const departments = ref<Department[]>([]);
-const categories = ref<AssetCategory[]>([]); const groupCounts = ref<Record<string, number>>({}); const catalogTotal = ref(0);
-const group = ref("all"); const aiTypeIds = ref<string[]>([]);
+const group = ref("all"); const aiTypeIds = ref<string[]>([]); const aiCatalog = ref<AIRegistrationType[]>([]);
+const aiAssets = ref<Asset[]>([]); const canManage = ref(false);
+const isAIDiscovery = computed(() => props.scope === "discover" || props.scope === "team");
+const aiGroups = computed(() => aiDiscoveryGroups(aiCatalog.value));
+const selectedAIGroup = computed(() => aiGroups.value.find(item => item.value === group.value));
+const aiCounts = computed(() => aiDiscoveryCounts(
+  filterAIDiscoveryAssets(aiAssets.value, aiCatalog.value, { keyword: queryText(route.query.q), type: type.value }), aiCatalog.value,
+));
+const aiCollections = new Map<string, Promise<Asset[]>>();
 const isWorkflow = computed(() => props.scope === "workflows");
 const activeWorkflowView = computed(() => workflowView(route.query.view));
 const workflowTabs = [{ value: "all", label: "全部工作流" }, { value: "created", label: "我创建的" }, { value: "bookmarks", label: "我的收藏" }];
@@ -22,7 +30,7 @@ const counts = ref<SpaceSummary | null>(null);
 const keyword = ref(""); const type = ref(""); const department = ref(""); const defaultDepartment = ref("");
 const feedback = ref("");
 const loading = ref(false); const error = ref(""); const actionError = ref(""); const total = ref(0); const page = ref(1);
-const identityKnown = ref(true); const bookmarkBusy = ref(""); let sequence = 0; let ready = false;
+const identityKnown = ref(true); const bookmarkBusy = ref(""); let sequence = 0; let initializationSequence = 0; let ready = false;
 const personalLabels: Record<string, string> = {
   all: "我的首页", created: "我创建的", responsible: "我负责的", using: "我使用的",
   subscriptions: "我的订阅", ai: "我的 AI 能力", drafts: "我的草稿", bookmarks: "我的收藏",
@@ -33,11 +41,11 @@ const category = computed(() => {
   return props.scope === "mine" ? (value in personalLabels ? value : "all") : (value === "workflows" ? value : "all");
 });
 const isHome = computed(() => props.scope === "mine" && category.value === "all");
-const title = computed(() => props.scope === "mine" ? personalLabels[category.value] : props.scope === "team" ? "团队空间" : category.value === "workflows" ? "工作流" : "资产发现");
+const title = computed(() => props.scope === "mine" ? personalLabels[category.value] : props.scope === "team" ? "团队 AI 空间" : category.value === "workflows" ? "AI 工作流" : "AI 资产发现");
 const description = computed(() => {
   if (category.value === "workflows") return "浏览可复用的工作流成果，查看使用方式与关联资产。";
-  if (props.scope === "team") return "在团队中共享成果，找到资产和相应负责人。";
-  if (props.scope === "discover") return "按分类查找公司资源和可复用成果，查看资料、负责人及使用方式。";
+  if (props.scope === "team") return "汇集团队的 AI 方法、助手与工作流，找到可继续复用的经验。";
+  if (props.scope === "discover") return "找到能用于当前工作的 AI 成果，了解用法，再留下你的实践。";
   return ({
     all: "从自己的成果、订阅与实践开始，让经验持续积累。",
     created: "查看你登记的 AI 成果和订阅记录，继续完善说明、附件和共享范围。",
@@ -57,8 +65,21 @@ const emptyAction = computed(() => {
   if (["bookmarks", "using", "responsible", "ai"].includes(category.value)) return { to: "/discover", label: "发现资产" };
   return { to: "/register", label: "登记 AI 成果" };
 });
+const emptyTitle = computed(() => {
+  if (isWorkflow.value) return hasFilters.value ? "没有找到匹配的工作流" : activeWorkflowView.value === "created" ? "你还没有登记 AI 工作流" : activeWorkflowView.value === "bookmarks" ? "你还没有收藏工作流" : "这里还没有可见的工作流";
+  if (isAIDiscovery.value) return keyword.value.trim() || type.value ? "没有找到匹配的 AI 成果" : selectedAIGroup.value ? `${selectedAIGroup.value.label}暂时没有可见成果` : "还没有可见的 AI 成果";
+  return hasFilters.value ? "没有找到匹配的资产" : "这里还没有匹配的资产";
+});
+const emptyDescription = computed(() => {
+  if (isAIDiscovery.value && group.value !== "all" && !keyword.value.trim() && !type.value) return "可浏览其他分类，或登记已经形成的 AI 成果，补充实际用法与共享范围。";
+  if (hasFilters.value) return "调整关键词或类型，也可以清空筛选重新查找。";
+  if (category.value === "bookmarks") return "在资产详情或卡片上收藏，之后可在这里找到。";
+  if (["using", "responsible", "ai"].includes(category.value)) return "前往 AI 资产，寻找可复用的成果。";
+  if (isWorkflow.value) return activeWorkflowView.value === "bookmarks" ? "浏览工作流并收藏常用内容，之后可以在这里快速找到。" : "登记已有 AI 工作流，逐步补充使用方法和关联成果。";
+  return "从一项已有 AI 成果开始，逐步积累可复用的经验。";
+});
 const filterTypes = computed(() => {
-  if (props.scope !== "mine" && group.value !== "all") return types.value.filter(item => item.category_id === group.value);
+  if (isAIDiscovery.value) return aiCatalog.value.filter(item => group.value === "all" || aiDiscoveryGroup(item.code) === group.value);
   if (category.value === "workflows") return types.value.filter(item => item.code === "ai_workflow");
   if (category.value === "ai") return types.value.filter(item => aiTypeIds.value.includes(item.id));
   if (category.value === "subscriptions") return types.value.filter(item =>
@@ -71,7 +92,7 @@ function queryText(value: unknown) { return typeof value === "string" ? value : 
 function restoreFilters() {
   keyword.value = queryText(route.query.q).slice(0, 200);
   const selectedGroup = queryText(route.query.group);
-  group.value = props.scope !== "mine" && !isWorkflow.value && categories.value.some(item => item.id === selectedGroup) ? selectedGroup : "all";
+  group.value = isAIDiscovery.value && aiGroups.value.some(item => item.value === selectedGroup) ? selectedGroup : "all";
   const selectedType = queryText(route.query.type);
   type.value = filterTypes.value.some(item => item.id === selectedType) ? selectedType : "";
   const selectedTeam = queryText(route.query.team);
@@ -96,17 +117,29 @@ function goPage(value: number) { page.value = value; void syncFilters(); }
 
 const fundingLabels: Record<string, string> = { personal: "个人自费", company: "公司付费", department: "部门付费", free: "免费", trial: "试用" };
 const discoveryTabs = computed(() => [
-  { value: "all", label: "全部资产", count: catalogTotal.value },
-  ...categories.value.map(item => ({ value: item.id, label: assetCategoryLabel(item), count: groupCounts.value[item.id] ?? 0 })),
+  { value: "all", label: "全部 AI 资产", count: loading.value || error.value ? undefined : aiCounts.value.all || 0 },
+  ...aiGroups.value.map(item => ({ value: item.value, label: item.label, count: loading.value || error.value ? undefined : aiCounts.value[item.value] || 0 })),
 ]);
-const sections = computed(() => {
-  if (props.scope === "mine" || group.value !== "all" || category.value === "workflows") return [{ id: "current", label: "", assets: assets.value }];
-  const grouped = categories.value.map(item => ({ id: item.id, label: assetCategoryLabel(item), assets: assets.value.filter(asset => types.value.find(type => type.id === asset.asset_type_id)?.category_id === item.id) })).filter(item => item.assets.length);
-  const known = new Set(grouped.flatMap(item => item.assets.map(asset => asset.id)));
-  const other = assets.value.filter(asset => !known.has(asset.id));
-  if (other.length) grouped.push({ id: "uncatalogued", label: "类型待核对", assets: other });
-  return grouped;
-});
+const sections = computed(() => [{ id: "current", label: "", assets: assets.value }]);
+function assetTypeName(asset: Asset) {
+  const item = types.value.find(type => type.id === asset.asset_type_id);
+  return isAIDiscovery.value || isWorkflow.value || category.value === "ai" ? aiTypeName(item) : item?.name;
+}
+function assetGroupLabel(asset: Asset) {
+  const item = types.value.find(type => type.id === asset.asset_type_id);
+  return item ? aiGroups.value.find(group => group.value === aiDiscoveryGroup(item.code))?.label : undefined;
+}
+async function loadAICollection() {
+  const scope = props.scope;
+  const team = scope === "team" ? department.value : "";
+  const key = `${scope}:${team}`;
+  if (!aiCollections.has(key)) {
+    const request = loadAIDiscoveryAssets(aiCatalog.value, api.spaceAssets, { scope, ...(team ? { department_id: team } : {}) });
+    aiCollections.set(key, request);
+    void request.catch(() => { aiCollections.delete(key); });
+  }
+  return aiCollections.get(key)!;
+}
 function selectWorkflow(value: string) {
   void router.replace({ query: { ...route.query, view: value === "all" ? undefined : workflowView(value), group: undefined, type: undefined, page: undefined } });
 }
@@ -118,16 +151,25 @@ function selectGroup(value: string) {
 async function load() {
   const request = ++sequence; loading.value = true; error.value = ""; assets.value = [];
   try {
+    if (isAIDiscovery.value) {
+      const collection = await loadAICollection();
+      if (request !== sequence) return;
+      aiAssets.value = collection;
+      const matches = filterAIDiscoveryAssets(collection, aiCatalog.value, { group: group.value, type: type.value, keyword: keyword.value });
+      total.value = matches.length;
+      const lastPage = Math.max(1, Math.ceil(total.value / 24));
+      if (page.value > lastPage) { page.value = lastPage; await syncFilters(); return; }
+      assets.value = matches.slice((page.value - 1) * 24, page.value * 24);
+      return;
+    }
     const params = {
       scope: isWorkflow.value ? "discover" : props.scope, category: category.value, keyword: keyword.value, page: String(page.value),
       ...(isWorkflow.value ? { workflow_view: activeWorkflowView.value } : {}),
       page_size: isHome.value ? "6" : "24", ...(type.value ? { asset_type_id: type.value } : {}),
       ...(department.value && props.scope === "team" ? { department_id: department.value } : {}),
-      ...(props.scope !== "mine" && group.value !== "all" ? { asset_category_id: group.value } : {}),
     };
-    const [result, groups] = await Promise.all([api.spaceAssets(params), props.scope === "mine" || isWorkflow.value ? Promise.resolve(null) : api.spaceGroups({ scope: props.scope, ...(props.scope === "team" && department.value ? { department_id: department.value } : {}) })]);
+    const result = await api.spaceAssets(params);
     if (request !== sequence) return;
-    if (groups) { categories.value = groups.categories; catalogTotal.value = groups.total; groupCounts.value = Object.fromEntries(groups.categories.map(item => [item.id, item.count])); }
     total.value = result.pagination.total;
     const lastPage = Math.max(1, Math.ceil(total.value / 24));
     if (!isHome.value && page.value > lastPage) { page.value = lastPage; await syncFilters(); return; }
@@ -136,19 +178,26 @@ async function load() {
   finally { if (request === sequence) loading.value = false; }
 }
 async function initialize() {
+  const request = ++initializationSequence; const scope = props.scope;
   loading.value = true; error.value = "";
   try {
     const user = await api.currentSession();
+    if (request !== initializationSequence) return;
     identityKnown.value = Boolean(user.person_id);
-    const [catalog, categoryRows, teams, bookmarks, summary, memberships, aiCatalog] = await Promise.all([
-      api.assetTypes(), api.assetCategories(), api.departments(), user.person_id ? api.spaceBookmarks() : Promise.resolve([]),
-      api.spaceSummary(), user.person_id ? api.spaceMemberships() : Promise.resolve([]), api.aiRegistrationTypes(),
+    canManage.value = user.roles.some(role => ["system_admin", "asset_manager", "department_manager", "group_leader", "auditor"].includes(role));
+    const [catalog, teams, bookmarks, summary, memberships] = await Promise.all([
+      api.aiRegistrationTypes(), api.departments(), user.person_id ? api.spaceBookmarks() : Promise.resolve([]),
+      scope === "mine" ? api.spaceSummary() : Promise.resolve(null),
+      scope === "mine" && user.person_id ? api.spaceMemberships() : Promise.resolve([]),
     ]);
-    aiTypeIds.value = aiCatalog.map(item => item.id);
-    types.value = catalog; categories.value = categoryRows; departments.value = teams; saved.value = bookmarks;
+    const typeRows = scope === "mine" ? await api.assetTypes() : catalog;
+    if (request !== initializationSequence) return;
+    aiCatalog.value = catalog; aiTypeIds.value = catalog.map(item => item.id);
+    types.value = typeRows;
+    departments.value = teams; saved.value = bookmarks;
     counts.value = summary; subscriptions.value = memberships; defaultDepartment.value = user.department_id ?? "";
     restoreFilters(); ready = true; await load();
-  } catch (reason) { error.value = reason instanceof Error ? reason.message : "初始化失败"; loading.value = false; }
+  } catch (reason) { if (request === initializationSequence) { error.value = reason instanceof Error ? reason.message : "初始化失败"; loading.value = false; } }
 }
 async function toggleBookmark(asset: Asset) {
   if (bookmarkBusy.value) return;
@@ -163,15 +212,19 @@ async function toggleBookmark(asset: Asset) {
   finally { bookmarkBusy.value = ""; }
 }
 onMounted(initialize);
-watch(() => [props.scope, route.path, category.value, route.query.q, route.query.type, route.query.team, route.query.page, route.query.group, route.query.view], () => {
+watch(() => props.scope, () => {
+  ready = false; ++sequence; aiCollections.clear(); assets.value = []; aiAssets.value = [];
+  void initialize();
+});
+watch(() => [route.path, category.value, route.query.q, route.query.type, route.query.team, route.query.page, route.query.group, route.query.view], () => {
   actionError.value = ""; feedback.value = "";
   restoreFilters();
   if (ready) void load();
 });
 </script>
 <template>
-  <div class="page-stack fusion-space">
-    <PageHeader :eyebrow="scope === 'mine' ? '我的空间' : '团队资产中心'" :title="title" :description="description">
+  <div class="page-stack fusion-space" :class="{ 'ai-discovery-space': isAIDiscovery }">
+    <PageHeader :eyebrow="scope === 'mine' ? '我的空间' : 'AI 协作'" :title="title" :description="description">
       <RouterLink v-if="category === 'subscriptions'" to="/memberships/new" class="primary-button"><Plus :size="18" />登记订阅</RouterLink>
       <template v-else><RouterLink v-if="scope !== 'mine' || category === 'using'" to="/my/requests?new=seat" class="secondary-button">申请使用</RouterLink><RouterLink to="/my/contributions?new=case" class="secondary-button">记录 AI 案例</RouterLink><RouterLink :to="isWorkflow ? '/register?type=ai_workflow' : '/register'" class="primary-button"><Plus :size="18" />{{ isWorkflow ? '登记 AI 工作流' : '登记 AI 成果' }}</RouterLink></template>
     </PageHeader>
@@ -183,12 +236,17 @@ watch(() => [props.scope, route.path, category.value, route.query.q, route.query
     </div>
     <RouterLink v-if="isHome && counts?.drafts" to="/my/drafts" class="fusion-resume"><div><small>继续整理</small><h2>{{ counts.drafts }} 份草稿待确认</h2><p>核对说明、附件和共享范围，再确认登记。</p></div><span>打开我的草稿 <ArrowRight :size="18" /></span></RouterLink>
     <RouterLink v-if="isHome" to="/my/requests?new=seat" class="fusion-resume request-entry"><div><small>申请使用</small><h2>需要席位、平台或账号？</h2><p>提交申请，在我的申请中查看处理进度。</p></div><span>发起申请 <ArrowRight :size="18" /></span></RouterLink>
+    <section v-if="isAIDiscovery" class="ai-discovery-intro" aria-label="AI 成果用途">
+      <span class="ai-purpose-symbol"><Sparkles :size="22" aria-hidden="true" /></span>
+      <div><h2>{{ selectedAIGroup?.purpose || '从一个具体工作问题开始' }}</h2><p>{{ selectedAIGroup?.description || '选择方法、助手、应用或工作流，查看成果说明与共享范围，找到适合你的用法。' }}</p></div>
+      <RouterLink v-if="canManage" to="/manage" class="ai-management-link">公司资产管理<ArrowRight :size="16" aria-hidden="true" /></RouterLink>
+    </section>
     <WorkspaceTabs v-if="isWorkflow" :model-value="activeWorkflowView" :tabs="workflowTabs" id-prefix="workflow-view" label="工作流视图" @update:model-value="selectWorkflow" />
-    <WorkspaceTabs v-else-if="scope !== 'mine'" :model-value="group" :tabs="discoveryTabs" id-prefix="discovery-group" label="资产分类" @update:model-value="selectGroup" />
+    <WorkspaceTabs v-else-if="scope !== 'mine'" :model-value="group" :tabs="discoveryTabs" id-prefix="discovery-group" label="AI 用途分类" @update:model-value="selectGroup" />
     <h2 v-if="isHome" class="fusion-section-title">最近更新的资产</h2>
     <form v-if="!isHome" class="fusion-filters" role="search" aria-label="筛选资产" @submit.prevent="search">
-      <label class="fusion-search"><Search :size="18" /><input v-model="keyword" aria-label="搜索资产" placeholder="搜索资产名称、场景或关键词" maxlength="200" /></label>
-      <select v-if="filterTypes.length > 1" v-model="type" aria-label="资产类型" @change="search"><option value="">全部类型</option><option v-for="item in filterTypes" :key="item.id" :value="item.id">{{ item.name }}</option></select>
+      <label class="fusion-search"><Search :size="18" /><input v-model="keyword" aria-label="搜索资产" :placeholder="isAIDiscovery ? '搜索 AI 成果、工作问题或关键词' : '搜索资产名称、场景或关键词'" maxlength="200" /></label>
+      <select v-if="filterTypes.length > 1" v-model="type" aria-label="资产类型" @change="search"><option value="">全部类型</option><option v-for="item in filterTypes" :key="item.id" :value="item.id">{{ isAIDiscovery ? aiTypeName(item) : item.name }}</option></select>
       <select v-if="scope === 'team'" v-model="department" aria-label="团队" @change="search"><option value="">我的部门</option><option v-for="item in departments" :key="item.id" :value="item.id">{{ item.name }}</option></select>
       <button class="secondary-button" type="submit">搜索</button>
       <button v-if="hasFilters" class="fusion-clear-button" type="button" @click="clearFilters">清空筛选</button>
@@ -201,24 +259,25 @@ watch(() => [props.scope, route.path, category.value, route.query.q, route.query
     <section v-else-if="loading" class="fusion-empty" aria-busy="true" role="status"><LoaderCircle :size="26" class="fusion-spinner" aria-hidden="true" /><h2>正在读取资产…</h2></section>
     <section v-else-if="scope === 'mine' && !identityKnown" class="fusion-empty"><h2>尚未关联员工身份</h2><p>请联系管理员关联身份后查看你的资产。</p></section>
     <template v-else>
-      <p v-if="!isHome" class="fusion-count">共 <strong>{{ total }}</strong> 项可见{{ isWorkflow ? '工作流' : '资产' }}</p>
+      <p v-if="!isHome" class="fusion-count">共 <strong>{{ total }}</strong> 项可见{{ isWorkflow ? 'AI 工作流' : isAIDiscovery ? 'AI 成果' : '资产' }}</p>
       <div v-if="assets.length" class="discovery-sections">
         <section v-for="section in sections" :key="section.id" class="discovery-section"><h2 v-if="section.label" class="discovery-section-heading">{{ section.label }}<span>本页 {{ section.assets.length }} 项</span></h2><div class="fusion-grid">
         <template v-for="asset in section.assets" :key="asset.id">
           <div v-if="category === 'subscriptions'" class="fusion-subscription">
-            <AssetCard :asset="asset" :type-name="types.find(t => t.id === asset.asset_type_id)?.name" :type-code="types.find(t => t.id === asset.asset_type_id)?.code" :team-name="departments.find(d => d.id === asset.owner_department_id)?.name" :bookmarked="saved.includes(asset.id)" :busy="Boolean(bookmarkBusy)" :return-to="route.fullPath" @bookmark="toggleBookmark" />
+            <AssetCard :asset="asset" :type-name="assetTypeName(asset)" :type-code="types.find(t => t.id === asset.asset_type_id)?.code" :team-name="departments.find(d => d.id === asset.owner_department_id)?.name" :bookmarked="saved.includes(asset.id)" :busy="Boolean(bookmarkBusy)" :return-to="route.fullPath" @bookmark="toggleBookmark" />
             <div class="fusion-subscription-facts"><span>{{ fundingLabels[subscriptions.find(s => s.asset_id === asset.id)?.funding_source || ''] || '资金来源待确认' }}</span><span>{{ subscriptions.find(s => s.asset_id === asset.id)?.subscription_name || '套餐待补充' }}</span><RouterLink :to="{ path: '/my/contributions', query: { subscription: subscriptions.find(s => s.asset_id === asset.id)?.id } }">查看关联实践 →</RouterLink></div>
           </div>
-          <AssetCard v-else :asset="asset" :type-name="types.find(t => t.id === asset.asset_type_id)?.name" :type-code="types.find(t => t.id === asset.asset_type_id)?.code" :team-name="departments.find(d => d.id === asset.owner_department_id)?.name" :bookmarked="saved.includes(asset.id)" :busy="Boolean(bookmarkBusy)" :return-to="route.fullPath" @bookmark="toggleBookmark" />
+          <AssetCard v-else :ai-focus="isAIDiscovery || isWorkflow || category === 'ai'" :group-label="assetGroupLabel(asset)" :asset="asset" :type-name="assetTypeName(asset)" :type-code="types.find(t => t.id === asset.asset_type_id)?.code" :team-name="departments.find(d => d.id === asset.owner_department_id)?.name" :bookmarked="saved.includes(asset.id)" :busy="Boolean(bookmarkBusy)" :return-to="route.fullPath" @bookmark="toggleBookmark" />
         </template>
         </div></section>
       </div>
       <section v-else class="fusion-empty">
         <FileSearch :size="30" aria-hidden="true" />
-        <h2>{{ isWorkflow ? hasFilters ? '没有找到匹配的工作流' : activeWorkflowView === 'created' ? '你还没有登记 AI 工作流' : activeWorkflowView === 'bookmarks' ? '你还没有收藏工作流' : '这里还没有可见的工作流' : hasFilters ? '没有找到匹配的资产' : '这里还没有匹配的资产' }}</h2>
-        <p>{{ hasFilters ? '调整关键词或类型，也可以清空筛选重新查找。' : category === 'bookmarks' ? '在资产详情或卡片上收藏，之后可在这里找到。' : category === 'using' || category === 'responsible' || category === 'ai' ? '前往资产发现，寻找可复用的成果。' : isWorkflow ? activeWorkflowView === 'bookmarks' ? '浏览工作流并收藏常用内容，之后可以在这里快速找到。' : '登记已有 AI 工作流，逐步补充使用方法和关联成果。' : '从一项已有 AI 成果开始，逐步积累可复用的经验。' }}</p>
+        <h2>{{ emptyTitle }}</h2>
+        <p>{{ emptyDescription }}</p>
         <button v-if="hasFilters" class="primary-button" type="button" @click="clearFilters">清空筛选</button>
-        <RouterLink v-else :to="emptyAction.to" class="primary-button">{{ emptyAction.label }}<ArrowRight :size="16" aria-hidden="true" /></RouterLink>
+        <RouterLink v-if="isAIDiscovery && group !== 'all' && !keyword.trim() && !type" to="/register" class="secondary-button">登记已有 AI 成果</RouterLink>
+        <RouterLink v-if="!hasFilters" :to="emptyAction.to" class="primary-button">{{ emptyAction.label }}<ArrowRight :size="16" aria-hidden="true" /></RouterLink>
       </section>
       <div v-if="!isHome && total > 24" class="fusion-pagination"><button :disabled="page === 1" @click="goPage(page - 1)">上一页</button><span>第 {{ page }} / {{ Math.ceil(total / 24) }} 页</span><button :disabled="page * 24 >= total" @click="goPage(page + 1)">下一页</button></div>
     </template>

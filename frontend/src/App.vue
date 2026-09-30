@@ -2,16 +2,17 @@
 import { computed, onBeforeUnmount, onMounted, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  Bookmark, Boxes, CalendarClock, ChevronDown, Clock3, CreditCard, FileInput,
+  ArrowRight, Bookmark, Boxes, CalendarClock, ChevronDown, Clock3, CreditCard, FileInput,
   Hexagon, Home, LibraryBig, List, Menu, Pencil, Plus, Search, Shield,
   SlidersHorizontal, Sparkles, Star, UserRound, Users, Workflow, LayoutGrid, Send, X,
 } from "lucide-vue-next";
 
 import { useTheme } from "./composables/useTheme";
 import { assetReturnContext } from "./lib/assetNavigation";
+import { isManagementSearchRoute, loadAIDiscoveryAssets } from "./lib/aiDiscovery";
 import { legacyWorkspaceEnabled } from "./lib/workspaceNavigation";
 import { safeLoginRedirect } from "./lib/loginNavigation";
-import { api, ApiError, setPmSessionToken, resetPmSessionCache, type Asset, type CurrentUser, type DingTalkIdentity, type Person, type PmSessionUser } from "./lib/api";
+import { api, ApiError, setPmSessionToken, resetPmSessionCache, type AIRegistrationType, type Asset, type CurrentUser, type DingTalkIdentity, type Person, type PmSessionUser } from "./lib/api";
 
 useTheme();
 const router = useRouter();
@@ -22,7 +23,8 @@ const query = ref("");
 const mobileOpen = ref(false);
 const logoUrl = import.meta.env.BASE_URL + "logo.svg";
 const searchOpen = ref(false);
-const searchLoading = ref(false);
+const searchLoading = ref(false); const searchError = ref(""); const searchResultTotal = ref(0);
+let searchSequence = 0; let aiSearchCatalog: Promise<AIRegistrationType[]> | undefined;
 const searchResults = ref<{ assets: Asset[]; people: Person[] }>({ assets: [], people: [] });
 const dingtalkIdentity = ref<DingTalkIdentity | null>(null);
 const currentUser = ref<CurrentUser | null>(null);
@@ -159,9 +161,9 @@ const personalNav = [
   { to: "/my/bookmarks", label: "收藏", icon: Bookmark },
 ];
 const sharedNav = [
-  { to: "/discover", label: "资产发现", icon: LayoutGrid },
-  { to: "/workflows", label: "工作流", icon: Workflow },
-  { to: "/team", label: "团队空间", icon: Users },
+  { to: "/discover", label: "AI 资产", icon: LayoutGrid },
+  { to: "/workflows", label: "AI 工作流", icon: Workflow },
+  { to: "/team", label: "团队 AI 空间", icon: Users },
 ];
 const huduNav = [
   { to: "/hudu", label: "资产库", icon: LibraryBig },
@@ -194,20 +196,41 @@ function isNavActive(to: string) {
   return navigationContext.value.path === to;
 }
 
-watch(query, (value) => {
+const managementSearch = computed(() => canManage.value && isManagementSearchRoute(route.path));
+watch([query, managementSearch], ([value, management]) => {
   window.clearTimeout(searchTimer);
-  if (!value.trim()) { searchOpen.value = false; return; }
+  const request = ++searchSequence;
+  searchError.value = ""; searchResults.value = { assets: [], people: [] }; searchResultTotal.value = 0;
+  if (!value.trim()) { searchOpen.value = false; searchLoading.value = false; return; }
+  searchOpen.value = true; searchLoading.value = true;
   searchTimer = window.setTimeout(async () => {
-    searchLoading.value = true;
-    try { searchResults.value = await api.search(value); searchOpen.value = true; }
-    finally { searchLoading.value = false; }
+    try {
+      let result: { assets: Asset[]; people: Person[] };
+      let total = 0;
+      if (management) {
+        result = await api.search(value.trim()); total = result.assets.length;
+      } else {
+        if (!aiSearchCatalog) {
+          aiSearchCatalog = api.aiRegistrationTypes();
+          void aiSearchCatalog.catch(() => { aiSearchCatalog = undefined; });
+        }
+        const catalog = await aiSearchCatalog;
+        const matches = await loadAIDiscoveryAssets(catalog, api.spaceAssets, { scope: "discover", keyword: value.trim() });
+        result = { assets: matches.slice(0, 8), people: [] }; total = matches.length;
+      }
+      if (request !== searchSequence) return;
+      searchResults.value = result; searchResultTotal.value = total;
+    } catch {
+      if (request === searchSequence) searchError.value = "暂时无法搜索，请打开相应资产页重试。";
+    } finally { if (request === searchSequence) searchLoading.value = false; }
   }, 250);
 });
 
 function openAsset(id: string) {
-  searchOpen.value = false;
-  query.value = "";
-  router.push(`/discover/${id}`);
+  const returnTo = router.resolve({ path: "/discover", query: { q: query.value.trim() || undefined } }).fullPath;
+  const target = managementSearch.value ? { path: `/assets/${id}` } : { path: `/discover/${id}`, query: { returnTo } };
+  searchOpen.value = false; query.value = "";
+  void router.push(target);
 }
 
 function closeSearchDelayed() {
@@ -433,7 +456,7 @@ function openIdentityEntry() {
 function onSessionChanged() { void bootstrapSession(); }
 
 onMounted(() => { window.addEventListener("keydown", onHotkey); window.addEventListener("resize", onViewportChange); window.addEventListener("pm-session-change", onSessionChanged); void bootstrapSession(); });
-onBeforeUnmount(() => { window.removeEventListener("keydown", onHotkey); window.removeEventListener("resize", onViewportChange); window.removeEventListener("pm-session-change", onSessionChanged); });
+onBeforeUnmount(() => { window.clearTimeout(searchTimer); ++searchSequence; window.removeEventListener("keydown", onHotkey); window.removeEventListener("resize", onViewportChange); window.removeEventListener("pm-session-change", onSessionChanged); });
 </script>
 
 <template>
@@ -456,7 +479,7 @@ onBeforeUnmount(() => { window.removeEventListener("keydown", onHotkey); window.
           </RouterLink>
         </section>
         <section class="nav-group" aria-labelledby="team-nav-heading">
-          <h2 id="team-nav-heading" class="nav-section-label">团队与资产</h2>
+          <h2 id="team-nav-heading" class="nav-section-label">AI 协作</h2>
           <RouterLink v-for="item in sharedNav" :key="item.to" :to="item.to" class="nav-item"
             active-class="" exact-active-class="" :class="{ 'is-active': isNavActive(item.to) }"
             :aria-current="isNavActive(item.to) ? 'page' : undefined" @click="mobileOpen = false">
@@ -473,7 +496,7 @@ onBeforeUnmount(() => { window.removeEventListener("keydown", onHotkey); window.
           <h2 id="manage-nav-heading" class="nav-section-label">管理区</h2>
           <RouterLink to="/manage" class="nav-item" active-class="" exact-active-class=""
             :class="{ 'is-active': isNavActive('/manage') }" :aria-current="isNavActive('/manage') ? 'page' : undefined"
-            @click="mobileOpen = false"><SlidersHorizontal :size="20" aria-hidden="true" /><span>管理</span></RouterLink>
+            @click="mobileOpen = false"><SlidersHorizontal :size="20" aria-hidden="true" /><span>公司资产管理</span></RouterLink>
         </section>
         <section v-if="isHuduMode && canManage" class="nav-group" aria-labelledby="hudu-nav-heading">
           <h2 id="hudu-nav-heading" class="nav-section-label">当前工作区</h2>
@@ -496,19 +519,22 @@ onBeforeUnmount(() => { window.removeEventListener("keydown", onHotkey); window.
         <button class="icon-button fusion-mobile-menu" aria-label="打开导航" :aria-expanded="mobileOpen" aria-controls="asset-navigation" @click="mobileOpen = !mobileOpen"><Menu :size="22" /></button>
         <div class="global-search" @focusout="closeSearchDelayed">
           <Search :size="18" />
-          <input v-model="query" aria-label="全局搜索" placeholder="搜索平台、账号、系统、人员或资产" @focus="query && (searchOpen = true)" />
+          <input v-model="query" aria-label="全局搜索" :placeholder="managementSearch ? '搜索公司资源、账号或人员' : '搜索 AI 成果、工作问题或关键词'" @focus="query && (searchOpen = true)" />
           <kbd>Ctrl K</kbd>
           <div v-if="searchOpen" class="search-popover">
             <span v-if="searchLoading" class="search-caption">正在搜索…</span>
+            <span v-else-if="searchError" class="search-caption" role="alert">{{ searchError }}</span>
             <template v-else>
-              <span class="search-caption">资产</span>
+              <span class="search-caption">{{ managementSearch ? '公司资源' : 'AI 成果' }}</span>
               <button v-for="item in searchResults.assets" :key="item.id" type="button" @click="openAsset(item.id)">
                 <Boxes :size="16" /><span><strong>{{ item.name }}</strong><small>{{ item.asset_code }}</small></span>
               </button>
-              <span class="search-caption">人员</span>
+              <span v-if="managementSearch" class="search-caption">人员</span>
               <button v-for="item in searchResults.people" :key="item.id" type="button" @click="router.push('/organization'); searchOpen = false">
                 <Users :size="16" /><span><strong>{{ item.display_name }}</strong><small>{{ item.email || "未登记邮箱" }}</small></span>
               </button>
+              <span v-if="!searchResults.assets.length && !searchResults.people.length" class="search-caption">没有找到匹配的{{ managementSearch ? '资源或人员' : 'AI 成果' }}</span>
+              <RouterLink v-if="!managementSearch" :to="{ path: '/discover', query: { q: query.trim() } }" class="ai-search-more" @click="searchOpen = false">查看全部匹配成果（{{ searchResultTotal }}）<ArrowRight :size="15" aria-hidden="true" /></RouterLink>
             </template>
           </div>
         </div>

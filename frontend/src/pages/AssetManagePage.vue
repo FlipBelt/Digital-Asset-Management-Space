@@ -24,7 +24,7 @@ const registrations = [
   { to: "/intake?mode=resource", title: "登记服务与资源", text: "服务、系统与云资源", icon: Boxes },
 ];
 const records = computed(() => [
-  { to: "/assets", title: "资产整理", description: "维护分类、责任、共享范围与归档记录。", icon: Boxes },
+  { to: "/assets", title: "公司资产台账", description: "维护 AI 成果与公司资源的分类、责任和归档记录。", icon: Boxes },
   { to: "/accounts", title: "平台与账号", description: "维护公司平台、账号及安全引用。", icon: KeyRound },
   { to: "/organization", title: "组织与授权", description: "核对公司、部门、成员与有效使用授权。", icon: Users },
   { to: "/services", title: "订阅与用量", description: "核对服务订阅、费用及调用记录。", icon: ChartNoAxesCombined },
@@ -38,7 +38,7 @@ onMounted(load);
 </script>
 <template>
   <div class="page-stack fusion-space management-space">
-    <PageHeader eyebrow="管理区" title="管理" description="直接登记基础资料，维护资产与处理申请。" />
+    <PageHeader eyebrow="管理区" title="公司资产管理" description="维护平台、账号、供应商与基础设施，处理员工申请。AI 成果的查找与复用请进入 AI 资产。"><RouterLink to="/discover" class="secondary-button">浏览 AI 成果<ArrowRight :size="16" /></RouterLink></PageHeader>
     <section v-if="loading" class="fusion-empty" role="status">正在核对管理权限…</section>
     <section v-else-if="error" class="fusion-empty" role="alert"><p>{{ error }}</p><button class="secondary-button" @click="load">重试</button></section>
     <section v-else-if="!allowed" class="fusion-empty"><h2>当前身份没有管理权限</h2><p>需要申请席位、平台或账号时，请进入我的申请。</p><RouterLink to="/my/requests" class="primary-button">我的申请</RouterLink><RouterLink to="/my" class="secondary-button">返回我的空间</RouterLink></section>
@@ -47,7 +47,7 @@ onMounted(load);
       <div id="manage-tab-panel" role="tabpanel" :aria-labelledby="`manage-tab-${active}`">
         <AdminPage v-if="active === 'settings' && isAdmin" embedded />
         <div v-else class="management-operations">
-          <section v-if="globalManager" class="management-registration"><header><div><h2>登记基础资料</h2><p>选择对象后直接填写，已有资料先查重再补充。</p></div><RouterLink to="/discover" class="text-button">先查找已有资产<ArrowRight :size="16" /></RouterLink></header><div class="registration-shortcuts"><RouterLink v-for="item in registrations" :key="item.to" :to="item.to"><component :is="item.icon" :size="22" /><div><strong>{{ item.title }}</strong><small>{{ item.text }}</small></div><ArrowRight :size="16" /></RouterLink></div></section>
+          <section v-if="globalManager" class="management-registration"><header><div><h2>登记基础资料</h2><p>选择对象后直接填写，已有资料先查重再补充。</p></div><RouterLink to="/assets" class="text-button">查询公司资产台账<ArrowRight :size="16" /></RouterLink></header><div class="registration-shortcuts"><RouterLink v-for="item in registrations" :key="item.to" :to="item.to"><component :is="item.icon" :size="22" /><div><strong>{{ item.title }}</strong><small>{{ item.text }}</small></div><ArrowRight :size="16" /></RouterLink></div></section>
           <section class="content-panel management-records"><header><h2>维护与处理</h2><span>按当前角色展示可用事项</span></header><RouterLink v-for="item in records" :key="item.to" :to="item.to" class="management-record-link"><component :is="item.icon" :size="21" /><div><strong>{{ item.title }}</strong><p>{{ item.description }}</p></div><ArrowRight :size="18" /></RouterLink></section>
           <section v-if="isAdmin" class="content-panel fusion-policy-draft"><h2>贡献激励 · 规则草案</h2><p>当前收集实践与贡献证据；价值、贡献归属和奖励规则由人工核对，尚未向员工发布。</p></section>
         </div>
