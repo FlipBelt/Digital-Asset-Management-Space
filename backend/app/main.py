@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
-from app.api.v1 import developer, dingtalk, dingtalk_web, workspace
+from app.api.v1 import agent_connector, developer, dingtalk, dingtalk_web, workspace
 from app.core.auth import require_authenticated
 from app.core.auth_logging import install_auth_log_redaction
 from app.core.config import get_settings
@@ -78,6 +78,8 @@ def root() -> dict[str, str]:
 
 
 app.include_router(api_router)
+# Match the existing workspace route boundary across deployed Python runtimes.
+app.include_router(agent_connector.router, prefix="/api/v1")
 app.include_router(developer.console_router)
 # Public DingTalk bootstrap endpoints intentionally live outside /api/v1 for
 # compatibility with the micro-app contract. They expose configuration only

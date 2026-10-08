@@ -1,8 +1,15 @@
 """Run only with the existing disposable PostgreSQL integration harness."""
 
+import os
+import socket
+import subprocess
+import sys
+import time
 from datetime import timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -501,3 +508,50 @@ def test_connector_cannot_edit_non_ai_system_draft(actors, agent_clients, method
         ).status_code
         == 404
     )
+
+
+def test_production_http_transport_after_readiness(actors, tmp_path):
+    """The deployed Uvicorn transport must expose agent routes after the ready probe."""
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+    environment = dict(os.environ)
+    environment.update(
+        APP_ENV="production",
+        SESSION_SECURE_COOKIE="true",
+        AGENT_CONNECTOR_ENABLED="true",
+        AGENT_FRONTEND_URL="https://jtzhzt.flipbeltchina.com/",
+    )
+    with (tmp_path / "uvicorn.log").open("wb") as log:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1",
+             "--port", str(port), "--lifespan", "off", "--no-access-log"],
+            cwd=Path(__file__).resolve().parents[1], env=environment, stdout=log, stderr=log,
+        )
+        try:
+            with httpx.Client(base_url=f"http://127.0.0.1:{port}", trust_env=False) as client:
+                for _ in range(100):
+                    try:
+                        response = client.get("/api/v1/health/ready")
+                        if response.status_code == 200:
+                            break
+                    except httpx.TransportError:
+                        pass
+                    assert process.poll() is None, "Uvicorn exited before readiness"
+                    time.sleep(0.1)
+                else:
+                    pytest.fail("Uvicorn readiness timeout")
+                for _ in range(3):
+                    assert client.get("/api/v1/agent/capabilities").status_code == 401
+                    assert client.get("/api/v1/agent/grants").status_code == 401
+                assert client.post(
+                    "/api/v1/agent/device/start", json={"client_name": "x" * 81}
+                ).status_code == 422
+                assert client.get("/api/v1/space/assets").status_code == 401
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
