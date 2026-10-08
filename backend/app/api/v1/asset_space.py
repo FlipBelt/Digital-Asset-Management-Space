@@ -311,6 +311,10 @@ def create_draft(
     db: Session = Depends(get_db),
     access: AccessContext = Depends(require_asset_write),
 ):
+    return persist_draft(payload, db, access)
+
+
+def persist_draft(payload: DraftInput, db: Session, access: AccessContext, *, commit=True):
     if not access.person_id:
         raise HTTPException(422, "请先关联员工身份")
     asset_type = db.get(AssetType, payload.asset_type_id)
@@ -371,7 +375,10 @@ def create_draft(
                 },
             )
         )
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(409, "请求冲突，请使用同一请求编号重试") from exc

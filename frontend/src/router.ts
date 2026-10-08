@@ -31,6 +31,8 @@ import AssetManagePage from "./pages/AssetManagePage.vue";
 import MyRequestsPage from "./pages/MyRequestsPage.vue";
 import { legacyWorkspaceEnabled } from "./lib/workspaceNavigation";
 
+import AgentConnectPage from "./pages/AgentConnectPage.vue";
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -39,6 +41,7 @@ const router = createRouter({
     { path: "/discover", component: AssetSpacePage, props: { scope: "discover" } },
     { path: "/team", component: AssetSpacePage, props: { scope: "team" } },
     { path: "/discover/:id", component: AssetOverviewPage },
+    { path: "/agent/connect", component: AgentConnectPage },
     { path: "/register", component: AssetRegisterPage },
     { path: "/memberships/new", component: MembershipRegisterPage },
     { path: "/login", name: "login", component: LoginPage },

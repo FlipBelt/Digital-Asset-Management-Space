@@ -1,3 +1,4 @@
+from app.models.agent_connector import AgentGrant, AgentIncubation, AgentOperation
 from app.models.asset_space import AssetBookmark, AssetConfirmation, AssetEvidence
 from app.models.dingtalk_login import DingTalkWebLoginState
 from app.models.domain import (
@@ -72,6 +73,9 @@ from app.models.domain import (
 )
 
 __all__ = [
+    "AgentGrant",
+    "AgentIncubation",
+    "AgentOperation",
     "DingTalkWebLoginState",
     "AssetBookmark",
     "AssetConfirmation",
