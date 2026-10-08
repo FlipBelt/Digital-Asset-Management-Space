@@ -194,7 +194,7 @@ export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message) }
 }
 
-async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 12000): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 12000): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (pmSessionToken) headers.set("X-PM-Session", pmSessionToken);

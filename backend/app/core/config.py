@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     dingtalk_web_enabled: bool = False
     dingtalk_web_redirect_uri: str | None = None
     dingtalk_web_frontend_url: str | None = None
+    agent_connector_enabled: bool = False
+    agent_frontend_url: str | None = None
+    agent_token_ttl_hours: int = Field(default=24, ge=1, le=168)
     ai_import_enabled: bool = False
     ai_import_base_url: str | None = None
     ai_import_api_key: str | None = None
@@ -55,7 +58,11 @@ class Settings(BaseSettings):
     def validate_production_session_security(self) -> "Settings":
         if self.app_env == "production" and not self.session_secure_cookie:
             raise ValueError("SESSION_SECURE_COOKIE must be true in production")
-        web_urls = [self.dingtalk_web_redirect_uri, self.dingtalk_web_frontend_url]
+        web_urls = [
+            self.dingtalk_web_redirect_uri,
+            self.dingtalk_web_frontend_url,
+            self.agent_frontend_url,
+        ]
         for value in (url for url in web_urls if url):
             parsed = urlsplit(value)
             local_http = (
@@ -92,6 +99,8 @@ class Settings(BaseSettings):
                 raise ValueError("DINGTALK_WEB_REDIRECT_URI must point to the web callback")
             if not frontend.path.endswith("/"):
                 raise ValueError("DINGTALK_WEB_FRONTEND_URL must end with a slash")
+        if self.agent_connector_enabled and not self.agent_frontend_url:
+            raise ValueError("AGENT_FRONTEND_URL is required when the connector is enabled")
         return self
 
     def dingtalk_web_missing_settings(self) -> list[str]:
