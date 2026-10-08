@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.v1 import (
     admin,
+    agent_connector,
     asset_activity,
     asset_attachments,
     asset_space,
@@ -47,3 +48,5 @@ api_router.include_router(employee_requests.router, dependencies=authenticated)
 api_router.include_router(governance.router, dependencies=authenticated)
 api_router.include_router(transfers.router, dependencies=authenticated)
 api_router.include_router(hudu.router, dependencies=authenticated)
+
+api_router.include_router(agent_connector.router)
