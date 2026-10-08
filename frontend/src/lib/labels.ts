@@ -27,3 +27,8 @@ export function displayStatus(value: string | null | undefined) {
 export function displayCriticality(value: string | null | undefined) {
   return value ? (criticalityLabel[value] ?? value) : "普通";
 }
+
+export function displayReviewStatus(value: string | null | undefined) {
+  const labels: Record<string, string> = { pending_review: '待审核', approved: '已通过', rejected: '已退回' };
+  return value ? (labels[value] ?? displayStatus(value)) : '待审核';
+}

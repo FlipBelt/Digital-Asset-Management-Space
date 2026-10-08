@@ -151,9 +151,61 @@ def test_official_stdio_initialize_and_tools(tmp_path):
                 "operation_status",
             } <= names
             assert not any("confirm" in name for name in names)
-            assert len(names) == 12
+            assert {
+                "get_asset_details",
+                "search_people",
+                "save_asset_details",
+                "upload_asset_attachment",
+            } <= names
+            assert len(names) == 16
             result = await session.call_tool("get_capabilities", {})
             assert result.isError  # No local credential: no network request.
             assert "尚未连接" in str(result.content)
 
     asyncio.run(exercise())
+
+
+def test_supplement_tools_are_bounded_and_metadata_only(tmp_path, monkeypatch):
+    from flipbelt_connector import server as api
+
+    calls = []
+
+    def safe(method, path, payload=None):
+        calls.append((method, path, payload))
+        return {"attachment": {"id": "synthetic", "file_name": "outcome.png"}}
+
+    monkeypatch.setattr(api, "safe", safe)
+    asset, request = uuid4(), uuid4()
+    path = tmp_path / "outcome.png"
+    path.write_bytes(b"synthetic-image")
+    result = api.upload_asset_attachment(asset, request, 2, str(path))
+    assert "content_base64" not in str(result) and str(path) not in str(result)
+    assert calls[-1][2]["file_name"] == "outcome.png"
+    assert calls[-1][2]["request_id"] == str(request)
+    api.save_asset_details(asset, request, 2, {"profile": {"tech_stack": "synthetic"}})
+    assert calls[-1][0] == "PUT" and calls[-1][2]["version"] == 2
+    api.operation_status("attachment.upload", request)
+    api.operation_status("details.save", request)
+    for value in ({"confirmed": True}, {"actor_user_id": str(uuid4())}, {}):
+        with pytest.raises(ValueError):
+            api.save_asset_details(asset, request, 2, value)
+    for value in ("relative.png", str(tmp_path / "config.env")):
+        with pytest.raises(ValueError):
+            api.upload_asset_attachment(asset, request, 2, value)
+    with pytest.raises(ValueError):
+        api.search_people(" ")
+
+
+def test_upload_reads_no_more_than_limit_and_never_sends_oversize(
+    tmp_path, monkeypatch
+):
+    from flipbelt_connector import server as api
+
+    path = tmp_path / "large.png"
+    with path.open("wb") as stream:
+        stream.truncate(20 * 1024 * 1024 + 1)
+    monkeypatch.setattr(
+        api, "safe", lambda *args: pytest.fail("oversized content sent")
+    )
+    with pytest.raises(ValueError, match="20MB"):
+        api.upload_asset_attachment(uuid4(), uuid4(), 1, str(path))

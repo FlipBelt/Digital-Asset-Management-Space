@@ -290,6 +290,12 @@ def create_identifier(
             )
         ):
             item.is_primary = False
+    from app.services.asset_confirmation import lock_asset
+    from app.services.registrar_details import touch_web_details
+    asset = lock_asset(db, asset_id)
+    if asset.archived_at is not None or not can_manage_asset(db, access, asset):
+        raise HTTPException(403, "当前已无权修改该资产资料")
+    touch_web_details(asset, access)
     item = AssetIdentifier(asset_id=asset_id, **payload.model_dump())
     db.add(item)
     try:
@@ -1309,6 +1315,12 @@ def save_field_values(
         from fastapi import HTTPException
 
         raise HTTPException(status_code=422, detail="包含未定义的扩展字段")
+    from app.services.asset_confirmation import lock_asset
+    from app.services.registrar_details import touch_web_details
+    asset = lock_asset(db, asset_id)
+    if asset.archived_at is not None or not can_manage_asset(db, access, asset):
+        raise HTTPException(403, "当前已无权修改该资产资料")
+    touch_web_details(asset, access)
     saved: list[AssetFieldValue] = []
     for row in payload:
         item = db.scalar(
@@ -1368,6 +1380,8 @@ def save_assignment(
     from fastapi import HTTPException
 
     asset = asset_service.require(db, asset_id)
+    from app.services.asset_confirmation import lock_asset
+    asset = lock_asset(db, asset_id)
     if asset.version != payload.version:
         raise HTTPException(status_code=409, detail="记录已被其他用户修改")
     existing = asset_repository.list_responsibilities(db, asset_id)
@@ -1389,7 +1403,7 @@ def save_assignment(
 
     people_ids = {payload.responsible_person_id, *payload.user_person_ids}
     people = list(
-        db.scalars(select(Person).where(Person.id.in_(people_ids), Person.archived_at.is_(None)))
+        db.scalars(select(Person).where(Person.id.in_(people_ids), Person.archived_at.is_(None), Person.employment_status == "active"))
     )
     if len({person.id for person in people}) != len(people_ids) or (
         asset.legal_entity_id is not None
@@ -1456,17 +1470,21 @@ def save_assignment(
                 "ownership_scope": ownership_scope,
                 "responsible_person_id": str(payload.responsible_person_id),
                 "user_person_ids": [str(person_id) for person_id in payload.user_person_ids],
-                "review_status": "approved",
+                "review_status": "approved" if asset.sharing_scope is None else "pending_review",
             },
             request_id="asset-assignment",
         )
     )
     asset.owner_department_id = payload.owner_department_id
     asset.ownership_scope = ownership_scope
-    asset.status = "active"
-    asset.review_status = "approved"
-    asset.confirmed_by_person_id = access.person_id
-    asset.confirmed_at = now
+    if asset.sharing_scope is None:
+        # Legacy company-resource discovery keeps its existing approval workflow.
+        asset.status = "active"
+        asset.review_status = "approved"
+        asset.confirmed_by_person_id = access.person_id
+        asset.confirmed_at = now
+    else:
+        asset.review_status = "pending_review"
     asset.version += 1
     db.commit()
     return AssetAssignmentRead(

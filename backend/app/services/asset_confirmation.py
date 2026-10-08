@@ -10,9 +10,13 @@ from sqlalchemy.orm import Session
 from app.models import (
     Asset,
     AssetAttachment,
+    AssetFieldDefinition,
     AssetFieldValue,
+    AssetIdentifier,
     AssetRelation,
     AssetResponsibility,
+    InternalSystemProfile,
+    Person,
     ServiceInstance,
 )
 
@@ -78,6 +82,7 @@ def draft_snapshot(db: Session, asset: Asset, sharing_scope: str) -> dict:
                 row.role_type,
                 str(row.starts_at),
                 str(row.ends_at),
+                db.get(Person, row.person_id).display_name if row.person_id else "",
             )
             for row in db.scalars(
                 select(AssetResponsibility)
@@ -110,8 +115,43 @@ def draft_snapshot(db: Session, asset: Asset, sharing_scope: str) -> dict:
                 .order_by(ServiceInstance.id)
             )
         ],
+        "profile": next(
+            (
+                {
+                    key: getattr(row, key)
+                    for key in (
+                        "repository_url",
+                        "production_url",
+                        "tech_stack",
+                        "deployment_guide_url",
+                        "recovery_guide_url",
+                        "backup_description",
+                    )
+                }
+                for row in db.scalars(
+                    select(InternalSystemProfile).where(InternalSystemProfile.asset_id == asset.id)
+                )
+            ),
+            None,
+        ),
+        "identifiers": [
+            {
+                "namespace": row.namespace,
+                "identifier_type": row.identifier_type,
+                "identifier_value": row.identifier_value,
+            }
+            for row in db.scalars(
+                select(AssetIdentifier)
+                .where(AssetIdentifier.asset_id == asset.id, AssetIdentifier.archived_at.is_(None))
+                .order_by(AssetIdentifier.id)
+            )
+        ],
         "fields": [
-            (str(row.field_definition_id), row.value)
+            (
+                str(row.field_definition_id),
+                row.value,
+                db.get(AssetFieldDefinition, row.field_definition_id).label,
+            )
             for row in db.scalars(
                 select(AssetFieldValue)
                 .where(AssetFieldValue.asset_id == asset.id)

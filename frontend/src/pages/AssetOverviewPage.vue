@@ -7,11 +7,11 @@ import AssetAttachments from "../components/AssetAttachments.vue";
 import AssetConfirmationPanel from "../components/AssetConfirmationPanel.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { api, type Asset, type HuduAssetDetail, type Membership } from "../lib/api";
-import { displayStatus } from "../lib/labels";
+import { displayStatus, displayReviewStatus } from "../lib/labels";
 import { assetReturnContext } from "../lib/assetNavigation";
 import { aiTypeName, isAIOutcome } from "../lib/aiDiscovery";
 const route = useRoute(); const detail = ref<HuduAssetDetail | null>(null); const asset = ref<Asset | null>(null);
-const canManage = ref(false);
+const canManage = ref(false); const canReview = ref(false);
 const subscription = ref<Membership | null>(null); const bookmarked = ref(false); const person = ref("");
 const error = ref(""); const loading = ref(false); const actionError = ref(""); const busy = ref(false); let sequence = 0;
 const returnContext = computed(() => assetReturnContext(route.query.returnTo));
@@ -29,6 +29,7 @@ async function load() {
       user.person_id ? api.spaceMemberships() : Promise.resolve([]),
     ]);
     if (request === sequence) { detail.value = value; asset.value = original; person.value = user.person_id || "";
+      canReview.value = user.roles.some(role => ["system_admin", "asset_manager", "department_manager", "group_leader"].includes(role));
       canManage.value = user.roles.some(role => ["system_admin", "asset_manager", "department_manager", "group_leader", "auditor"].includes(role));
       bookmarked.value = saved.includes(id); subscription.value = memberships.find(item => item.asset_id === id) || null; }
   } catch (reason) { if (request === sequence) error.value = reason instanceof Error ? reason.message : "读取失败"; }
@@ -50,6 +51,7 @@ watch(() => route.params.id, load, { immediate: true });
     <template v-else-if="detail && asset">
       <PageHeader :eyebrow="typeLabel" :title="asset.name" :description="asset.description || '说明待补充'">
         <button class="secondary-button" :aria-pressed="bookmarked" :disabled="busy || !person" @click="toggleBookmark"><Bookmark :size="17" />{{ bookmarked ? '已收藏' : '收藏资产' }}</button>
+        <RouterLink v-if="canReview && asset.status === 'active' && asset.review_status === 'pending_review'" :to="{path: '/manage/reviews', query: {asset: asset.id}}" class="secondary-button">审核此成果</RouterLink>
         <StatusBadge :tone="asset.status === 'active' ? 'success' : 'warning'">{{ displayStatus(asset.status) }}</StatusBadge>
       </PageHeader>
       <p v-if="actionError" class="form-error" role="alert">{{ actionError }}</p>
@@ -58,11 +60,12 @@ watch(() => route.params.id, load, { immediate: true });
         <RouterLink to="/my/contributions?new=case" class="secondary-button">记录 AI 案例<ArrowRight :size="16" aria-hidden="true" /></RouterLink>
       </section>
       <div class="fusion-detail-layout">
-        <section class="content-panel"><h2>使用与责任</h2><dl><dt>所属团队</dt><dd>{{ detail.asset.owner_department_name || '待确认' }}</dd><dt>负责人</dt><dd>{{ detail.responsibilities.filter(r => r.role_type === 'responsible').map(r => r.person_name || r.department_name).join('、') || '待确认' }}</dd><dt>共享范围</dt><dd>{{ scopeLabels[asset.sharing_scope || ''] || '沿用原资产访问策略' }}</dd><dt>审核状态</dt><dd>{{ displayStatus(asset.review_status || 'pending_review') }} · 版本 {{ asset.version }}</dd><dt>来源</dt><dd>{{ asset.source_system || '未补充' }}{{ asset.source_agent ? ' · ' + asset.source_agent : '' }}</dd></dl><p class="fusion-muted">登记状态不代表所有使用场景都已批准，请按负责人确认的范围使用。</p><RouterLink v-if="canManage" :to="`/assets/${asset.id}`" class="secondary-button">维护台账资料</RouterLink><RouterLink v-else-if="owns && asset.status === 'draft'" :to="`/assets/${asset.id}`" class="secondary-button">补充草稿资料</RouterLink></section>
+        <section class="content-panel"><h2>使用与责任</h2><dl><dt>所属团队</dt><dd>{{ detail.asset.owner_department_name || '待确认' }}</dd><dt>负责人</dt><dd>{{ detail.responsibilities.filter(r => r.role_type === 'responsible').map(r => r.person_name || r.department_name).join('、') || '待确认' }}</dd><dt>共享范围</dt><dd>{{ scopeLabels[asset.sharing_scope || ''] || '沿用原资产访问策略' }}</dd><dt>审核状态</dt><dd>{{ displayReviewStatus(asset.review_status) }} · 版本 {{ asset.version }}</dd><dt>来源</dt><dd>{{ asset.source_system || '未补充' }}{{ asset.source_agent ? ' · ' + asset.source_agent : '' }}</dd></dl><p class="fusion-muted">登记状态不代表所有使用场景都已批准，请按负责人确认的范围使用。</p><RouterLink v-if="canManage" :to="`/assets/${asset.id}`" class="secondary-button">维护台账资料</RouterLink><RouterLink v-else-if="owns && asset.status === 'draft'" :to="`/assets/${asset.id}`" class="secondary-button">补充草稿资料</RouterLink></section>
         <section v-if="subscription" class="content-panel"><h2>订阅与探索</h2><dl><dt>套餐</dt><dd>{{ subscription.subscription_name }}</dd><dt>资金来源</dt><dd>{{ fundingLabels[subscription.funding_source || ''] || '待确认' }}</dd><dt>用途</dt><dd>{{ subscription.primary_purpose || '待补充' }}</dd></dl><RouterLink :to="{ path: '/my/contributions', query: { subscription: subscription.id } }" class="fusion-detail">查看关联实践<ArrowRight :size="17" /></RouterLink><RouterLink v-if="subscription.funding_source === 'personal' && subscription.payer_person_id === person" :to="{ path: '/my/contributions', query: { subscription: subscription.id, new: 'exploration' } }" class="secondary-button">记录自费 AI 探索</RouterLink></section>
       </div>
+      <section v-if="asset.review_status === 'rejected'" class="content-panel" role="status"><h2>审核已退回</h2><p>{{ detail.history.find(row => row.action === 'asset.review')?.after_data?.reason || '请联系审核人核对需补充的内容' }}</p><p v-if="owns">可使用登记器补充资料，再预览确认新的登记版本。</p></section>
       <AssetConfirmationPanel v-if="owns && asset.status === 'draft'" :asset-id="asset.id" @confirmed="load" />
-      <AssetAttachments :key="`${asset.id}-${asset.version}`" :asset-id="asset.id" />
+      <AssetAttachments :key="`${asset.id}-${asset.version}`" :asset-id="asset.id" :can-upload="owns" @uploaded="load" />
       <section class="content-panel"><h2>关联资产与工作流</h2><p v-if="!detail.relations.length" class="fusion-muted">尚未登记关联关系。</p><div v-else class="fusion-grid"><RouterLink v-for="relation in detail.relations" :key="relation.id" :to="{ path: `/discover/${relation.related_asset_id}`, query: { returnTo: returnContext.to } }" class="fusion-card"><h2>{{ relation.related_name }}</h2><span class="fusion-detail">查看关联详情<ArrowRight :size="17" /></span></RouterLink></div></section>
     </template>
   </div>

@@ -58,7 +58,7 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref("");
 const message = ref("");
-const tab = ref("overview");
+const tab = ref(typeof route.query.tab === "string" && ["overview", "relations", "responsibility", "fields", "history"].includes(route.query.tab) ? route.query.tab : "overview");
 const asset = ref<Asset | null>(null);
 const types = ref<AssetType[]>([]);
 const departments = ref<Department[]>([]);
@@ -74,6 +74,10 @@ const platformAccountContext = ref<PlatformAccountContext | null>(null);
 const platforms = ref<Platform[]>([]);
 const serviceInstances = ref<ServiceInstance[]>([]);
 const childAccounts = ref<Account[]>([]);
+const confirmedResponsible = ref<string | null>(null);
+const canReview = ref(false);
+const canUploadOutcome = ref(false);
+const proposals = ref<{person_id: string | null; role_type: string}[]>([]);
 const assignment = reactive<AssetAssignment>({
   owner_department_id: null,
   ownership_scope: "pending",
@@ -234,6 +238,10 @@ const completeness = computed(() => {
           : 0),
     );
   }
+  if (type.value?.profile_kind === "internal_system") {
+    const values = Object.values(profileForm);
+    return Math.round(100 * values.filter(value => value.trim()).length / values.length);
+  }
   const required = fieldDefinitions.value.filter((item) => item.is_required);
   const filled = required.filter(
     (item) =>
@@ -363,8 +371,8 @@ const candidateAssets = computed(() => {
   );
 });
 const relationshipSlots = computed(() => {
-  const responsible = assignment.responsible_person_id
-    ? personName.value[assignment.responsible_person_id]
+  const responsible = confirmedResponsible.value
+    ? personName.value[confirmedResponsible.value]
     : null;
   return [
     {
@@ -414,6 +422,9 @@ async function load() {
   cancelRelationEdit();
   try {
     const item = await api.asset(id);
+    const currentUser = await api.currentSession();
+    canReview.value = currentUser.roles.some(role => ["system_admin", "asset_manager", "department_manager", "group_leader"].includes(role));
+    canUploadOutcome.value = item.created_by_person_id === currentUser.person_id || currentUser.roles.some(role => ["system_admin", "asset_manager"].includes(role));
     const [
       typeRows,
       deptRows,
@@ -456,6 +467,9 @@ async function load() {
     serviceInstances.value = serviceInstanceRows;
     fieldDefinitions.value = fieldRows;
     Object.assign(assignment, assignmentRow);
+    const responsibilities = await api.assetResponsibilities(id);
+    confirmedResponsible.value = responsibilities.find(r => r.role_type === "responsible")?.person_id || null;
+    proposals.value = responsibilities.filter(r => ["proposed_responsible", "proposed_user"].includes(r.role_type));
     Object.assign(edit, {
       name: item.name,
       status: item.status,
@@ -562,6 +576,11 @@ async function saveChildAccount() {
     saving.value = false;
   }
 }
+function applyProposals() {
+  const responsible = proposals.value.find(r => r.role_type === "proposed_responsible");
+  if (responsible?.person_id) assignment.responsible_person_id = responsible.person_id;
+  assignment.user_person_ids = proposals.value.filter(r => r.role_type === "proposed_user" && r.person_id).map(r => r.person_id!);
+}
 async function saveAssignment() {
   if (!asset.value || !assignment.responsible_person_id) return;
   saving.value = true;
@@ -580,7 +599,9 @@ async function saveAssignment() {
       }),
     );
     asset.value = await api.asset(id);
-    message.value = "责任配置已保存";
+    proposals.value = [];
+    confirmedResponsible.value = assignment.responsible_person_id;
+    message.value = "责任配置已保存，成果审核请进入管理区 → 成果审核";
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "保存失败";
   } finally {
@@ -597,6 +618,7 @@ async function saveCustomFields() {
         value: fieldValues[field.id] ?? null,
       })),
     );
+    asset.value = await api.asset(id);
     message.value = "专属资料已保存";
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "保存失败";
@@ -608,6 +630,7 @@ async function saveProfile() {
   saving.value = true;
   try {
     profile.value = await api.saveInternalProfile(id, profileForm);
+    asset.value = await api.asset(id);
     message.value = "接管资料已保存";
   } finally {
     saving.value = false;
@@ -712,6 +735,7 @@ onMounted(load);
       :title="asset?.name ?? '资产详情'"
       :description="type?.name ?? '统一资产资料'"
     >
+      <RouterLink v-if="canReview && asset?.status === 'active' && asset.review_status === 'pending_review'" :to="{path: '/manage/reviews', query: {asset: asset.id}}" class="secondary-button">审核此成果</RouterLink>
       <StatusBadge :tone="asset?.archived_at ? 'default' : 'success'">{{
         asset?.archived_at ? "已归档" : displayStatus(asset?.status ?? "")
       }}</StatusBadge
@@ -721,7 +745,7 @@ onMounted(load);
         }}
       </button>
     </PageHeader>
-    <AssetAttachments v-if="asset" :asset-id="asset.id" />
+    <AssetAttachments v-if="asset" :key="asset.version" :asset-id="asset.id" :can-upload="canUploadOutcome" @uploaded="load" />
     <div v-if="message" class="message-panel success-message">
       {{ message }}
     </div>
@@ -744,8 +768,8 @@ onMounted(load);
         <article>
           <span>负责人</span
           ><strong>{{
-            assignment.responsible_person_id
-              ? personName[assignment.responsible_person_id]
+            confirmedResponsible
+              ? personName[confirmedResponsible]
               : "待配置"
           }}</strong
           ><small>{{ assignment.user_person_ids.length }} 位协同使用人</small>
@@ -882,8 +906,8 @@ onMounted(load);
             <article>
               <UserRound :size="19" /><span>登记人与负责人</span
               ><strong>{{
-                assignment.responsible_person_id
-                  ? personName[assignment.responsible_person_id]
+                confirmedResponsible
+                  ? personName[confirmedResponsible]
                   : "待确认"
               }}</strong
               ><small
@@ -1134,6 +1158,7 @@ onMounted(load);
           </div>
           <UserRound :size="30" />
         </header>
+        <section v-if="proposals.length" class="content-panel"><h3>登记器建议的责任人员</h3><p v-for="row in proposals" :key="String(row.person_id)">{{ row.role_type === 'proposed_responsible' ? '建议负责人' : '建议协同人' }}：{{ people.find(p => p.id === row.person_id)?.display_name || '人员待核对' }}</p><p>建议尚未生效。核对后采用建议，再确认责任配置。</p><button class="secondary-button" type="button" @click="applyProposals">采用建议填写下方表单</button></section>
         <form
           class="balanced-form responsibility-form"
           @submit.prevent="saveAssignment"

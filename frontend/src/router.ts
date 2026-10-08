@@ -31,6 +31,7 @@ import AssetManagePage from "./pages/AssetManagePage.vue";
 import MyRequestsPage from "./pages/MyRequestsPage.vue";
 import { legacyWorkspaceEnabled } from "./lib/workspaceNavigation";
 
+import AssetReviewPage from "./pages/AssetReviewPage.vue";
 import AgentConnectPage from "./pages/AgentConnectPage.vue";
 
 const router = createRouter({
@@ -53,6 +54,7 @@ const router = createRouter({
     { path: "/my/contributions", component: AssetEvidencePage },
     { path: "/my/:category(created|responsible|subscriptions|using|ai|drafts|bookmarks)", component: AssetSpacePage, props: { scope: "mine" } },
     { path: "/manage", component: AssetManagePage },
+    { path: "/manage/reviews", component: AssetReviewPage },
     { path: "/exploration", redirect: "/my/subscriptions" },
     { path: "/workflows", component: AssetSpacePage, props: { scope: "workflows" } },
     { path: "/my", name: "my-usage", component: AssetSpacePage, props: { scope: "mine" } },

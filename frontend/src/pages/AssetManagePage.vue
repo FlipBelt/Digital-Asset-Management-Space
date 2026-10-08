@@ -28,10 +28,11 @@ const records = computed(() => [
   { to: "/accounts", title: "平台与账号", description: "维护公司平台、账号及安全引用。", icon: KeyRound },
   { to: "/organization", title: "组织与授权", description: "核对公司、部门、成员与有效使用授权。", icon: Users },
   { to: "/services", title: "订阅与用量", description: "核对服务订阅、费用及调用记录。", icon: ChartNoAxesCombined },
+  ...(user.value?.roles.some(role => ["system_admin", "asset_manager", "department_manager", "group_leader"].includes(role)) ? [{ to: "/manage/reviews", title: "成果审核", description: "核对已登记成果的当前版本，通过或退回补充。", icon: ClipboardCheck }] : []),
   { to: "/governance", title: "申请处理与风险", description: "处理员工申请，核对到期和风险事项。", icon: ClipboardCheck },
   ...(globalManager.value ? [{ to: "/imports", title: "批量导入", description: "预览、校验并确认已有资料清单。", icon: FileInput }] : []),
   ...(legacyWorkspaceEnabled(import.meta.env.BASE_URL, window.location.hostname) ? [{ to: "/hudu", title: "原资产工作区", description: "查看历史资产工作区。", icon: Boxes }] : []),
-].filter(item => !groupOnly.value || ["/assets", "/organization"].includes(item.to)));
+].filter(item => !groupOnly.value || ["/assets", "/organization", "/manage/reviews"].includes(item.to)));
 function selectTab(value: string) { void router.replace({ query: value === "settings" ? { tab: "settings" } : {} }); }
 async function load() { loading.value = true; error.value = ""; try { user.value = await api.currentSession(); } catch (reason) { error.value = reason instanceof Error ? reason.message : "读取失败"; } finally { loading.value = false; } }
 onMounted(load);

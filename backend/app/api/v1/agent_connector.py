@@ -33,6 +33,8 @@ from app.core.auth import require_csrf
 from app.db.session import get_db
 from app.models import AgentGrant, AgentIncubation, AgentOperation, Asset, AssetType, AuditLog
 from app.schemas.agent_connector import (
+    AttachmentInput,
+    DetailsInput,
     DeviceApprove,
     DeviceCode,
     DevicePoll,
@@ -263,7 +265,10 @@ def capabilities(
             for t in types(db)
         ],
         "confirmation": "web_only",
-        "attachments": False,
+        "attachments": True,
+        "attachment_formats": ["png", "jpg", "jpeg", "webp", "zip"],
+        "structured_details": True,
+        "responsibility": "proposal_web_governance",
         "relations": False,
         "incubation": "private_structured_summary",
     }
@@ -334,7 +339,12 @@ def begin_operation(db, access, operation, payload, *, target=None):
     identity = operation_id(access.user.id, operation, payload.request_id)
     checksum = digest(
         json.dumps(
-            {"payload": payload.model_dump(mode="json"), "target": target},
+            {
+                "payload": payload.model_dump(
+                    mode="json", exclude_unset=operation == "details.save"
+                ),
+                "target": target,
+            },
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
@@ -518,3 +528,119 @@ def disconnect(
     audit(db, access, "agent.revoke", item.id)
     db.commit()
     return {"status": "disconnected"}
+
+
+@router.get("/people")
+def search_people(
+    q: str = Query(min_length=1, max_length=100),
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(agent_access),
+):
+    from app.models import Department, Person
+
+    owner = db.get(Person, access.person_id)
+    rows = db.execute(
+        select(Person, Department.name)
+        .outerjoin(Department, Person.department_id == Department.id)
+        .where(
+            Person.legal_entity_id == owner.legal_entity_id,
+            Person.archived_at.is_(None),
+            Person.employment_status == "active",
+            Person.display_name.icontains(q, autoescape=True),
+        )
+        .order_by(Person.display_name, Person.id)
+        .limit(20)
+    )
+    return {
+        "items": [
+            {
+                "id": str(person.id),
+                "display_name": person.display_name,
+                "department_name": department,
+            }
+            for person, department in rows
+        ]
+    }
+
+
+def own_outcome(db, access, asset_id, version=None):
+    item = db.scalar(
+        visible_query(access)
+        .where(Asset.id == asset_id, Asset.created_by_person_id == access.person_id)
+        .with_for_update(of=Asset)
+    )
+    if item is None or item.status not in {"draft", "active"}:
+        raise HTTPException(404, "本人成果不存在")
+    if version is not None and item.version != version:
+        raise HTTPException(409, "成果已更新，请读取当前版本")
+    return item
+
+
+@router.get("/assets/{asset_id}/details")
+def read_details(
+    asset_id: UUID, db: Session = Depends(get_db), access: AccessContext = Depends(agent_access)
+):
+    from app.services.registrar_details import details
+
+    item = own_outcome(db, access, asset_id)
+    return {**asset_card(item), **details(db, item)}
+
+
+@router.put("/assets/{asset_id}/details")
+def write_details(
+    asset_id: UUID,
+    payload: DetailsInput,
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(agent_access),
+):
+    from app.services.registrar_details import details, save_details
+
+    op, replay = begin_operation(db, access, "details.save", payload, target=str(asset_id))
+    if replay:
+        return op.result
+    item = own_outcome(db, access, asset_id, payload.version)
+    save_details(db, item, payload)
+    return finish(db, op, {**asset_card(item), **details(db, item)}, access, item.id)
+
+
+@router.post("/assets/{asset_id}/attachments")
+def upload_outcome(
+    asset_id: UUID,
+    payload: AttachmentInput,
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(agent_access),
+):
+    import base64
+    import binascii
+
+    from app.api.v1.asset_attachments import STORAGE
+    from app.services.outcome_attachments import store_outcome
+    from app.services.registrar_details import invalidate
+
+    op, replay = begin_operation(db, access, "attachment.upload", payload, target=str(asset_id))
+    if replay:
+        return op.result
+    item = own_outcome(db, access, asset_id, payload.version)
+    try:
+        content = base64.b64decode(payload.content_base64, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise HTTPException(422, "附件编码无效") from exc
+    attachment, created = store_outcome(db, item, content, payload.file_name, STORAGE)
+    if created:
+        invalidate(item)
+        db.flush()
+    return finish(
+        db,
+        op,
+        {
+            **asset_card(item),
+            "attachment": {
+                "id": str(attachment.id),
+                "file_name": attachment.file_name,
+                "content_type": attachment.content_type,
+                "size_bytes": attachment.size_bytes,
+            },
+        },
+        access,
+        item.id,
+    )
