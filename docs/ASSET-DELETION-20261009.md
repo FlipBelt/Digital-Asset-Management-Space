@@ -40,4 +40,26 @@ npm run build
 
 ## 发布与实际删除
 
-待按测试、正式顺序发布并记录实际结果；当前尚未删除正式配色中台资产。实际目标仅 1d17eb78-85d6-5d90-90fd-adeb0bac85a1，系统-001。
+- 实现提交 d038e5a；最终代码 df31b595271800e50f5fee3cb68f02ae2a6a388d 已推送 PR3 所在分支。没有合并 PR。
+- 已按测试、正式顺序发布最终代码；双环境各 13 项公网状态、静态 JS/CSS 字节核对通过。匿名回收站、审核、登记器和个人空间接口保持 401；服务健康正常。
+- 测试环境真实演练旧代码/静态页回退后重新应用候选；生产保留可用旧代码与静态目录。无数据库迁移、认证配置或 Nginx 配置变更。
+- 最终包 SHA-256：7fb98b0f8340c5ac49bcf09ab2ccaa8debb343c4eb6b3bf4bda8b887261332ca。重建时逐文件核对基线与目标 SHA，避免应用到其他版本。
+- 测试进程 1705498，正式进程 1705549。schema 均 f13d20261008。服务启动前后 assets、asset_attachments、asset_identifiers、asset_responsibilities、asset_relations、asset_confirmations 六张表内容指纹一致；该范围不等于全库审计。
+- 正式删除通过管理员网页执行，仅目标 1d17eb78-85d6-5d90-90fd-adeb0bac85a1、系统-001。删除前重新读取 v12，删除后 v13/status=deleted；一条 asset.delete 审计，服务端操作身份与连接器用户一致。
+- 删除后五张关联资料表内容指纹保持，物理资产行数仍 322；页面回收站显示目标与恢复按钮。登记器 search_assets 返回空列表，get_asset 返回不存在。
+- 没有执行再次登记或恢复正式目标，也没有删除仓库、注销外部资源、指派责任人、确认成果或代替审核。
+- 本地合成资产验证完整删除/恢复；服务器测试环境以现有管理员会话只读核对管理页、回收站与空搜索。正式目标的实际删除已核验；其他真实使用场景的人工 UAT 不因此完成。
+
+### 证据与回退
+
+- 本机：.deploy-artifacts/asset-deletion/df31b5952718/，含最终静态包、增量清单、部署/公网核验脚本与 PUBLIC-test.md、PUBLIC-production.md。
+- 正式操作截图：.local/asset-deleted-production-20261009.jpg，1505×1244；SHA-256 a32bda59f24ddc648983aa969b3ae5d65dd891ab316fe252bb492d77b01fee61。
+- 服务器：/opt/account-center/releases/deletion-df31b5952718-upload/，test-PASS.json、production-PASS.json、test-ui-PASS.json、DELETION-PASS.json 与对应 *-ROLLBACK.json。
+- 正式旧代码：/opt/account-center/backups/df31b5952718-deletion-production-20261009/backend-old；数据库 dump 同目录，已核对 pg_restore 列表。旧静态目录：/var/www/account-center-prod-releases/255b32d3824d-usability-production-20261009。
+- 如需恢复资产，使用管理页面“资产回收站”的恢复操作。代码回滚不恢复删除项；应用回滚按 ROLLBACK.json 停服务、切回旧 backend 与静态符号链接，再启动并检查 ready。本次未演练生产回滚或数据库恢复。
+
+## 修改文件
+
+- 后端：app/api/v1/assets.py、app/repositories/assets.py、app/schemas/assets.py、app/services/assets.py；tests/test_asset_deletion.py。
+- 前端：src/pages/AssetsPage.vue、src/pages/AssetManagePage.vue、src/components/ModalPanel.vue、src/lib/api.ts、src/lib/labels.ts；tests/assetDeletion.test.mjs。
+- 本说明文件。
