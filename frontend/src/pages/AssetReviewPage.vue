@@ -95,6 +95,7 @@ onMounted(load);
 .review-list { display:grid; gap:12px; margin-top:16px; max-height:60vh; overflow:auto; }
 .review-list button { display:grid; justify-content:start; gap:6px; white-space:normal; text-align:left; overflow-wrap:anywhere; }
 .review-list button small { color:var(--muted); font-weight:400; }
+.review-page .review-list button { display:flex; flex-direction:column; align-items:flex-start; }
 .review-list button.active { border-color:var(--primary); background:var(--surface-soft); }
 .review-queue > .review-actions { margin-top:16px; }
 .review-detail { display:grid; gap:24px; }
