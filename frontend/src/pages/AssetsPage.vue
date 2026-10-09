@@ -839,9 +839,11 @@ onMounted(loadActiveView);
 </template>
 
 <style scoped>
+.business-filter-grid { grid-template-columns:minmax(0,1fr) minmax(100px,180px) auto; }
+.business-filter-grid > * { min-width:0; }
 .asset-row-actions { display:flex; gap:8px; white-space:nowrap; }
 .deletion-button { color:#a92a22; }
-.deletion-confirm { background:#a92a22; color:#fff; }
+.page-stack :deep(.modal-panel) .deletion-confirm { background:#a92a22; color:#fff; }
 .asset-mutation-body { overflow-wrap:anywhere; line-height:1.7; }
 .asset-mutation-body p { margin:12px 0; }
 
@@ -851,5 +853,9 @@ onMounted(loadActiveView);
 .governance-context p { margin-top:8px; color:var(--muted); line-height:1.7; }
 .layer-browser-guide { grid-template-columns:1fr; }
 .layer-tabs { grid-template-columns:repeat(3,minmax(0,1fr)); }
-@media(max-width:650px) { .layer-tabs { grid-template-columns:1fr 1fr; } }
+@media(max-width:650px) {
+  .layer-tabs { grid-template-columns:1fr 1fr; }
+  .business-filter-grid { grid-template-columns:minmax(0,1fr); }
+  .page-stack :deep(.page-actions) { width:100%; flex-wrap:wrap; }
+}
 </style>
