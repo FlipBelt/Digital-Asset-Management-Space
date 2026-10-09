@@ -1,6 +1,6 @@
 # 登记器补充资料、截图与成果审核候选
 
-日期：2026-10-08。状态：本地实现与定向验证完成，未推送、未部署。
+日期：2026-10-08；更新：2026-10-09。状态：实现、定向验证及先测试后正式发布完成，详见 [发布记录](REGISTRAR-RELEASE-20261009.md)。真实业务验收单列。
 正式工程：Digital-Asset-Management-Space。
 候选目录：C:/Users/MSI/Documents/Codex/work/asset-center-registrar-completion。
 分支：codex/asset-center-registrar-completion；起点：ae853598529aa35016baa096ef980958c3adddee。
@@ -73,11 +73,11 @@ backend/.venv/Scripts/python.exe .local/rerun.py tests/test_registrar_completion
 - test_boss_pilot_import_is_private_and_reviewable：补齐合成公司前置后，created_internal_system_assets实际0、预期1。
 证据在 .local/BASELINE-TEST-RESULT.txt / .local/BASELINE-IMPORT-RESULT.txt。未修复这两个无关旧问题，不声称全量测试全绿。
 
-## 上线与回退待办
+## 上线与回退
 
 本次没有新数据库迁移，继续使用f13d20261008现有表；没有修改实际产品资产、职责、审核或成果附件。页面截图来自空表单，仅作需求依据，未被上传为产品成果。
 
-上线须用户另行明确授权这份候选：重新核对当前远端/生产基线，备份代码、静态、配置和数据库；先隔离/test/再生产发布匹配前后端与Pillow锁定依赖；核验Nginx请求上限与nginx -t；同步本机适配器并刷新实际16工具发现和能力回执。发布过程不得代本人配对/确认或审核实际成果。
+用户已明确批准候选3af34f1先测试再正式上线；2026-10-09完成推送、两环境发布、备份、Pillow/Nginx核验、本机适配器同步和实际16工具/能力回执复核，详见发布记录。未代本人确认或审核实际成果；旧聊天缓存工具目录需重连客户端后刷新。
 
 回退匹配的后端/前端/适配器和Nginx配置，保留数据库记录和附件文件，不整库恢复覆盖新记录。旧版本不提供新增截图预览/工具，但数据保留。新旧客户端靠能力门禁兼容。
 真实管理员/创建人业务验收、Qoder-CN实际发现及钉钉窄屏体验尚未执行；自动验证与本地合成检查不关闭这些事项。
