@@ -9,6 +9,7 @@ export const statusLabel: Record<string, string> = {
   paused: "停用",
   disabled: "停用",
   archived: "已归档",
+  deleted: "已删除",
   approved: "已标准化",
   returned: "已退回",
   merged: "已合并",

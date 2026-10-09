@@ -343,6 +343,7 @@ export const api = {
   updateAsset: (id: string, body: Record<string, unknown>) => request<Asset>(`/api/v1/assets/${id}`, json("PATCH", body)),
   archiveAsset: (id: string, version: number) => request<Asset>(`/api/v1/assets/${id}/archive?version=${version}`, json("POST")),
   restoreAsset: (id: string, version: number) => request<Asset>(`/api/v1/assets/${id}/restore?version=${version}`, json("POST")),
+  deleteAsset: (id: string, version: number) => request<Asset>(`/api/v1/assets/${id}?version=${version}`, json("DELETE")),
   responsibilities: (id: string) => request<Responsibility[]>(`/api/v1/assets/${id}/responsibilities`),
   assetAssignment: (id: string) => request<AssetAssignment>(`/api/v1/assets/${id}/assignment`),
   saveAssetAssignment: (id: string, body: { version: number; owner_department_id: string | null; ownership_scope: string; responsible_person_id: string; user_person_ids: string[] }) => request<AssetAssignment>(`/api/v1/assets/${id}/assignment`, json("PUT", body)),

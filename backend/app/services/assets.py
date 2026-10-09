@@ -57,6 +57,8 @@ class AssetService:
         )
         if asset is None:
             raise HTTPException(404, "资产不存在")
+        if asset.archived_at is not None:
+            raise HTTPException(409, "资产已归档或删除，请刷新后重试")
         if asset.version != payload.version:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="记录已被其他用户修改")
         before = self._snapshot(asset)
@@ -80,6 +82,8 @@ class AssetService:
         )
         if asset is None:
             raise HTTPException(404, "资产不存在")
+        if asset.archived_at is not None:
+            raise HTTPException(409, "资产已归档或删除，请刷新后重试")
         if asset.version != version:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="记录已被其他用户修改")
         before = self._snapshot(asset)
@@ -92,15 +96,43 @@ class AssetService:
         db.refresh(asset)
         return asset
 
-    def restore(self, db: Session, asset_id: UUID, version: int) -> Asset:
+    def delete(self, db: Session, asset_id: UUID, version: int) -> Asset:
+        asset = db.scalar(
+            select(Asset).where(Asset.id == asset_id).with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if asset is None:
+            raise HTTPException(404, "资产不存在")
+        # A repeated DELETE must not increment the version or duplicate its audit event.
+        if asset.status == "deleted" and asset.archived_at is not None:
+            return asset
+        if asset.version != version:
+            raise HTTPException(409, "记录已被其他用户修改，请刷新台账后重试")
+        before = self._snapshot(asset)
+        asset.archived_at = datetime.now(UTC)
+        asset.status = "deleted"
+        asset.version += 1
+        db.flush()
+        self._audit(db, "asset.delete", asset.id, before, self._snapshot(asset))
+        db.commit()
+        db.refresh(asset)
+        return asset
+
+    def restore(
+        self, db: Session, asset_id: UUID, version: int, *, allow_deleted: bool = False
+    ) -> Asset:
         asset = db.scalar(
             select(Asset).where(Asset.id == asset_id).with_for_update()
             .execution_options(populate_existing=True)
         )
         if asset is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="资产不存在")
+        if asset.status == "deleted" and not allow_deleted:
+            raise HTTPException(403, "需要资产管理员权限")
         if asset.version != version:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="记录已被其他用户修改")
+        if asset.archived_at is None:
+            raise HTTPException(409, "资产未归档或删除，无需恢复")
         before = self._snapshot(asset)
         asset.archived_at = None
         asset.status = "draft" if asset.sharing_scope is not None else "active"

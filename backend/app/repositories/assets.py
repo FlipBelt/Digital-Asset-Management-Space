@@ -27,10 +27,17 @@ class AssetRepository:
         status: str | None = None,
         criticality: str | None = None,
         include_archived: bool = False,
+        deleted_only: bool = False,
         keyword: str | None = None,
         visibility_filter: ColumnElement[bool] | None = None,
     ) -> tuple[list[Asset], int]:
-        filters = [] if include_archived else [Asset.archived_at.is_(None)]
+        filters = (
+            [Asset.status == "deleted", Asset.archived_at.is_not(None)]
+            if deleted_only
+            else [Asset.status != "deleted"]
+        )
+        if not include_archived and not deleted_only:
+            filters.append(Asset.archived_at.is_(None))
         if visibility_filter is not None:
             filters.append(visibility_filter)
         if legal_entity_id:

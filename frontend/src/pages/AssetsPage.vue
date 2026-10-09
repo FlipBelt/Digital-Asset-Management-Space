@@ -23,6 +23,7 @@ import {
   api,
   apiPath,
   type Asset,
+  type CurrentUser,
   type AssetType,
   type Department,
   type ImportPreview,
@@ -42,6 +43,58 @@ const records = ref<LayerRecord[]>([]);
 const total = ref(0);
 const businessAssets = ref<Asset[]>([]);
 const businessTypes = ref<AssetType[]>([]);
+const currentUser = ref<CurrentUser | null>(null);
+const trashOpen = ref(false);
+const businessPage = ref(1);
+const pageSize = 50;
+const mutationTarget = ref<Asset | null>(null);
+const mutationKind = ref<"delete" | "restore">("delete");
+const mutationBusy = ref(false);
+const mutationError = ref("");
+const canDelete = computed(() => {
+  const user = currentUser.value;
+  return !!user && (user.roles.includes("system_admin") ||
+    (user.roles.includes("asset_manager") && user.permissions.includes("asset.write")));
+});
+function openMutation(asset: Asset, kind: "delete" | "restore") {
+  mutationTarget.value = asset;
+  mutationKind.value = kind;
+  mutationError.value = "";
+}
+function closeMutation() {
+  if (!mutationBusy.value) mutationTarget.value = null;
+}
+async function mutateAsset() {
+  const asset = mutationTarget.value;
+  if (!asset || mutationBusy.value) return;
+  mutationBusy.value = true;
+  mutationError.value = "";
+  try {
+    if (mutationKind.value === "delete") await api.deleteAsset(asset.id, asset.version);
+    else await api.restoreAsset(asset.id, asset.version);
+    message.value = mutationKind.value === "delete"
+      ? `已删除“${asset.name}”，可在回收站恢复。`
+      : `已恢复“${asset.name}”${asset.sharing_scope ? "，请重新核对、确认并审核当前版本。" : "。"}`;
+    mutationTarget.value = null;
+    await loadActiveView();
+  } catch (cause) {
+    mutationError.value = cause instanceof Error ? cause.message : "操作失败，请重试";
+  } finally { mutationBusy.value = false; }
+}
+async function refreshBusiness() {
+  businessPage.value = 1;
+  await loadActiveView();
+}
+async function switchTrash() {
+  trashOpen.value = !trashOpen.value;
+  await router.replace({ query: { ...route.query, trash: trashOpen.value ? "1" : undefined } });
+  businessFilters.status = "";
+  await refreshBusiness();
+}
+async function changeBusinessPage(delta: number) {
+  businessPage.value += delta;
+  await loadActiveView();
+}
 const importBatches = ref<ImportBatch[]>([]);
 const sourcePlans = ref<ImportPlan[]>([]);
 const types = ref<AssetType[]>([]);
@@ -67,6 +120,7 @@ const form = reactive({
 const categoryChart = ref<{ label: string; value: number }[]>([]);
 const layerCounts = ref<Record<number, number>>({});
 const route = useRoute();
+trashOpen.value = route.query.trash === "1";
 const router = useRouter();
 type DisplayMode = "business" | "governance" | "source";
 function normalizeDisplayMode(value: unknown): DisplayMode {
@@ -115,13 +169,7 @@ const filteredRecords = computed(() => {
   });
 });
 
-const filteredBusinessAssets = computed(() => {
-  const keyword = businessFilters.keyword.trim().toLowerCase();
-  return businessAssets.value.filter((item) => {
-    const matchesKeyword = !keyword || `${item.name} ${item.asset_code} ${assetTypeLabel(item.asset_type_id)}`.toLowerCase().includes(keyword);
-    return matchesKeyword && (!businessFilters.status || item.status === businessFilters.status);
-  });
-});
+const filteredBusinessAssets = computed(() => businessAssets.value);
 
 const sourceRows = computed(() =>
   sourcePlans.value.flatMap((plan) => plan.objects.map((item) => ({ ...item, batchId: plan.batch_id }))),
@@ -210,10 +258,18 @@ async function selectDisplayMode(mode: DisplayMode) {
 }
 
 async function loadBusiness() {
-  const [assetsResponse, typeResponse] = await Promise.all([
-    api.assets({ include_archived: businessFilters.include_archived, keyword: businessFilters.keyword }),
+  const [assetsResponse, typeResponse, user] = await Promise.all([
+    api.assets({ include_archived: !trashOpen.value && businessFilters.include_archived,
+      deleted_only: trashOpen.value, keyword: businessFilters.keyword,
+      status: businessFilters.status, page: businessPage.value, page_size: pageSize }),
     api.assetTypes(),
+    api.currentSession(),
   ]);
+  currentUser.value = user;
+  if (businessPage.value > 1 && !assetsResponse.data.length) {
+    businessPage.value = Math.max(1, Math.ceil(assetsResponse.pagination.total / pageSize));
+    return loadBusiness();
+  }
   businessAssets.value = assetsResponse.data;
   businessTypes.value = typeResponse;
   total.value = assetsResponse.pagination.total;
@@ -382,21 +438,27 @@ onMounted(loadActiveView);
 
     <section v-if="displayMode === 'business'" class="list-surface business-ledger-surface">
       <div class="section-heading business-ledger-heading">
-        <div><span class="section-kicker">默认工作视图</span><h2>真实资产台账</h2><p>先按名称、类型和负责人查看资产；需要核对账号或平台关系时，切换到“账号与资源结构”。</p></div>
+        <div><span class="section-kicker">默认工作视图</span><h2>{{ trashOpen ? "资产回收站" : "真实资产台账" }}</h2><p>先按名称、类型和负责人查看资产；需要核对账号或平台关系时，切换到“账号与资源结构”。</p></div>
         <span class="record-count">{{ filteredBusinessAssets.length }} / {{ total }} 项</span>
       </div>
       <div class="filter-grid business-filter-grid">
-        <label class="table-search"><Search :size="17" /><input v-model="businessFilters.keyword" placeholder="搜索资产名称、编号或类型" @keyup.enter="loadActiveView" /></label>
-        <label><span>状态</span><select v-model="businessFilters.status"><option value="">全部状态</option><option value="draft">草稿</option><option value="active">在用</option><option value="pending_handover">待接管</option><option value="paused">暂停</option><option value="archived">归档</option></select></label>
-        <button class="secondary-button" @click="loadActiveView"><Filter :size="16" />刷新台账</button>
+        <label class="table-search"><Search :size="17" /><input v-model="businessFilters.keyword" placeholder="搜索资产名称、编号或平台标识" @keyup.enter="refreshBusiness" /></label>
+        <label v-if="!trashOpen"><span>状态</span><select v-model="businessFilters.status" @change="refreshBusiness"><option value="">全部状态</option><option value="draft">草稿</option><option value="active">在用</option><option value="pending_handover">待接管</option><option value="paused">暂停</option><option value="archived">归档</option></select></label>
+        <button class="secondary-button" @click="refreshBusiness"><Filter :size="16" />搜索 / 刷新</button>
       </div>
-      <div class="list-toolbar"><label class="check-label"><input v-model="businessFilters.include_archived" type="checkbox" @change="loadActiveView" />包含已归档</label><div class="toolbar-spacer" /><span class="ledger-note">同一资产在不同视图中使用同一个详情页</span></div>
+      <div class="list-toolbar">
+        <label v-if="!trashOpen" class="check-label"><input v-model="businessFilters.include_archived" type="checkbox" @change="refreshBusiness" />包含已归档</label>
+        <div class="toolbar-spacer" />
+        <button v-if="canDelete" class="secondary-button" :disabled="loading" @click="switchTrash">{{ trashOpen ? "返回资产台账" : "回收站" }}</button>
+      </div>
+      <p v-if="trashOpen" class="ledger-note">删除的资产不再出现在正常台账、个人空间和登记器查询中。资料、附件和审计保留；恢复 AI 成果后需重新确认和审核。</p>
       <div class="asset-table-wrap">
-        <table class="asset-table business-ledger-table"><thead><tr><th>资产名称</th><th>资产类型</th><th>资产编号</th><th>归属范围</th><th>状态</th><th>到期时间</th><th>最后更新</th></tr></thead>
-          <tbody><tr v-for="asset in filteredBusinessAssets" :key="asset.id"><td><RouterLink :to="`/assets/${asset.id}`"><strong>{{ asset.name }}</strong><span>查看资产详情</span></RouterLink></td><td><span class="type-tag">{{ assetTypeLabel(asset.asset_type_id) }}</span></td><td>{{ asset.asset_code }}</td><td>{{ ownershipScopeLabel(asset.ownership_scope) }}</td><td><StatusBadge :tone="asset.status === 'active' ? 'success' : 'warning'">{{ displayStatus(asset.status) }}</StatusBadge></td><td>{{ asset.expires_at ? new Date(asset.expires_at).toLocaleDateString('zh-CN') : '未设置' }}</td><td>{{ new Date(asset.updated_at).toLocaleString("zh-CN") }}</td></tr></tbody>
+        <table class="asset-table business-ledger-table"><thead><tr><th>资产名称</th><th>资产类型</th><th>资产编号</th><th>归属范围</th><th>状态</th><th>到期时间</th><th>{{ trashOpen ? "删除时间" : "最后更新" }}</th><th v-if="canDelete">操作</th></tr></thead>
+          <tbody><tr v-for="asset in filteredBusinessAssets" :key="asset.id"><td><strong v-if="asset.archived_at">{{ asset.name }}</strong><RouterLink v-else :to="`/assets/${asset.id}`"><strong>{{ asset.name }}</strong><span>查看资产详情</span></RouterLink></td><td><span class="type-tag">{{ assetTypeLabel(asset.asset_type_id) }}</span></td><td>{{ asset.asset_code }}</td><td>{{ ownershipScopeLabel(asset.ownership_scope) }}</td><td><StatusBadge :tone="asset.status === 'active' ? 'success' : 'warning'">{{ displayStatus(asset.status) }}</StatusBadge></td><td>{{ asset.expires_at ? new Date(asset.expires_at).toLocaleDateString('zh-CN') : '未设置' }}</td><td>{{ new Date((trashOpen ? asset.archived_at : asset.updated_at) || asset.updated_at).toLocaleString("zh-CN") }}</td><td v-if="canDelete"><div class="asset-row-actions"><button v-if="asset.archived_at" class="secondary-button" :disabled="loading" :aria-label="`恢复资产 ${asset.name}`" @click="openMutation(asset, 'restore')">恢复</button><button v-if="!trashOpen" class="secondary-button deletion-button" :disabled="loading" :aria-label="`删除资产 ${asset.name}`" @click="openMutation(asset, 'delete')">删除</button></div></td></tr></tbody>
         </table>
-        <div v-if="!loading && !filteredBusinessAssets.length" class="empty-state"><span class="empty-icon"><List :size="26" /></span><strong>暂无符合条件的资产</strong><p>可以调整搜索条件，或从“登记 / 发现资产”新增一条真实实例。</p></div>
+        <div v-if="!loading && !filteredBusinessAssets.length" class="empty-state"><span class="empty-icon"><List :size="26" /></span><strong>{{ trashOpen ? "回收站暂无符合条件的资产" : "暂无符合条件的资产" }}</strong><p>可以调整搜索条件{{ trashOpen ? "。" : "，或登记一条新的资产。" }}</p></div>
         <div v-if="loading" class="loading-state">正在读取业务台账…</div>
+        <div class="list-toolbar" aria-label="资产分页"><span>第 {{ businessPage }} / {{ Math.max(1, Math.ceil(total / pageSize)) }} 页 · 共 {{ total }} 项</span><div class="toolbar-spacer" /><button class="secondary-button" :disabled="loading || businessPage <= 1" @click="changeBusinessPage(-1)">上一页</button><button class="secondary-button" :disabled="loading || businessPage * pageSize >= total" @click="changeBusinessPage(1)">下一页</button></div>
       </div>
     </section>
 
@@ -763,10 +825,26 @@ onMounted(loadActiveView);
         </div>
       </div>
     </ModalPanel>
+    <ModalPanel v-if="mutationTarget" :title="mutationKind === 'delete' ? '删除资产' : '恢复资产'" description="请核对本次操作的资产" trap-focus @close="closeMutation">
+      <div class="asset-mutation-body" :aria-busy="mutationBusy" @keydown.esc="closeMutation">
+        <strong>{{ mutationTarget.name }}</strong>
+        <p>资产编号：{{ mutationTarget.asset_code }} · 版本 {{ mutationTarget.version }}</p>
+        <p v-if="mutationKind === 'delete'">删除后移入回收站，可由资产管理员恢复。保留资料、附件与审计记录；不删除仓库，也不注销外部账号或资源。</p>
+        <p v-else>{{ mutationTarget.sharing_scope ? "恢复为待核验草稿，需重新确认和审核；不会沿用旧版的通过状态。" : "恢复后重新显示在资产台账。" }}</p>
+        <p v-if="mutationError" role="alert" class="error-banner">{{ mutationError }}；可取消后刷新台账，重新核对再操作。</p>
+      </div>
+      <template #footer><button class="secondary-button" :disabled="mutationBusy" @click="closeMutation">取消</button><button :class="['primary-button', { 'deletion-confirm': mutationKind === 'delete' }]" :disabled="mutationBusy" @click="mutateAsset">{{ mutationBusy ? "正在处理…" : mutationKind === 'delete' ? "确认删除" : "确认恢复" }}</button></template>
+    </ModalPanel>
   </div>
 </template>
 
 <style scoped>
+.asset-row-actions { display:flex; gap:8px; white-space:nowrap; }
+.deletion-button { color:#a92a22; }
+.deletion-confirm { background:#a92a22; color:#fff; }
+.asset-mutation-body { overflow-wrap:anywhere; line-height:1.7; }
+.asset-mutation-body p { margin:12px 0; }
+
 .governance-context { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; }
 .governance-context > div { flex:1 1 300px; min-width:0; }
 .governance-context h3, .governance-context p { margin:0; }

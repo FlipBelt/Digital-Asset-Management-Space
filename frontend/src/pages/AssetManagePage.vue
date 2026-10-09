@@ -24,7 +24,8 @@ const registrations = [
   { to: "/intake?mode=resource", title: "登记服务与资源", text: "服务、系统与云资源", icon: Boxes },
 ];
 const records = computed(() => [
-  { to: "/assets", title: "公司资产台账", description: "维护 AI 成果与公司资源的分类、责任和归档记录。", icon: Boxes },
+  { to: "/assets", title: "公司资产台账", description: "维护资产资料、责任与归档；资产管理员可在台账删除资产。", icon: Boxes },
+  ...(globalManager.value && (isAdmin.value || user.value?.permissions.includes("asset.write")) ? [{ to: "/assets?trash=1", title: "资产回收站", description: "查看和恢复已删除资产，保留资料与审计记录。", icon: Boxes }] : []),
   { to: "/accounts", title: "平台与账号", description: "维护公司平台、账号及安全引用。", icon: KeyRound },
   { to: "/organization", title: "组织与授权", description: "核对公司、部门、成员与有效使用授权。", icon: Users },
   { to: "/services", title: "订阅与用量", description: "核对服务订阅、费用及调用记录。", icon: ChartNoAxesCombined },

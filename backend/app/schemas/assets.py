@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.common import ORMModel
 
@@ -21,6 +21,13 @@ class AssetCreate(BaseModel):
     expires_at: date | None = None
     description: str | None = None
 
+    @field_validator("status")
+    @classmethod
+    def reject_deleted_status(cls, value: str) -> str:
+        if value == "deleted":
+            raise ValueError("请使用管理员删除接口")
+        return value
+
 
 class AssetPatch(BaseModel):
     version: int = Field(ge=1)
@@ -34,6 +41,13 @@ class AssetPatch(BaseModel):
     expires_at: date | None = None
     last_verified_at: datetime | None = None
     description: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def reject_deleted_status(cls, value: str | None) -> str | None:
+        if value == "deleted":
+            raise ValueError("请使用管理员删除接口")
+        return value
 
 
 class AssetRead(ORMModel):

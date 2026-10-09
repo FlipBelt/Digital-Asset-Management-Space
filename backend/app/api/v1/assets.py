@@ -13,6 +13,7 @@ from app.core.access import (
     get_access_context,
     require_asset_visible,
     require_asset_write,
+    require_global_manager,
 )
 from app.db.session import get_db
 from app.models import (
@@ -77,10 +78,14 @@ def list_assets(
     status_filter: str | None = Query(default=None, alias="status"),
     criticality: str | None = None,
     include_archived: bool = False,
+    deleted_only: bool = False,
     keyword: str | None = None,
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
 ) -> ListResponse[AssetRead]:
+    if deleted_only:
+        require_global_manager(access)
+        require_asset_write(access)
     items, total = asset_repository.list(
         db,
         page=page,
@@ -91,6 +96,7 @@ def list_assets(
         status=status_filter,
         criticality=criticality,
         include_archived=include_archived,
+        deleted_only=deleted_only,
         keyword=keyword,
         visibility_filter=asset_visibility_clause(access),
     )
@@ -345,6 +351,17 @@ def archive_asset(
     return asset_service.archive(db, asset_id, version)
 
 
+@router.delete("/{asset_id}", response_model=AssetRead)
+def delete_asset(
+    asset_id: UUID,
+    version: int = Query(ge=1),
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(require_global_manager),
+) -> Asset:
+    require_asset_write(access)
+    return asset_service.delete(db, asset_id, version)
+
+
 @router.post("/{asset_id}/restore", response_model=AssetRead)
 def restore_asset(
     asset_id: UUID,
@@ -353,11 +370,17 @@ def restore_asset(
     access: AccessContext = Depends(get_access_context),
 ) -> Asset:
     asset = asset_repository.get(db, asset_id, include_archived=True)
+    if asset is not None and asset.status == "deleted":
+        require_global_manager(access)
+        require_asset_write(access)
     if asset is None or not can_govern_asset(access, asset):
         from fastapi import HTTPException
 
         raise HTTPException(status_code=403, detail="无权恢复该资产")
-    return asset_service.restore(db, asset_id, version)
+    return asset_service.restore(
+        db, asset_id, version,
+        allow_deleted=access.is_global_manager and access.has_permission("asset.write"),
+    )
 
 
 @router.get("/{asset_id}/responsibilities", response_model=list[AssetResponsibilityRead])
