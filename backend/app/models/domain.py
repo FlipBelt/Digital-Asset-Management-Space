@@ -300,6 +300,10 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, ArchiveMixin, VersionMixin, Bas
     created_by_person_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("people.id"), nullable=True
     )
+    # `version` remains the optimistic lock revision. Only explicit publication advances this.
+    outcome_version: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
     confirmed_by_person_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("people.id"), nullable=True
     )

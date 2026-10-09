@@ -44,6 +44,7 @@ def draft_snapshot(db: Session, asset: Asset, sharing_scope: str) -> dict:
                 "started_at",
                 "expires_at",
                 "version",
+                "outcome_version",
             )
         },
         "sharing_scope": sharing_scope,
@@ -159,6 +160,8 @@ def draft_snapshot(db: Session, asset: Asset, sharing_scope: str) -> dict:
             )
         ],
     }
+    registrant = db.get(Person, asset.created_by_person_id) if asset.created_by_person_id else None
+    facts["asset"]["created_by_person_name"] = registrant.display_name if registrant else None
     return json.loads(json.dumps(facts, default=str, ensure_ascii=False))
 
 

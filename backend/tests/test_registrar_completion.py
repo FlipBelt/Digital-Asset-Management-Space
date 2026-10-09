@@ -121,7 +121,8 @@ def test_details_roundtrip_snapshot_and_proposal_is_not_permission(actors, agent
     receipt = prepare(actors.owner, result)
     assert receipt["preview"]["profile"]["tech_stack"] == "Vue / FastAPI"
     assert receipt["preview"]["fields"][0][2] == "实际用途"
-    assert receipt["preview"]["responsibilities"][0][6] == "测试身份 other"
+    proposed = [r for r in receipt["preview"]["responsibilities"] if r[3] == "proposed_responsible"]
+    assert proposed[0][6] == "测试身份 other"
 
 
 def test_active_supplement_returns_private_draft_and_invalidates_approval(actors, agent_clients):

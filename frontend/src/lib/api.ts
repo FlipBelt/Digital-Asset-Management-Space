@@ -37,9 +37,9 @@ export interface Membership { id: string; asset_id: string; service_product_id: 
 export interface AssetEvidence { id: string; asset_id: string | null; subscription_id: string | null; kind: string; title: string; problem: string; method: string; output: string; observed_effect: string | null; review_status: string; created_at: string }
 export interface OutcomeAttachment { id: string; file_name: string; size_bytes: number; content_type: string }
 export interface AssetConfirmation {
-  id: string; asset_version: number; content_digest: string; sharing_scope: string; expires_at: string;
+  id: string; asset_version: number; outcome_version: number; content_digest: string; sharing_scope: string; expires_at: string;
   preview: {
-    asset: { name: string; description: string | null; source_system: string | null; source_agent: string | null };
+    asset: { name: string; description: string | null; source_system: string | null; source_agent: string | null; created_by_person_name?: string | null };
     attachments: { id: string; file_name: string; size_bytes: number }[];
     subscriptions: Membership[];
     profile: Record<string, string | null> | null;
@@ -54,7 +54,7 @@ export interface Asset {
   owner_department_id: string | null; ownership_scope: string; status: string; criticality: string; confidentiality: string;
   sharing_scope?: string | null; source_system?: string | null; source_agent?: string | null; source_reference?: string | null; development_method?: string | null;
   source_type: string; started_at: string | null; expires_at: string | null; last_verified_at: string | null;
-  description: string | null; version: number; created_at: string; updated_at: string; archived_at: string | null;
+  description: string | null; version: number; outcome_version?: number; created_at: string; updated_at: string; archived_at: string | null;
   created_by_person_id?: string | null; confirmed_by_person_id?: string | null; confirmed_at?: string | null; review_status?: string;
 }
 export interface AssetListResponse { data: Asset[]; pagination: { page: number; page_size: number; total: number } }
@@ -67,7 +67,7 @@ export interface HuduAssetItem {
   owner_department_id: string | null; owner_department_name: string | null;
   expires_at: string | null; started_at: string | null; last_verified_at: string | null;
   description: string | null; version: number; updated_at: string | null; created_at: string | null;
-  archived_at: string | null; has_owner: boolean;
+  archived_at: string | null; has_owner: boolean; outcome_version?: number; created_by_person_id?: string | null; created_by_person_name?: string | null;
 }
 export interface HuduOverview {
   total_assets: number; active_assets: number; draft_assets: number; expiring_soon: number; missing_owner: number;

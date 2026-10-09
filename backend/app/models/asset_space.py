@@ -43,6 +43,7 @@ class AssetConfirmation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     asset_id: Mapped[UUID] = mapped_column(ForeignKey("assets.id"), nullable=False, index=True)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     asset_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     content_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     result_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     sharing_scope: Mapped[str] = mapped_column(String(32), nullable=False)

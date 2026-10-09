@@ -5,6 +5,7 @@ import PageHeader from "../components/PageHeader.vue";
 import { api, type Asset, type HuduAssetDetail, type AssetFieldDefinition, type AssetFieldValue } from "../lib/api";
 import AssetAttachments from "../components/AssetAttachments.vue";
 import { displayReviewStatus } from "../lib/labels";
+import { displayOutcomeVersion } from "../lib/assetVersions";
 const route = useRoute();
 const items = ref<Asset[]>([]); const total = ref(0); const page = ref(1); const status = ref("pending_review");
 const selected = ref<Asset | null>(null); const detail = ref<HuduAssetDetail | null>(null);
@@ -58,16 +59,17 @@ onMounted(load);
       <section v-if="!loading" class="content-panel review-queue">
         <h2>{{ displayReviewStatus(status) }} · {{ total }} 项</h2>
         <p v-if="!items.length">当前没有符合条件的成果。草稿需先由创建人预览并确认登记。</p>
-        <div class="review-list"><button v-for="item in items" :key="item.id" class="secondary-button" :class="{active:selected?.id === item.id}" :aria-pressed="selected?.id === item.id" :disabled="busy || selecting" @click="select(item)"><span>{{ item.name }}</span><small>版本 {{ item.version }}</small></button></div>
+        <div class="review-list"><button v-for="item in items" :key="item.id" class="secondary-button" :class="{active:selected?.id === item.id}" :aria-pressed="selected?.id === item.id" :disabled="busy || selecting" @click="select(item)"><span>{{ item.name }}</span><small>{{ displayOutcomeVersion(item) }}</small></button></div>
         <div class="review-actions"><button v-if="page > 1" class="secondary-button" :disabled="busy" @click="page--; load()">上一页</button><button v-if="page * 20 < total" class="secondary-button" :disabled="busy" @click="page++; load()">下一页</button></div>
       </section>
       <p v-if="selecting" role="status">正在读取当前版本…</p>
       <section v-else-if="selected && detail" class="content-panel review-detail">
-        <header><h2>{{ selected.name }}</h2><p class="review-version">版本 {{ selected.version }} · {{ displayReviewStatus(selected.review_status) }}</p><p class="review-description">{{ selected.description || '说明待补充' }}</p></header>
+        <header><h2>{{ selected.name }}</h2><p class="review-version">{{ displayOutcomeVersion(selected) }} · {{ displayReviewStatus(selected.review_status) }}</p><p class="review-description">{{ selected.description || '说明待补充' }}</p></header>
         <dl class="review-facts">
           <dt>资产编号</dt><dd>{{ selected.asset_code }}</dd>
           <dt>开发方式</dt><dd>{{ ({vibe_coding: "AI 辅助编程（Vibe Coding）", mixed: "人工与 AI 混合开发"} as Record<string,string>)[selected.development_method || ""] || "待补充" }}</dd>
           <dt>负责人</dt><dd>{{ detail.responsibilities.filter(r => r.role_type === 'responsible').map(r => r.person_name).join('、') || '待管理员确认' }}</dd>
+          <dt>登记人</dt><dd>{{ detail.asset.created_by_person_name || '历史登记人待核对' }}</dd>
           <template v-if="detail.profile"><template v-for="(value,key) in detail.profile.data" :key="key"><template v-if="profileLabels[key]"><dt>{{ profileLabels[key] }}</dt><dd>{{ value || '待补充' }}</dd></template></template></template>
           <template v-for="field in fields" :key="field.id"><dt>{{ names[field.field_definition_id] || '类型资料' }}</dt><dd>{{ field.value.value }}</dd></template>
         </dl>

@@ -62,13 +62,26 @@ class AssetService:
         if asset.version != payload.version:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="记录已被其他用户修改")
         before = self._snapshot(asset)
-        for field, value in payload.model_dump(exclude={"version"}, exclude_unset=True).items():
+        changes = {
+            field: value
+            for field, value in payload.model_dump(exclude={"version"}, exclude_unset=True).items()
+            if getattr(asset, field) != value
+        }
+        if not changes:
+            return asset
+        for field, value in changes.items():
             setattr(asset, field, value)
-        asset.version += 1
-        if asset.sharing_scope is not None:
-            asset.confirmed_at = None
-            asset.confirmed_by_person_id = None
-            asset.review_status = "pending_review"
+        if asset.sharing_scope is not None and {"name", "description"} & changes.keys():
+            from app.services.registrar_details import invalidate
+
+            # Content editing prepares a draft; it does not itself publish an outcome.
+            invalidate(asset)
+        else:
+            asset.version += 1
+            if asset.sharing_scope is not None:
+                asset.confirmed_at = None
+                asset.confirmed_by_person_id = None
+                asset.review_status = "pending_review"
         db.flush()
         self._audit(db, "asset.update", asset.id, before, self._snapshot(asset))
         db.commit()
@@ -212,6 +225,7 @@ class AssetService:
             else None,
             "ownership_scope": asset.ownership_scope,
             "version": asset.version,
+            "outcome_version": asset.outcome_version,
             "archived_at": asset.archived_at.isoformat() if asset.archived_at else None,
         }
 

@@ -301,6 +301,10 @@ def asset_card(item):
         "description": item.description,
         "asset_type_id": str(item.asset_type_id),
         "version": item.version,
+        "outcome_version": item.outcome_version,
+        "created_by_person_id": (
+            str(item.created_by_person_id) if item.created_by_person_id else None
+        ),
         "status": item.status,
         "review_status": item.review_status,
         "sharing_scope": item.sharing_scope,
@@ -423,8 +427,9 @@ def update_asset_draft(
         raise HTTPException(404, "草稿不存在")
     if item.version != payload.version:
         raise HTTPException(409, "草稿已更新，请读取当前版本")
-    item.name, item.description = payload.name, payload.description
-    item.version += 1
+    if (item.name, item.description) != (payload.name, payload.description):
+        item.name, item.description = payload.name, payload.description
+        item.version += 1
     db.flush()
     return finish(db, op, asset_card(item), access, item.id)
 

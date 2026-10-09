@@ -828,7 +828,7 @@ onMounted(loadActiveView);
     <ModalPanel v-if="mutationTarget" :title="mutationKind === 'delete' ? '删除资产' : '恢复资产'" description="请核对本次操作的资产" trap-focus @close="closeMutation">
       <div class="asset-mutation-body" :aria-busy="mutationBusy" @keydown.esc="closeMutation">
         <strong>{{ mutationTarget.name }}</strong>
-        <p>资产编号：{{ mutationTarget.asset_code }} · 版本 {{ mutationTarget.version }}</p>
+        <p>资产编号：{{ mutationTarget.asset_code }} · 资料修订 {{ mutationTarget.version }}</p>
         <p v-if="mutationKind === 'delete'">删除后移入回收站，可由资产管理员恢复。保留资料、附件与审计记录；不删除仓库，也不注销外部账号或资源。</p>
         <p v-else>{{ mutationTarget.sharing_scope ? "恢复为待核验草稿，需重新确认和审核；不会沿用旧版的通过状态。" : "恢复后重新显示在资产台账。" }}</p>
         <p v-if="mutationError" role="alert" class="error-banner">{{ mutationError }}；可取消后刷新台账，重新核对再操作。</p>

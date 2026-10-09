@@ -341,7 +341,10 @@ def persist_draft(payload: DraftInput, db: Session, access: AccessContext, *, co
     elif payload.development_method:
         raise HTTPException(422, "开发方式仅适用于 AI 辅助系统或脚本")
     person = db.get(Person, access.person_id)
-    if person is None or person.archived_at is not None:
+    if (
+        person is None or person.archived_at is not None
+        or person.employment_status != "active"
+    ):
         raise HTTPException(422, "员工身份不可用")
     item = Asset(
         id=identity,
@@ -360,6 +363,10 @@ def persist_draft(payload: DraftInput, db: Session, access: AccessContext, *, co
     try:
         db.flush()
         ensure_internal_identifier(db, item)
+        # Registration identity is server verified; AI proposals never replace this default.
+        db.add(AssetResponsibility(
+            asset_id=item.id, person_id=person.id, role_type="responsible", is_primary=True,
+        ))
         db.add(
             AuditLog(
                 actor_user_id=access.user.id,
@@ -372,6 +379,8 @@ def persist_draft(payload: DraftInput, db: Session, access: AccessContext, *, co
                     "source_system": item.source_system,
                     "source_agent": item.source_agent,
                     "status": "draft",
+                    "created_by_person_id": str(person.id),
+                    "responsible_person_id": str(person.id),
                 },
             )
         )

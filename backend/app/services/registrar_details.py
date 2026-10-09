@@ -300,10 +300,4 @@ def save_details(db, asset, payload):
 def touch_web_details(asset, access):
     if asset.sharing_scope is None:
         return
-    if asset.created_by_person_id == access.person_id:
-        invalidate(asset)
-    else:
-        asset.version += 1
-        asset.review_status = "pending_review"
-        asset.confirmed_at = None
-        asset.confirmed_by_person_id = None
+    invalidate(asset)

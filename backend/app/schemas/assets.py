@@ -76,6 +76,7 @@ class AssetRead(ORMModel):
     last_verified_at: datetime | None
     description: str | None
     version: int
+    outcome_version: int = 0
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None

@@ -905,7 +905,7 @@ onMounted(load);
               }}</small>
             </article>
             <article>
-              <UserRound :size="19" /><span>登记人与负责人</span
+              <UserRound :size="19" /><span>负责人</span
               ><strong>{{
                 confirmedResponsible
                   ? personName[confirmedResponsible]
@@ -1154,8 +1154,8 @@ onMounted(load);
         <header>
           <div>
             <span class="section-kicker">责任人员</span>
-            <h2>先确定归属，再安排负责人和协同人</h2>
-            <p>确认资产归公司还是部门管理，再搜索选择负责人；协同人员可以稍后添加。</p>
+            <h2>登记人固定，负责人可由管理员调整</h2>
+            <p>AI 成果默认由认证登记人负责；改派不改变登记人，也不增加成果版本。归属与协同人员单独维护。</p>
           </div>
           <UserRound :size="30" />
         </header>

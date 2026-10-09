@@ -216,7 +216,8 @@ def test_draft_creation_forces_review_and_trusted_actor(monkeypatch):
         source_system="codex",
     )
     person = SimpleNamespace(
-        id=uuid4(), legal_entity_id=uuid4(), department_id=uuid4(), archived_at=None
+        id=uuid4(), legal_entity_id=uuid4(), department_id=uuid4(), archived_at=None,
+        employment_status="active",
     )
     access = SimpleNamespace(person_id=person.id, user=SimpleNamespace(id=uuid4()))
     db = Mock()

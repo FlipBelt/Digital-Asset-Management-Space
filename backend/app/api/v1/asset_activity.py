@@ -242,12 +242,14 @@ class ConfirmationInput(BaseModel):
     request_id: UUID
     version: int = Field(ge=1)
     sharing_scope: Literal["private", "team", "company"] = "private"
+    publish_new_version: bool = False
 
 
 class ConfirmationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     asset_version: int
+    outcome_version: int
     content_digest: str
     sharing_scope: str
     expires_at: datetime
@@ -303,11 +305,13 @@ def prepare_confirmation(
         raise HTTPException(422, "个人自费订阅请保留私有；分享探索证据不转移使用许可")
     snapshot = draft_snapshot(db, asset, payload.sharing_scope)
     digest = snapshot_digest(snapshot)
+    outcome_version = max(1, asset.outcome_version + int(payload.publish_new_version))
 
     def response(item):
         return {
             "id": item.id,
             "asset_version": item.asset_version,
+            "outcome_version": item.outcome_version,
             "content_digest": item.content_digest,
             "sharing_scope": item.sharing_scope,
             "expires_at": item.expires_at,
@@ -322,6 +326,7 @@ def prepare_confirmation(
             row.asset_id != asset_id
             or row.content_digest != digest
             or row.asset_version != payload.version
+            or row.outcome_version != outcome_version
             or row.cancelled_at
             or row.consumed_at
         ):
@@ -334,6 +339,7 @@ def prepare_confirmation(
         asset_id=asset_id,
         user_id=access.user.id,
         asset_version=payload.version,
+        outcome_version=outcome_version,
         content_digest=digest,
         sharing_scope=payload.sharing_scope,
         expires_at=now + timedelta(minutes=30),
@@ -373,6 +379,7 @@ def confirm_draft(
         return asset
     if (
         row.expires_at <= now
+        or row.outcome_version not in {max(1, asset.outcome_version), asset.outcome_version + 1}
         or asset.status != "draft"
         or asset.version != row.asset_version
         or draft_digest(db, asset, row.sharing_scope) != row.content_digest
@@ -385,6 +392,7 @@ def confirm_draft(
     asset.review_status = "pending_review"
     asset.confirmed_by_person_id = access.person_id
     asset.confirmed_at = now
+    asset.outcome_version = row.outcome_version
     asset.version += 1
     row.consumed_at = now
     row.result_digest = draft_digest(db, asset, row.sharing_scope)
@@ -395,6 +403,7 @@ def confirm_draft(
         asset_id,
         {
             "confirmed_version": row.asset_version,
+            "outcome_version": asset.outcome_version,
             "content_digest": row.content_digest,
             "sharing_scope": row.sharing_scope,
             "review_status": "pending_review",

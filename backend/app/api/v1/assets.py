@@ -1405,15 +1405,20 @@ def save_assignment(
     asset = asset_service.require(db, asset_id)
     from app.services.asset_confirmation import lock_asset
     asset = lock_asset(db, asset_id)
+    if asset.archived_at is not None:
+        raise HTTPException(409, "资产已归档或删除，请先恢复")
     if asset.version != payload.version:
         raise HTTPException(status_code=409, detail="记录已被其他用户修改")
     existing = asset_repository.list_responsibilities(db, asset_id)
     old_responsible = next(
         (row.person_id for row in existing if row.role_type == "responsible"), None
     )
+    ownership_scope = payload.ownership_scope or (
+        "department" if payload.owner_department_id else "company"
+    )
     governance_change = (
         payload.owner_department_id != asset.owner_department_id
-        or payload.ownership_scope != asset.ownership_scope
+        or ownership_scope != asset.ownership_scope
         or payload.responsible_person_id != old_responsible
     )
     if governance_change:
@@ -1454,6 +1459,10 @@ def save_assignment(
             raise HTTPException(status_code=422, detail="归属部门不属于当前公司")
 
     now = datetime.now(UTC)
+    old_users = {row.person_id for row in existing if row.role_type == "user"}
+    new_users = set(payload.user_person_ids) - {payload.responsible_person_id}
+    if not governance_change and old_users == new_users:
+        return get_assignment(asset_id, db, access)
     for row in existing:
         if row.role_type in {"responsible", "user", "proposed_responsible", "proposed_user"}:
             row.archived_at = now
