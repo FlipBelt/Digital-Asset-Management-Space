@@ -118,7 +118,7 @@ test("six business categories map to intake routes without requiring a complete 
   await router.isReady();
   const html = await renderToString(app);
   for (const mode of ["entity", "identity", "platform", "platform-account", "grant", "resource"]) assert.ok(html.includes(`mode=${mode}`));
-  assert.match(html, /不需要补齐六类/);
+  assert.match(html, /无需把所有类别都登记一遍/);
   assert.match(html, /仅有邮箱或用户名时选登录身份/);
   assert.match(html, /自研系统/);
 });

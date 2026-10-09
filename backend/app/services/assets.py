@@ -120,7 +120,7 @@ class AssetService:
         if asset.status == "deleted" and asset.archived_at is not None:
             return asset
         if asset.version != version:
-            raise HTTPException(409, "记录已被其他用户修改，请刷新台账后重试")
+            raise HTTPException(409, "记录已被其他用户修改，请刷新资产列表后重试")
         before = self._snapshot(asset)
         asset.archived_at = datetime.now(UTC)
         asset.status = "deleted"

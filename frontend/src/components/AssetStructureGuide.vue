@@ -5,9 +5,9 @@ import { assetStructureCategories } from "../lib/assetStructure";
   <details class="structure-guide">
     <summary>不知道选哪项？查看六类资料的填写说明</summary>
     <div class="structure-guide-body">
-      <p>原来的 L1–L6 表示六类对象，各自回答一个问题。登记一项资产只需填写相关资料，不需要补齐六类，也不必按顺序建立。</p>
+      <p>按业务对象选择资料，只填写与当前资产有关的信息；无需把所有类别都登记一遍。</p>
       <div class="structure-guide-list">
-        <article v-for="item in assetStructureCategories" :key="item.value"><div><strong>{{ item.label }}</strong><small>L{{ item.value }} · {{ item.hint }}</small></div><div><span>例如：{{ item.example }}</span><p>{{ item.when }}</p></div><RouterLink :to="{ path:'/intake', query:{mode:item.mode} }" class="secondary-button">{{ item.value === 5 ? '分配使用权' : '登记' + item.label }}</RouterLink></article>
+        <article v-for="item in assetStructureCategories" :key="item.value"><div><strong>{{ item.label }}</strong><small>{{ item.hint }}</small></div><div><span>例如：{{ item.example }}</span><p>{{ item.when }}</p></div><RouterLink :to="{ path:'/intake', query:{mode:item.mode} }" class="secondary-button">{{ item.value === 5 ? '分配使用权' : '登记' + item.label }}</RouterLink></article>
       </div>
       <p class="structure-example">例如：产品配色中台直接登记为“系统、订阅与资源 → 自研系统”，再确认负责人；有真实平台或管理账号时再补关联。缺少关联不需要创建占位对象。</p>
     </div>

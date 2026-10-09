@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { ArrowLeft, Boxes, Building2, CheckCircle2, ChevronRight, CircleDot, KeyRound, Layers3, Network, Sparkles, UserPlus, Users, Truck } from "lucide-vue-next";
 import { useRoute, useRouter } from "vue-router";
 
 import PageHeader from "../components/PageHeader.vue";
 import PeoplePicker from "../components/PeoplePicker.vue";
 import AssetStructureGuide from "../components/AssetStructureGuide.vue";
-import { assetStructureCategories } from "../lib/assetStructure";
+import { registrationKinds, registrationMode, type RegistrationMode } from "../lib/managementWorkspace";
 import { api, type Account, type Asset, type AssetType, type CurrentUser, type Department, type IntakeResult, type LegalEntity, type Person, type Platform, type PlatformTenant, type Provider, type RegistrationIdentity } from "../lib/api";
 
-type Mode = "" | "entity" | "identity" | "platform" | "platform-account" | "resource" | "grant" | "provider";
+type Mode = RegistrationMode;
 type Receipt = Omit<IntakeResult, "id" | "asset_id"> & { id: string; asset_id: string | null };
 
 const route = useRoute(); const router = useRouter();
 const initializing = ref(true); const optionError = ref("");
-const mode = ref<Mode>(""); const saving = ref(false); const error = ref(""); const message = ref(""); const receipt = ref<Receipt | null>(null); const currentUser = ref<CurrentUser | null>(null);
+const mode = ref<Mode>(registrationMode(route.query.mode)); const saving = ref(false); const error = ref(""); const message = ref(""); const receipt = ref<Receipt | null>(null); const currentUser = ref<CurrentUser | null>(null);
 const entities = ref<LegalEntity[]>([]); const departments = ref<Department[]>([]); const people = ref<Person[]>([]); const platforms = ref<Platform[]>([]); const providers = ref<Provider[]>([]); const identities = ref<RegistrationIdentity[]>([]); const types = ref<AssetType[]>([]); const tenants = ref<PlatformTenant[]>([]); const accounts = ref<Account[]>([]); const assets = ref<Asset[]>([]); const canAssignAccess = ref(false);
 const identity = reactive({ identifier: "", identity_type: "", legal_entity_id: "", platform_id: "", source_nature: "", custodian_person_id: "", verification_status: "pending", note: "" });
 const platform = reactive({ provider_id: "", name: "", code: "", category: "other", website: "", description: "", review_status: "pending_review" });
@@ -27,7 +27,7 @@ const provider = reactive({ code: "", name: "", website: "" });
 const entityProfile = reactive({ entity_type: "", jurisdiction: "", registration_status: "", legal_representative: "", established_on: "", registered_address: "", registered_capital: "", business_scope: "", source_note: "", verification_status: "pending" });
 const entityIdentifier = reactive({ identifier_type: "unified_social_credit_code", identifier_value: "" });
 
-const currentCategory = computed(() => assetStructureCategories.find(item => item.mode === mode.value));
+const selectedRegistration = computed(() => registrationKinds.find(item => item.mode === mode.value));
 const selectedPlatform = computed(() => platforms.value.find((item) => item.id === platformAccount.platform_id));
 const selectedIdentity = computed(() => identities.value.find((item) => item.asset_id === platformAccount.registration_identity_asset_id));
 const selectedResponsible = computed(() => people.value.find((item) => item.id === platformAccount.responsible_person_id));
@@ -44,7 +44,13 @@ async function loadOptions() {
   canAssignAccess.value = session.permissions.includes("asset.write");
 }
 
-function choose(value: Mode) { mode.value = value; receipt.value = null; error.value = ""; message.value = ""; if (value === "platform") { platformRelation.identity_asset_ids = []; platformRelation.resource_asset_ids = []; } }
+async function choose(value: Mode) {
+  mode.value = value; receipt.value = null; error.value = ""; message.value = "";
+  if (value === "platform") { platformRelation.identity_asset_ids = []; platformRelation.resource_asset_ids = []; }
+  await router.replace({ query: { ...route.query, mode: value || undefined } });
+  await nextTick();
+  if (typeof document !== "undefined") document.getElementById(value ? "intake-form-title" : "intake-choice-title")?.focus();
+}
 function chooseGrant() {
   if (!canAssignAccess.value) { error.value = "当前账号暂无分配人员使用权的权限，请联系资产管理员"; return; }
   choose("grant");
@@ -58,6 +64,7 @@ function receiptFromPlatform(item: Platform): Receipt {
 }
 
 async function save() {
+  if (saving.value) return;
   saving.value = true; error.value = ""; message.value = "";
   try {
     if (mode.value === "entity") {
@@ -98,7 +105,7 @@ async function save() {
 async function openNext(target: string) {
   if (!target.startsWith("/intake")) { await router.push(target); return; }
   const preset = new URL(target, window.location.origin);
-  receipt.value = null; mode.value = (preset.searchParams.get("mode") as Mode) || "";
+  receipt.value = null; mode.value = registrationMode(preset.searchParams.get("mode"));
   platformAccount.platform_id = preset.searchParams.get("platform") || platformAccount.platform_id;
   platformAccount.registration_identity_asset_id = preset.searchParams.get("identity") || platformAccount.registration_identity_asset_id;
   resource.managed_under_account_id = preset.searchParams.get("account") || resource.managed_under_account_id;
@@ -106,8 +113,7 @@ async function openNext(target: string) {
 }
 function finishReceipt() { receipt.value = null; mode.value = ""; void router.replace("/intake"); }
 function applyRoutePreset() {
-  const requested = String(route.query.mode ?? "") as Mode;
-  if (["entity", "identity", "platform", "platform-account", "resource", "grant", "provider"].includes(requested)) mode.value = requested;
+  mode.value = registrationMode(route.query.mode);
   if (route.query.platform) platformAccount.platform_id = String(route.query.platform);
   if (route.query.identity) platformAccount.registration_identity_asset_id = String(route.query.identity);
   if (route.query.account) resource.managed_under_account_id = String(route.query.account);
@@ -133,8 +139,8 @@ onMounted(initialize);
 
 <template>
   <div class="page-stack intake-page">
-    <PageHeader eyebrow="统一入口" title="登记基础资料" description="登记已经存在的资料；需要开通或使用资源，请进入我的申请。"><RouterLink class="secondary-button" to="/manage">返回管理</RouterLink></PageHeader>
-    <div v-if="message" class="message-panel success-message">{{ message }}</div><div v-if="error" class="message-panel error-message">{{ error }}</div>
+    <PageHeader eyebrow="管理区" title="登记基础资料" description="登记已经存在的资料；需要开通或使用资源，请进入我的申请。"><RouterLink class="secondary-button" to="/manage">返回管理</RouterLink></PageHeader>
+    <div v-if="message" class="message-panel success-message" role="status">{{ message }}</div><div v-if="error" class="message-panel error-message" role="alert">{{ error }}</div>
 
     <section v-if="initializing" class="fusion-empty" role="status">正在读取登记所需资料…</section>
     <section v-else-if="optionError" class="fusion-empty" role="alert"><h2>暂时无法读取基础资料</h2><p>{{ optionError }}</p><button class="secondary-button" @click="initialize">重新读取</button><RouterLink to="/my/requests" class="secondary-button">我的申请</RouterLink></section>
@@ -147,52 +153,41 @@ onMounted(initialize);
     </section>
 
     <div v-else-if="!mode" class="intake-start">
-      <div class="intake-start-intro"><h2>先选你要登记的资料</h2><p>自研系统、订阅、API 和云资源直接从“登记系统、订阅或资源”开始。已有公司和平台直接选择，未知关系可以稍后补充。</p></div>
-      <section class="intake-choice-grid">
-      <button class="intake-choice-primary" @click="choose('resource')"><span class="intake-choice-icon"><Boxes /></span><strong>登记系统、订阅或资源</strong><small>自研系统、API、订阅、云服务、域名等</small></button>
-      <button class="intake-choice-secondary" @click="choose('provider')"><span class="intake-choice-icon"><Truck /></span><strong>登记供应商</strong><small>服务提供方与官方网站</small></button>
-      <button class="intake-choice-secondary" @click="choose('entity')"><span class="intake-choice-icon"><Building2 /></span><strong>登记公司主体</strong><small>公司名称及已核对的法人资料</small></button>
-      <button class="intake-choice-primary" @click="choose('identity')"><span class="intake-choice-icon"><KeyRound /></span><strong>登记登录身份</strong><small>手机号、邮箱或其他登录标识</small></button>
-      <button class="intake-choice-primary" @click="choose('platform')"><span class="intake-choice-icon"><Layers3 /></span><strong>新建或发现一个平台</strong><small>平台目录 · 资料先登记，随后核对</small></button>
-      <button class="intake-choice-secondary" @click="choose('platform-account')"><span class="intake-choice-icon"><Building2 /></span><strong>登记公司平台账号</strong><small>已开通或历史已有的公司账号</small></button>
-      <button class="intake-choice-secondary" @click="chooseGrant"><span class="intake-choice-icon"><UserPlus /></span><strong>分配人员使用权</strong><small>已获批的席位、子账号或使用权</small></button>
-      <RouterLink class="intake-choice-secondary" to="/imports"><span class="intake-choice-icon"><Network /></span><strong>批量导入 / 补录资料</strong><small>已有 Excel、文本或清单时，先识别再确认</small></RouterLink>
+      <div class="intake-start-intro"><h2 id="intake-choice-title" tabindex="-1">选择要登记的资料</h2><p>系统、订阅和云资源从“系统、订阅与资源”开始；已有平台和公司直接关联。</p></div>
+      <section class="intake-choice-grid" aria-label="登记资料类型">
+        <button v-for="item in registrationKinds" :key="item.mode" type="button" :disabled="item.mode === 'grant' && !canAssignAccess" @click="item.mode === 'grant' ? chooseGrant() : choose(item.mode)"><div><strong>{{ item.label }}</strong><small>{{ item.description }}</small></div><ChevronRight :size="18" aria-hidden="true" /></button>
+        <RouterLink to="/imports"><div><strong>批量导入</strong><small>已有 Excel、文本或清单时，先预览再确认。</small></div><ChevronRight :size="18" aria-hidden="true" /></RouterLink>
       </section>
       <AssetStructureGuide />
     </div>
 
-    <section v-else class="intake-form-surface modern-intake-form">
-      <button class="quiet-button intake-back" @click="mode = ''"><ArrowLeft :size="16" />返回选择</button>
-      <p v-if="currentCategory" class="intake-filling-note">{{ currentCategory.when }} 请填写标有 * 的必要信息，其他资料按需展开。</p>
-      <form @submit.prevent="save">
+    <section v-else class="intake-form-surface">
+      <button class="quiet-button intake-back" @click="choose('')"><ArrowLeft :size="16" />返回选择</button>
+      <div class="intake-form-heading"><div><h2 id="intake-form-title" tabindex="-1">登记{{ selectedRegistration?.label }}</h2><p>{{ selectedRegistration?.description }} 标有 * 的信息必填，其他资料按需展开。</p></div></div>
+      <form @submit.prevent="save" :aria-busy="saving">
         <template v-if="mode === 'provider'">
-          <div class="intake-form-heading"><Truck /><div><h2>登记供应商</h2><p>记录真实服务提供方，供平台和服务资料引用。</p></div></div>
           <label><span>供应商名称 *</span><input v-model="provider.name" required maxlength="200" placeholder="填写供应商名称" /></label>
           <label><span>供应商编码 *</span><input v-model="provider.code" required maxlength="80" placeholder="填写现有编码或稳定的唯一标识" /></label>
           <label class="span-2"><span>官方网站（选填）</span><input v-model="provider.website" type="url" placeholder="https://" /></label>
         </template>
         <template v-if="mode === 'entity'">
-          <div class="intake-form-heading"><Building2 /><div><h2>登记公司主体</h2><p>先保存一条真实存在的主体记录；其他法人资料有就补充，没有也不影响建档。</p></div></div>
           <label class="span-2"><span>公司主体名称 *</span><input v-model="entity.name" required placeholder="例如：杭州飞比特体育用品有限公司" /></label>
           <details class="intake-optional span-2"><summary>补充主体资料（选填）</summary><div class="optional-grid"><label><span>主体类型</span><select v-model="entityProfile.entity_type"><option value="">暂不确定</option><option value="domestic_company">境内公司</option><option value="branch">分公司</option><option value="individual_business">个体工商户</option><option value="overseas_entity">境外法人</option><option value="other">其他主体</option></select></label><label><span>注册地 / 司法辖区</span><input v-model="entityProfile.jurisdiction" placeholder="例如：中国浙江省杭州市" /></label><label><span>存续状态</span><select v-model="entityProfile.registration_status"><option value="">暂不确定</option><option value="active">存续</option><option value="inactive">注销 / 停业</option><option value="pending">待核验</option></select></label><label><span>法定代表人</span><input v-model="entityProfile.legal_representative" placeholder="可稍后补充" /></label><label><span>成立日期</span><input v-model="entityProfile.established_on" type="date" /></label><label><span>注册资本</span><input v-model="entityProfile.registered_capital" placeholder="例如：100 万元" /></label><label class="wide"><span>注册地址</span><textarea v-model="entityProfile.registered_address" rows="2" placeholder="可稍后补充" /></label><label class="wide"><span>经营范围</span><textarea v-model="entityProfile.business_scope" rows="2" placeholder="可稍后补充" /></label><label class="wide"><span>来源说明</span><textarea v-model="entityProfile.source_note" rows="2" placeholder="例如：工商资料、原始清单或人工确认" /></label></div></details>
           <details class="intake-optional span-2"><summary>补充主体标识（选填）</summary><div class="optional-grid"><label><span>标识类型</span><select v-model="entityIdentifier.identifier_type"><option value="unified_social_credit_code">统一社会信用代码</option><option value="registration_number">注册号</option><option value="overseas_registration_number">境外注册编号</option><option value="other">其他标识</option></select></label><label><span>标识值</span><input v-model="entityIdentifier.identifier_value" placeholder="知道就填，不知道可留空" /></label></div></details>
         </template>
         <template v-if="mode === 'identity'">
-          <div class="intake-form-heading"><KeyRound /><div><h2>新增公司注册身份</h2><p>先填写真正要管理的手机号、邮箱或第三方身份。</p></div></div>
           <label class="span-2"><span>手机号 / 邮箱 / 身份内容 *</span><input v-model="identity.identifier" required placeholder="输入实际内容，系统自动识别类型" /></label>
           <label><span>归属性质 *</span><select v-model="identity.source_nature" required><option value="" disabled>请选择</option><option value="company_owned">公司所有</option><option value="personal_for_company">个人注册、公司使用</option><option value="unknown">归属待确认</option></select></label>
           <details class="intake-optional span-2"><summary>关联已有对象（选填：公司、平台）</summary><div class="optional-grid"><label><span>归属公司</span><select v-model="identity.legal_entity_id"><option value="">暂不确定</option><option v-for="item in entities" :key="item.id" :value="item.id">{{ item.name }}</option></select></label><label><span>关联平台</span><select v-model="identity.platform_id"><option value="">暂不关联</option><option v-for="item in platforms" :key="item.id" :value="item.id">{{ item.name }}</option></select></label></div></details>
           <details class="intake-optional span-2"><summary>补充身份资料（类型、保管人、说明）</summary><div class="optional-grid"><label><span>身份类型</span><select v-model="identity.identity_type"><option value="">自动识别</option><option value="phone">手机号</option><option value="email">邮箱</option><option value="wechat">微信身份</option><option value="other">其他</option></select></label><PeoplePicker id="identity-custodian" :person-id="identity.custodian_person_id" @update:person-id="identity.custodian_person_id = $event || ''" label="当前保管人（选填）" :people="people" :departments="departments" :disabled="saving" /><label class="wide"><span>说明</span><textarea v-model="identity.note" rows="3" placeholder="例如：技术部门公共注册手机号" /></label></div></details>
         </template>
         <template v-if="mode === 'platform'">
-          <div class="intake-form-heading"><Layers3 /><div><h2>提交新平台</h2><p>登记平台资料，保存后进入待审核状态。</p></div></div>
           <label class="span-2"><span>服务提供方（选填）</span><select v-model="platform.provider_id"><option value="">暂不关联供应商</option><option v-for="item in providers" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
           <label class="span-2"><span>平台名称 *</span><input v-model="platform.name" required placeholder="例如：火山引擎" /></label>
-          <details class="intake-optional span-2"><summary>关联已有对象（选填：注册身份、服务 / 资源）</summary><div class="optional-grid"><label><span>已有注册身份</span><select v-model="platformRelation.identity_asset_ids" multiple size="4"><option v-for="item in identities" :key="item.asset_id" :value="item.asset_id">{{ item.identifier }} · {{ item.name }}</option></select><small>按住 Ctrl 可多选；不选也可以先保存平台。</small></label><label><span>已有服务 / 资源</span><select v-model="platformRelation.resource_asset_ids" multiple size="4"><option v-for="item in resourceAssets" :key="item.id" :value="item.id">{{ item.name }}</option></select><small>只建立明确的显式关联，不会自动生成 L4。</small></label></div></details>
+          <details class="intake-optional span-2"><summary>关联已有对象（选填：注册身份、服务 / 资源）</summary><div class="optional-grid"><label><span>已有注册身份</span><select v-model="platformRelation.identity_asset_ids" multiple size="4"><option v-for="item in identities" :key="item.asset_id" :value="item.asset_id">{{ item.identifier }} · {{ item.name }}</option></select><small>按住 Ctrl 可多选；不选也可以先保存平台。</small></label><label><span>已有服务 / 资源</span><select v-model="platformRelation.resource_asset_ids" multiple size="4"><option v-for="item in resourceAssets" :key="item.id" :value="item.id">{{ item.name }}</option></select><small>只保存已选择的关联；企业账号需要单独登记。</small></label></div></details>
           <details class="intake-optional span-2"><summary>补充平台资料（类别、官网、说明）</summary><div class="optional-grid"><label><span>平台类别</span><select v-model="platform.category"><option value="cloud">云平台</option><option value="ai">大模型 / AI</option><option value="saas">SaaS / 协作</option><option value="marketing">营销 / 电商</option><option value="payment">支付</option><option value="other">其他</option></select></label><label><span>官方网站</span><input v-model="platform.website" placeholder="https://" /></label><label class="wide"><span>说明</span><textarea v-model="platform.description" rows="3" /></label></div></details>
         </template>
         <template v-if="mode === 'platform-account'">
-          <div class="intake-form-heading"><Building2 /><div><h2>登记公司平台账号</h2><p>先记录能够证明账号或租户真实存在的核心事实；人员与注册身份可稍后补充。</p></div></div>
           <label><span>所属平台 *</span><select v-model="platformAccount.platform_id" required><option value="" disabled>选择平台</option><option v-for="item in platforms" :key="item.id" :value="item.id">{{ item.name }}{{ item.review_status === 'pending_review' ? '（待审核）' : '' }}</option></select></label>
           <label class="span-2"><span>内部使用名称 *</span><input v-model="platformAccount.internal_name" required placeholder="例如：MiniMax · AI 工作流主账号" /></label>
           <label><span>归属公司 *</span><select v-model="platformAccount.legal_entity_id" required><option v-for="item in entities" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
@@ -201,7 +196,6 @@ onMounted(initialize);
           <details class="intake-optional span-2"><summary>补充账号资料（注册身份、原生 ID、人员、部门、用途）</summary><div class="optional-grid"><label><span>主要注册身份</span><select v-model="platformAccount.registration_identity_asset_id" :disabled="platformAccount.historical_unknown"><option value="">暂不关联</option><option v-for="item in identities" :key="item.id" :value="item.asset_id">{{ item.identifier }} · {{ item.name }}</option></select><span class="inline-check"><input v-model="platformAccount.historical_unknown" type="checkbox" />历史账号，注册身份暂不清楚</span></label><label><span>平台账号 ID / UID</span><input v-model="platformAccount.external_identifier_value" placeholder="平台未提供时留空" /></label><label><span>ID 类型</span><input v-model="platformAccount.external_identifier_type" placeholder="UID、组织 ID、Workspace ID" /></label><label><span>所有权</span><select v-model="platformAccount.ownership_nature"><option value="company_owned">公司所有</option><option value="personal_for_company">个人注册、公司使用</option><option value="unknown">待确认</option></select></label><label><span>归属范围</span><select v-model="platformAccount.ownership_scope"><option value="company">公司级，不绑定部门</option><option value="department">部门级</option><option value="pending">暂不确定</option></select></label><label v-if="platformAccount.ownership_scope === 'department'"><span>归属部门</span><select v-model="platformAccount.owner_department_id" required><option value="" disabled>选择部门</option><option v-for="item in departments.filter((row) => row.legal_entity_id === platformAccount.legal_entity_id)" :key="item.id" :value="item.id">{{ item.name }}</option></select></label><PeoplePicker id="platform-responsible" :person-id="platformAccount.responsible_person_id" @update:person-id="platformAccount.responsible_person_id = $event || ''" label="建议负责人" :people="people.filter(row => row.legal_entity_id === platformAccount.legal_entity_id)" :departments="departments" :disabled="saving" /><PeoplePicker id="platform-users" v-model:person-ids="platformAccount.user_person_ids" multiple label="协同使用人员（选填）" :people="people.filter(row => row.legal_entity_id === platformAccount.legal_entity_id)" :departments="departments" :disabled="saving" :excluded-ids="platformAccount.responsible_person_id ? [platformAccount.responsible_person_id] : []" /><label class="wide"><span>用途说明</span><textarea v-model="platformAccount.description" rows="3" /></label></div></details>
         </template>
         <template v-if="mode === 'resource'">
-          <div class="intake-form-heading"><Boxes /><div><h2>登记服务、资源或系统</h2><p>填写核心事实，保存后系统会明确告诉你还可以补什么。</p></div></div>
           <label><span>资源大类 *</span><select v-model="resource.resource_family"><option value="cloud_infrastructure">云与基础设施</option><option value="platform_service">平台服务 / 订阅</option><option value="system_application">系统 / 应用</option><option value="data_content">数据 / 内容</option><option value="digital_channel">数字渠道 / 业务账号</option><option value="domain_qualification">域名 / 资质 / 知识产权</option><option value="hardware_license">硬件 / 软件许可</option><option value="other">其他</option></select></label>
           <label><span>具体类型 *</span><select v-model="resource.asset_type_id" required><option value="" disabled>选择类型</option><option v-for="item in types.filter((row) => !['registration_identity','platform_tenant','platform_account'].includes(row.code))" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
           <label class="span-2"><span>内部使用名称 *</span><input v-model="resource.name" required placeholder="例如：阿里云 ECS · 集团中台生产服务器" /></label>
@@ -211,13 +205,12 @@ onMounted(initialize);
           <details class="intake-optional span-2"><summary>补充服务资料（用途、管理账号、人员、标识、管理地址）</summary><div class="optional-grid"><label class="wide"><span>业务用途</span><textarea v-model="resource.business_purpose" rows="3" placeholder="它用于什么业务、服务谁、为什么需要保留" /></label><label><span>管理来源</span><select v-model="resource.managed_under_account_id"><option value="">不适用 / 暂不清楚</option><option v-for="item in tenants" :key="item.id" :value="item.id">{{ platforms.find((row) => row.id === item.platform_id)?.name }} · {{ item.tenant_identifier || '未填写 UID' }}</option></select></label><label><span>建议归属组织</span><select v-model="resource.owner_department_id"><option value="">公司主体 / 待确认</option><option v-for="item in departments.filter((row) => !resource.legal_entity_id || row.legal_entity_id === resource.legal_entity_id)" :key="item.id" :value="item.id">{{ item.name }}</option></select></label><PeoplePicker id="resource-responsible" :person-id="resource.responsible_person_id" @update:person-id="resource.responsible_person_id = $event || ''" label="建议负责人" :people="people.filter(row => !resource.legal_entity_id || row.legal_entity_id === resource.legal_entity_id)" :departments="departments" :disabled="saving" /><PeoplePicker id="resource-users" v-model:person-ids="resource.user_person_ids" multiple label="建议使用人员（选填）" :people="people.filter(row => !resource.legal_entity_id || row.legal_entity_id === resource.legal_entity_id)" :departments="departments" :disabled="saving" :excluded-ids="resource.responsible_person_id ? [resource.responsible_person_id] : []" /><label><span>平台资源 ID</span><input v-model="resource.external_identifier_value" /></label><label><span>管理地址</span><input v-model="resource.management_url" placeholder="https://" /></label></div></details>
         </template>
         <template v-if="mode === 'grant'">
-          <div class="intake-form-heading"><Users /><div><h2>分配平台访问或使用权</h2><p>兼容 AI 工具席位、平台子账号和资源权限。</p></div></div>
           <PeoplePicker id="grant-person" :person-id="grant.person_id" @update:person-id="grant.person_id = $event || ''" label="授权人员（必选一人）" :people="people" :departments="departments" :disabled="saving" /><label><span>被授权服务 / 资源</span><select v-model="grant.asset_id"><option value="">如授权给具体账号，可留空</option><option v-for="item in assets" :key="item.id" :value="item.id">{{ item.name }} · {{ item.asset_code }}</option></select></label>
           <label><span>访问账号</span><select v-model="grant.account_id"><option value="">如授权给服务，可留空</option><option v-for="item in accounts" :key="item.id" :value="item.id">{{ item.login_identifier }}</option></select></label><label><span>授权类型</span><select v-model="grant.grant_type"><option value="seat">工具席位</option><option value="subscription">订阅使用权</option><option value="platform_permission">平台权限</option><option value="resource_permission">资源权限</option><option value="api_usage">API 使用权</option></select></label>
           <label class="span-2"><span>权限角色</span><select v-model="grant.grant_role"><option value="member">普通成员</option><option value="admin">管理员</option><option value="readonly">只读</option><option value="service">服务账号</option></select></label>
           <details class="intake-optional span-2"><summary>补充授权资料（费用、币种、备注）</summary><div class="optional-grid"><label><span>月度费用</span><input v-model="grant.monthly_budget" type="number" min="0" step="0.01" /></label><label><span>币种</span><select v-model="grant.currency"><option>CNY</option><option>USD</option></select></label><label class="wide"><span>备注</span><textarea v-model="grant.note" rows="3" /></label></div></details>
         </template>
-        <div class="form-actions span-2"><button type="button" class="secondary-button" @click="mode = ''">取消</button><button class="primary-button" :disabled="saving">{{ saving ? "保存中…" : "保存并查看联动结果" }}</button></div>
+        <div class="form-actions span-2"><span class="intake-save-note">保存后可查看记录及后续补充事项。</span><button type="button" class="secondary-button" @click="choose('')">取消</button><button class="primary-button" :disabled="saving">{{ saving ? "保存中…" : "保存资料" }}</button></div>
       </form>
     </section>
   </div>
@@ -229,7 +222,7 @@ onMounted(initialize);
 .intake-start-intro p, .intake-filling-note { color:var(--muted); line-height:1.7; }
 .intake-filling-note { padding:14px 16px; border-radius:var(--radius); background:var(--surface-soft); }
 @media(max-width:700px) {
-  .modern-intake-form form, .intake-optional .optional-grid { grid-template-columns:minmax(0,1fr); }
-  .modern-intake-form .span-2, .modern-intake-form .intake-form-heading, .intake-optional .optional-grid .wide { grid-column:1 / -1; }
+  .intake-form-surface form, .intake-optional .optional-grid { grid-template-columns:minmax(0,1fr); }
+  .intake-form-surface .span-2, .intake-form-surface .intake-form-heading, .intake-optional .optional-grid .wide { grid-column:1 / -1; }
 }
 </style>

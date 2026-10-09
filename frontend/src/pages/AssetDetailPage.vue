@@ -1011,9 +1011,9 @@ onMounted(load);
       <section v-if="tab === 'accounts' && isPlatformTenant" class="detail-surface profile-surface">
         <header>
           <div>
-            <span class="section-kicker">L4 下的账号明细</span>
-            <h2>账号与席位，不是新的资产层级</h2>
-            <p>这里记录管理员、子账号和开发账号；不填写密码，也不会因账号自动创建 L6 服务。</p>
+            <span class="section-kicker">公司平台账号明细</span>
+            <h2>访问账号与席位</h2>
+            <p>登记管理员、子账号和开发账号的登录标识与权限，不填写密码。服务与资源另行登记，按实际依赖关联。</p>
           </div>
           <StatusBadge tone="default">{{ childAccounts.length }} 个账号</StatusBadge>
         </header>
@@ -1219,7 +1219,7 @@ onMounted(load);
             <span class="section-kicker">关联资产</span>
             <h2>像搭积木一样建立清晰关系</h2>
             <p>
-              先选“我和谁的关系”，系统只提供符合层级的对象，不再出现一整页无关选项。
+              先选择关系类型，再选择符合条件的关联对象。
             </p>
           </div>
           <Network :size="30" />

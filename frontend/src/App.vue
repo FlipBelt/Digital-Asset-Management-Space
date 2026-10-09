@@ -2,15 +2,16 @@
 import { computed, onBeforeUnmount, onMounted, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
-  ArrowRight, Bookmark, Boxes, CalendarClock, ChevronDown, Clock3, CreditCard, FileInput,
-  Hexagon, Home, LibraryBig, List, Menu, Pencil, Plus, Search, Shield,
+  ArrowRight, Bookmark, Boxes, ChevronDown, Clock3, CreditCard,
+  Hexagon, Home, List, Menu, Pencil, Plus, Search, Shield,
   SlidersHorizontal, Sparkles, Star, UserRound, Users, Workflow, LayoutGrid, Send, X,
 } from "lucide-vue-next";
 
 import { useTheme } from "./composables/useTheme";
 import { assetReturnContext } from "./lib/assetNavigation";
 import { isManagementSearchRoute, loadAIDiscoveryAssets } from "./lib/aiDiscovery";
-import { legacyWorkspaceEnabled } from "./lib/workspaceNavigation";
+import ManagementNav from "./components/ManagementNav.vue";
+import { canRegisterBasics, managementSection } from "./lib/managementWorkspace";
 import { safeLoginRedirect } from "./lib/loginNavigation";
 import { api, ApiError, setPmSessionToken, resetPmSessionCache, type AIRegistrationType, type Asset, type CurrentUser, type DingTalkIdentity, type Person, type PmSessionUser } from "./lib/api";
 
@@ -165,12 +166,6 @@ const sharedNav = [
   { to: "/workflows", label: "AI 工作流", icon: Workflow },
   { to: "/team", label: "团队 AI 空间", icon: Users },
 ];
-const huduNav = [
-  { to: "/hudu", label: "资产库", icon: LibraryBig },
-  { to: "/hudu/expirations", label: "到期与交接", icon: CalendarClock },
-  { to: "/hudu/intake", label: "资料接入", icon: FileInput },
-];
-const isHuduMode = computed(() => legacyWorkspaceEnabled(import.meta.env.BASE_URL, window.location.hostname) && (route.path === "/hudu" || route.path.startsWith("/hudu/")));
 const isTestEnvironment = window.location.pathname === "/test" || window.location.pathname.startsWith("/test/");
 const isLocalDevelopment = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const canManage = computed(() => Boolean(currentUser.value?.roles.some(
@@ -190,7 +185,7 @@ function isNavActive(to: string) {
     return (navigationContext.value.path === "/discover" && navigationContext.value.category !== "workflows") || navigationContext.value.path.startsWith("/discover/");
   }
   if (to === "/manage") {
-    return ["/manage", "/map", "/assets", "/accounts", "/organization", "/services", "/governance", "/imports", "/admin", "/intake", "/scenarios"]
+    return ["/manage", "/assets", "/accounts", "/organization", "/services", "/governance", "/imports", "/intake", "/scenarios", "/directory"]
       .some(path => navigationContext.value.path === path || navigationContext.value.path.startsWith(path + "/"));
   }
   return navigationContext.value.path === to;
@@ -498,14 +493,6 @@ onBeforeUnmount(() => { window.clearTimeout(searchTimer); ++searchSequence; wind
             :class="{ 'is-active': isNavActive('/manage') }" :aria-current="isNavActive('/manage') ? 'page' : undefined"
             @click="mobileOpen = false"><SlidersHorizontal :size="20" aria-hidden="true" /><span>公司资产管理</span></RouterLink>
         </section>
-        <section v-if="isHuduMode && canManage" class="nav-group" aria-labelledby="hudu-nav-heading">
-          <h2 id="hudu-nav-heading" class="nav-section-label">当前工作区</h2>
-          <RouterLink v-for="item in huduNav" :key="item.to" :to="item.to" class="nav-item"
-            active-class="" exact-active-class="" :class="{ 'is-active': isNavActive(item.to) }"
-            :aria-current="isNavActive(item.to) ? 'page' : undefined" @click="mobileOpen = false">
-            <component :is="item.icon" :size="20" aria-hidden="true" /><span>{{ item.label }}</span>
-          </RouterLink>
-        </section>
       </nav>
       <footer class="sidebar-session">
         <span class="avatar"><UserRound :size="18" aria-hidden="true" /></span>
@@ -539,7 +526,7 @@ onBeforeUnmount(() => { window.clearTimeout(searchTimer); ++searchSequence; wind
           </div>
         </div>
         <div class="topbar-actions">
-          <RouterLink :to="isHuduMode ? '/hudu' : '/register'" class="primary-button compact"><Plus :size="16" />登记 AI 成果</RouterLink>
+          <RouterLink :to="managementSearch && canRegisterBasics(currentUser) ? '/intake' : '/register'" class="primary-button compact"><Plus :size="16" />{{ managementSearch && canRegisterBasics(currentUser) ? '登记资料' : '登记 AI 成果' }}</RouterLink>
           <a v-if="!isLocalDevelopment" class="environment-switcher" :href="environmentTarget" :title="`切换到${isTestEnvironment ? '生产' : '测试'}环境`"><span class="environment-dot" :class="{ test: isTestEnvironment }" /><span>{{ environmentLabel }}</span><ChevronDown :size="14" /></a>
           <button class="user-menu" type="button" :aria-label="identityLabel + (currentUser ? '，刷新登录状态' : '，登录')" :disabled="identityState === 'recognizing'" :title="identityHint || identityLabel" @click="openIdentityEntry">
             <span class="avatar"><UserRound :size="16" aria-hidden="true" /></span>
@@ -558,7 +545,10 @@ onBeforeUnmount(() => { window.clearTimeout(searchTimer); ++searchSequence; wind
         <!-- Identity state changes must never unmount the business router.  The
              backend remains the authority for protected reads/writes; this
              notice is only a non-blocking client-side status indicator. -->
-        <RouterView />
+        <div :class="{ 'management-workspace': managementSection(route.path, route.query) }">
+          <ManagementNav v-if="currentUser && canManage && managementSection(route.path, route.query)" :user="currentUser" />
+          <RouterView />
+        </div>
       </main>
     </section>
   </div>

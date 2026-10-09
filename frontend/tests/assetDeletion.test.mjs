@@ -19,6 +19,8 @@ async function setup(roles = ["system_admin"], permissions = []) {
   api.currentSession = async () => ({ roles, permissions });
   api.assets = async () => ({ data: [asset], pagination: { total: 1 } });
   api.assetTypes = async () => [];
+  api.assetCategories = async () => [];
+  api.departments = async () => [];
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: { render: () => null } }] });
   await router.push("/");
   let state;

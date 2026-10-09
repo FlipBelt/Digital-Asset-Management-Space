@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
-import { legacyWorkspaceEnabled, assetCategoryLabel, workflowView } from "../frontend/src/lib/workspaceNavigation.ts";
+import { assetCategoryLabel, workflowView } from "../frontend/src/lib/workspaceNavigation.ts";
 import { assetReturnContext } from "../frontend/src/lib/assetNavigation.ts";
-assert.equal(legacyWorkspaceEnabled("/test/", "jtzhzt.flipbeltchina.com"), false);
-assert.equal(legacyWorkspaceEnabled("/", "127.0.0.1"), false);
-assert.equal(legacyWorkspaceEnabled("/", "localhost"), false);
-assert.equal(legacyWorkspaceEnabled("/", "jtzhzt.flipbeltchina.com"), true);
 assert.equal(assetCategoryLabel({ code: "future_ai", name: "新的 AI 成果分类" }), "新的 AI 成果分类");
 const returnTo = "/discover?group=category-1&type=type-1&q=cloud&page=2";
 assert.equal(assetReturnContext(returnTo).to, returnTo);
@@ -17,4 +13,4 @@ assert.equal(workflowView(["created"]), "all");
 assert.equal(assetReturnContext("/workflows?view=bookmarks&q=AI&page=2").to, "/workflows?view=bookmarks&q=AI&page=2");
 assert.equal(assetReturnContext("/workflows?view=created").label, "工作流");
 assert.equal(assetReturnContext("/workflows?view=created").category, "workflows");
-console.log("Workspace navigation: 15 assertions passed for test isolation, future categories and workflow list context.");
+console.log("Workspace navigation: 11 assertions passed for navigation, future categories and workflow list context.");

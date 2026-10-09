@@ -8,7 +8,7 @@ const root = document.getElementById("app");
 
 function showRuntimeError() {
   if (!root) return;
-  root.innerHTML = "<div class=\"boot-fallback\" role=\"alert\"><div class=\"boot-fallback-mark\">集</div><strong>页面加载遇到问题</strong><span>请刷新页面，或从钉钉工作台重新打开当前环境。</span></div>";
+  root.innerHTML = "<div class=\"boot-fallback\" role=\"alert\"><div class=\"boot-fallback-mark\">FB</div><strong>页面加载遇到问题</strong><span>请刷新页面，或从钉钉工作台重新打开当前环境。</span></div>";
 }
 
 if (!root) {
