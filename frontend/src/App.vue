@@ -11,6 +11,7 @@ import { useTheme } from "./composables/useTheme";
 import { assetReturnContext } from "./lib/assetNavigation";
 import { isManagementSearchRoute, loadAIDiscoveryAssets } from "./lib/aiDiscovery";
 import ManagementNav from "./components/ManagementNav.vue";
+import SessionAvatar from "./components/SessionAvatar.vue";
 import { canRegisterBasics, managementSection } from "./lib/managementWorkspace";
 import { safeLoginRedirect } from "./lib/loginNavigation";
 import { api, ApiError, setPmSessionToken, resetPmSessionCache, type AIRegistrationType, type Asset, type CurrentUser, type DingTalkIdentity, type Person, type PmSessionUser } from "./lib/api";
@@ -232,8 +233,10 @@ function closeSearchDelayed() {
   window.setTimeout(() => { searchOpen.value = false; }, 150);
 }
 
+watch(() => route.path, (path) => { if (path === "/login") mobileOpen.value = false; });
 watch(mobileOpen, async (open) => {
   await nextTick();
+  if (route.path === "/login") return;
   if (open) {
     document.querySelector<HTMLElement>(".primary-sidebar .is-active, .primary-sidebar .brand-block")?.focus();
   } else {
@@ -244,6 +247,7 @@ watch(mobileOpen, async (open) => {
 function onViewportChange() { if (window.innerWidth > 760) mobileOpen.value = false; }
 
 function onHotkey(event: KeyboardEvent) {
+  if (route.path === "/login") return;
   if (mobileOpen.value && event.key === "Tab") {
     const controls = [...document.querySelectorAll<HTMLElement>(".primary-sidebar a[href], .primary-sidebar button:not(:disabled)")];
     const first = controls[0], last = controls[controls.length - 1];
@@ -455,7 +459,7 @@ onBeforeUnmount(() => { window.clearTimeout(searchTimer); ++searchSequence; wind
 </script>
 
 <template>
-  <div class="app-shell new-shell">
+  <div class="app-shell new-shell" :class="{ 'login-shell': route.path === '/login' }">
     <button v-if="mobileOpen" class="fusion-nav-backdrop" aria-label="关闭导航" @click="mobileOpen = false" />
     <aside id="asset-navigation" class="primary-sidebar" :class="{ 'mobile-open': mobileOpen }"
       :role="mobileOpen ? 'dialog' : undefined" :aria-modal="mobileOpen ? true : undefined" aria-label="资产中心导航">
@@ -495,7 +499,7 @@ onBeforeUnmount(() => { window.clearTimeout(searchTimer); ++searchSequence; wind
         </section>
       </nav>
       <footer class="sidebar-session">
-        <span class="avatar"><UserRound :size="18" aria-hidden="true" /></span>
+        <SessionAvatar :src="currentUser?.avatar_url" :name="currentUser?.display_name || currentUser?.username || '访客'" />
         <div><strong>{{ dingtalkIdentity?.display_name || currentUser?.display_name || currentUser?.username || "访客" }}</strong>
           <small>{{ currentUser ? verifiedRoleLabel : "未登录" }} · {{ environmentLabel }}</small></div>
       </footer>
@@ -529,7 +533,7 @@ onBeforeUnmount(() => { window.clearTimeout(searchTimer); ++searchSequence; wind
           <RouterLink :to="managementSearch && canRegisterBasics(currentUser) ? '/intake' : '/register'" class="primary-button compact"><Plus :size="16" />{{ managementSearch && canRegisterBasics(currentUser) ? '登记资料' : '登记 AI 成果' }}</RouterLink>
           <a v-if="!isLocalDevelopment" class="environment-switcher" :href="environmentTarget" :title="`切换到${isTestEnvironment ? '生产' : '测试'}环境`"><span class="environment-dot" :class="{ test: isTestEnvironment }" /><span>{{ environmentLabel }}</span><ChevronDown :size="14" /></a>
           <button class="user-menu" type="button" :aria-label="identityLabel + (currentUser ? '，刷新登录状态' : '，登录')" :disabled="identityState === 'recognizing'" :title="identityHint || identityLabel" @click="openIdentityEntry">
-            <span class="avatar"><UserRound :size="16" aria-hidden="true" /></span>
+            <SessionAvatar :src="currentUser?.avatar_url" :name="currentUser?.display_name || currentUser?.username || '访客'" />
             <span>{{ identityLabel }}</span>
             <small v-if="dingtalkIdentity">{{ verifiedRoleLabel !== "成员" ? verifiedRoleLabel : dingtalkIdentity.job_title || "部门成员" }}</small>
             <ChevronDown :size="16" />

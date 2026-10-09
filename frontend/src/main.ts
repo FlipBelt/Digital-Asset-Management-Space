@@ -5,10 +5,12 @@ import router from "./router";
 import "./styles.css";
 
 const root = document.getElementById("app");
+const bootFallback = root?.querySelector(".boot-fallback")?.cloneNode(true);
 
 function showRuntimeError() {
-  if (!root) return;
-  root.innerHTML = "<div class=\"boot-fallback\" role=\"alert\"><div class=\"boot-fallback-mark\">FB</div><strong>页面加载遇到问题</strong><span>请刷新页面，或从钉钉工作台重新打开当前环境。</span></div>";
+  if (!root || !bootFallback) return;
+  root.replaceChildren(bootFallback.cloneNode(true));
+  window.dispatchEvent(new Event("asset-center-bootstrap-error"));
 }
 
 if (!root) {
@@ -29,3 +31,4 @@ try {
 }
 
 import "./styles/tokens.css";
+import "./styles/login.css";

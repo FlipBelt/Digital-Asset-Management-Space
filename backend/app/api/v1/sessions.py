@@ -18,6 +18,7 @@ from app.core.config import get_settings
 from app.db.session import get_db
 from app.models import AuditLog, DingTalkPersonProfile, Person, User, UserSession
 from app.schemas.auth import CurrentUserRead, SessionCreate, SessionRead
+from app.services.avatar import safe_avatar_url
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -38,6 +39,7 @@ def serialize_current_user(db: Session, user: User, session: UserSession) -> Cur
         display_name=person.display_name if person else None,
         department_id=person.department_id if person else None,
         job_title=profile.job_title if profile else None,
+        avatar_url=safe_avatar_url((profile.profile_data or {}).get("avatar")) if profile else None,
         roles=get_role_codes(db, user.id),
         permissions=get_permission_codes(db, user.id),
         csrf_token=session.csrf_token,

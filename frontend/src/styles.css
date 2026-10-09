@@ -1,23 +1,5 @@
 @import "tailwindcss";
 
-.login-page { min-height: calc(100dvh - 140px); display: grid; place-items: center; padding: clamp(16px, 3vw, 32px); background: var(--surface-soft); }
-.login-card { width: min(100%, 440px); display: grid; gap: 16px; padding: clamp(20px, 3vw, 32px); border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 16px 48px rgb(34 48 61 / 12%); }
-.login-brand { display: grid; gap: 8px; margin-bottom: 8px; }
-.login-brand img { width: 180px; max-width: 100%; height: auto; }
-.login-brand small { display: block; margin-top: 3px; color: var(--muted); }
-.login-card h1, .login-card p { margin: 0; }
-.login-card h1 { font-size: clamp(22px, 2.4vw, 26px); font-weight: 750; line-height: 1.25; }
-.login-card label { display: grid; gap: 6px; color: var(--muted); font-size: 14px; }
-.login-card input { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: transparent; color: inherit; }
-.login-intro { margin-top: 8px !important; color: var(--muted); font-size: 14px; }
-.login-qr-button { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 48px; }
-.login-qr-button:disabled { cursor: not-allowed; }
-.login-help, .login-status { color: var(--muted); font-size: 13px; line-height: 1.7; }
-.login-status { padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
-.login-account { border-top: 1px solid var(--border); padding-top: 16px; }
-.login-account summary { cursor: pointer; font-size: 14px; color: var(--muted); }
-.login-account form { display: grid; gap: 14px; margin-top: 16px; }
-.login-retry { border: 0; background: transparent; color: var(--primary); text-decoration: underline; cursor: pointer; padding: 4px 8px; }
 .primary-button { border: 0; border-radius: 8px; padding: 11px 16px; color: #fff; background: var(--primary); cursor: pointer; }
 .primary-button:disabled { cursor: wait; opacity: .65; }
 .form-error { color: #c53030; font-size: 14px; }

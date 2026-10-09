@@ -119,7 +119,7 @@ export interface AuditLog { id: string; action: string; object_type: string; obj
 export interface WorkflowRequest { id: string; request_no: string; request_type: string; title: string; requester_person_id: string | null; asset_id: string | null; status: string; detail: Record<string, unknown>; version: number; created_at: string }
 export interface RiskFinding { id: string; rule_key: string; asset_id: string | null; person_id: string | null; severity: string; status: string; title: string; detail: Record<string, unknown>; version: number; detected_at: string }
 export interface ImportPreview { file_name: string; rows: Record<string, unknown>[]; valid_count: number; error_count: number }
-export interface CurrentUser { id: string; username: string; person_id: string | null; display_name: string | null; department_id: string | null; job_title: string | null; roles: string[]; permissions: string[]; csrf_token: string }
+export interface CurrentUser { id: string; username: string; person_id: string | null; display_name: string | null; department_id: string | null; job_title: string | null; avatar_url?: string | null; roles: string[]; permissions: string[]; csrf_token: string }
 export interface Session { user: CurrentUser; expires_at: string; session_token?: string | null }
 export interface DingTalkStatus { enabled: boolean; configured: boolean; corp_id: string | null }
 export interface DingTalkConfig { corpId: string | null; agentId: string | null; configured: boolean }
