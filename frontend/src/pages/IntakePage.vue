@@ -230,6 +230,6 @@ onMounted(initialize);
 .intake-filling-note { padding:14px 16px; border-radius:var(--radius); background:var(--surface-soft); }
 @media(max-width:700px) {
   .modern-intake-form form, .intake-optional .optional-grid { grid-template-columns:minmax(0,1fr); }
-  .modern-intake-form .span-2, .intake-optional .optional-grid .wide { grid-column:1 / -1; }
+  .modern-intake-form .span-2, .modern-intake-form .intake-form-heading, .intake-optional .optional-grid .wide { grid-column:1 / -1; }
 }
 </style>
