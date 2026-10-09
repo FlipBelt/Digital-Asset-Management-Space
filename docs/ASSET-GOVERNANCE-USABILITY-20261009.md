@@ -1,6 +1,6 @@
 # 资产审核与治理填写体验优化
 
-日期：2026-10-09。状态：本地代码完成；尚未推送或上线，浏览器视觉复核待工具恢复。
+日期：2026-10-09。状态：用户明确要求“完成上线”后，先测试再正式发布完成。前端发布版本 `255b32d3824d9c6b78475e6ebdd751b7834cb3c0`；后端仍为 `3af34f13033dd3b8019b51f3cf22f12399edba68`，schema `f13d20261008`。真实业务验收单列。
 
 ## 原有六层分别是什么
 
@@ -28,7 +28,7 @@ L1–L6 是六类管理对象，并非一项资产必须填写的六级父子链
 
 ## 验证
 
-风险级别 T2：涉及人员筛选和表单本地状态；后端、权限判断、数据库和实际资产没有修改。
+代码风险级别 T2：涉及人员筛选和表单本地状态；发布及 Nginx 路由修复按 T3 验证。后端、权限判断、数据库模型和实际资产没有修改。
 
 在 frontend 目录运行：
 
@@ -40,14 +40,25 @@ npm run build
 - 10 项针对性检查通过：搜索、在职/部门/负责人排除、选择保留与去重、多选/单选/清空/禁用事件、人员范围变化、空结果、组件语义渲染、六类有效入口、只读附件上传边界。
 - Vue 类型检查和 Vite 生产构建通过。已有主包超过 500kB 的构建提示保留，不扩展为打包重构。
 - git diff --check 通过。
-- 以上组件状态使用 Vue 虚拟宿主，标记验证使用 SSR；不等同于浏览器视觉或真实业务验收。
-- 浏览器工具在读取页面前失败：windows sandbox failed / setup refresh had errors；重置后重试仍失败。桌面与窄屏截图、键盘焦点和实际文件选择未验证。
+- 组件状态使用 Vue 虚拟宿主，标记验证使用 SSR；不等同于真实业务验收。
+- 浏览器工具恢复后，实际测试环境验证姓名/工号搜索、勾选、筛选外已选保留、移除及空结果。测试表单未保存。
+- 桌面 1280px 与窄屏 390px 回读无横向溢出。测试复核发现登记标题的 `grid-column: span 2` 创建隐式列，最终修正为 `1 / -1`；390px 下人员选择区域宽 240px、表单单列。
+- 审核表单的完整待审状态使用本地合成样例验证：桌面双列、窄屏单列、输入框宽度、键盘焦点、真实文件选择及模拟上传错误反馈。未连接数据库，未提交审核，未验证真实上传成功。
+- 正式登录页面只读复核责任配置、人员搜索及审核入口；搜索没有改变已确认人员。正式待审核队列为空，完整待审表单的视觉证据来自合成样例。
 
-## 待视觉复核
+## 发布证据与回滚
 
-1. 桌面及窄屏审核页无横向溢出，说明框和审核按钮可用。
-2. 附件按钮打开文件选择，上传/错误/只读界面清晰。
-3. 人员搜索、勾选、移除及同名人员的部门显示符合实际使用习惯。
-4. 六类填写说明和直接入口能被管理员理解；真实权限仍由服务端控制。
+- 代码已推送 `codex/asset-center-registrar-completion`，沿用 [PR3](https://github.com/FlipBelt/Digital-Asset-Management-Space/pull/3)。没有合并其他分支。
+- 测试发布：2026-10-09 02:56:34 UTC；正式发布：02:58:37 UTC。双环境各 11 项公网检查通过，首页、资产台账、登记及审核直达路由正常；JS/CSS 字节与本地最终构建一致。匿名审核、Agent 能力、资产空间接口均保持 401。
+- 生产资源 `index-3L5fkmuE.js` / `index-DxZ1avdI.css`；测试资源 `index-3vpSej-J.js` / 同一 CSS。
+- 完整静态包 SHA-256：`044940041b72d4f5c7cf3576da8d682704288b6c47606cf8d5c5fc65e19ba1b6`。为适应云助手 24KB 限制，最后一处 CSS 修正通过已校验基线的增量包传输，SHA-256：`e9bb41c5fb17f487031e35bba290582ab11f4e0f2752ca7851592d628210cc78`；本地和服务器均逐文件校验重建内容，公网再核对字节。
+- 静态目录：测试 `/var/www/account-center-test-releases/255b32d3824d-usability-test-20261009`；正式 `/var/www/account-center-prod-releases/255b32d3824d-usability-production-20261009`。以原子符号链接切换，保留旧版本。
+- 发布前后只读快照：测试 assets=321、attachments=0、PID=1693130；正式 assets=322、attachments=0、PID=1693212。服务保持 active，未重启后端，未进行业务数据写入；计数一致不宣称逐行数据审计。
+- 发现 `/assets` 与静态目录同名导致直接刷新 403；测试 `/test/assets` 和正式 `/assets` 使用精确 SPA rewrite 修复，`nginx -t` 和 reload 通过，仓库 HTTPS 模板已同步。没有修改 API 代理或认证配置。
+- 服务器证据目录 `/opt/account-center/releases/usability-255b32d3824d-upload`：`test-PASS.json`、`production-PASS.json`、`test-ui-PASS.json`、对应 `*-ROLLBACK.json`、`nginx-before-production.conf`。测试首次路由修改前备份另在 `/opt/account-center/releases/usability-8e3460ce68cf-upload/nginx-before-test.conf`。
+- 正式回滚目标 `/var/www/account-center-prod-releases/3af34f13033d-registrar-production-20261008`；通过临时符号链接加 `mv -Tf` 原子恢复 `/var/www/account-center`。如需回滚路由，先恢复上述 Nginx 备份，`nginx -t` 成功后 reload。
+- 本机 `.deploy-artifacts/asset-governance-usability/255b32d3824d/` 保留构建、清单、校验脚本及双环境公网回执；`.local/production-people-picker-20261009.jpg` 为正式登录页面原始截图。两目录均为忽略的本地证据。
 
-新候选发布另按确切版本授权执行，本次没有代用户指派人员、确认资产或进行成果审核。
+## 真实业务验收
+
+由实际管理员/创建人验证新的填写说明是否易懂、协同人员配置是否符合工作流程，以及真实附件上传后确切版本确认与审核。自动检查和页面回读不关闭业务 UAT。本次没有代用户指派人员、确认资产、上传成果附件或进行成果审核。
