@@ -1,4 +1,4 @@
-# 资产管理统一框架：2026-10-09 本地候选
+# 资产管理统一框架：2026-10-09 实现与发布记录
 
 ## 需求与结果
 
@@ -73,6 +73,32 @@ git diff --check
 
 ## 发布状态
 
-当前为本地验证候选，分支 `codex/asset-center-registrar-completion`，基线 `58c0a36fe705dfb557d275a93ab6662e5654e03d`。本轮未推送、未部署、未改生产；此前获批上线的 `0263120` 不等于本候选的发布授权。
+用户明确“直接上线”后，`2d07debbefac24bdb122ec9c414c6b4ea3567a0f` 已推送并先 `/test/` 再正式发布；分支仍为 `codex/asset-center-registrar-completion`。运行代码绑定此提交，后续说明提交不改变运行代码。既有 Draft PR #3 已附在任务中；该分支没有 GitHub 检查，不把本地检查称为 CI。
 
-待用户批准确切候选后，先隔离测试再正式发布，并分别记录公网、实际登录页面和用户业务验收。代码/静态回退到本轮之前的发布，不涉及 schema 降级；仍须保留当前数据库和附件，不能用旧备份覆盖新业务资料。
+## 2026-10-09 上线与复核
+
+上线前实时核实双环境均为 `0263120/f13e`、服务 active；测试 321、正式 323 个物理资产行。本次没有数据库迁移、依赖升级、Nginx 修改或实际资产写入。
+
+- 冻结双环境差量包：13 文件、126196 bytes、6 分片，SHA-256 `f24f9bcf1ca93936216737cfbcbe7ffb1b1f44d577d6935ab8414e8c3e5a73ad`。静态按正式 `/` 与测试 `/test/`、`/test-api` 分别构建，服务端逐文件核对源码和静态哈希。
+- 上传脚本最初的校验值取自 LF 文本，而 Windows 冻结文件使用 CRLF；首次执行 `t-hz06zi29py09beo` 在脚本哈希守卫处退出，未启动部署器或切换服务。改用磁盘实际字节哈希 `2d767ecb545dd611acdefb4bb1a061d526add8ec72cc9a1e08f105b90136bbaa` 后复核通过；候选、脚本内容及包未更改。
+- 测试执行 `t-hz06zi2evndi60w`、exit 0：75 张业务表完整内容指纹一致，包含成果版本字段；schema 保持 `f13e20261009`。代码/静态回退、重新部署通过，测试期间正式 PID 和发布元数据未改变。
+- 正式执行 `t-hz06zi2ujtff30g`、exit 0：75 张业务表完整内容指纹一致，schema 未变，服务 active。保留旧代码/静态、配置、数据转储及回退说明。
+- 双环境各 17 项公网检查通过：发布元数据、ready、5 个匿名受保护路由拒绝访问、8 个 SPA 入口、JS/CSS 字节与冻结包相同。正式 JS `index-CXQeybzU.js`、测试 JS `index-BroRLr7Y.js`、两环境 CSS `index-1OSwRM-w.css`。
+- 测试既有管理员会话只读复核：API 分类筛选产生 10 行对应类型，URL 与选择一致；审核入口、七种登记入口及外观说明已观察，页面 error 日志为空。没有创建或修改会话权限。
+- 正式管理员会话只读复核：资产库总数 85，自研系统分类 4 项，配色中台系统-002仍在其中；当前管理页已刷新，旧入口和旧术语不可见，主题为 `asset-center`，实际侧栏白色 `rgb(255,255,255)`、选中态 `rgb(231,255,63)`，页面 error 日志为空。
+- 正式 390px 视口下文档宽度 375px；分类 341/1028px、表格 341/720px 分别滚动，整页无横向溢出。临时视口已重置，正式资产库标签作为交付保留。
+
+| 环境 | 备份目录 | 数据库转储 SHA-256 |
+| --- | --- | --- |
+| 测试 | `/opt/account-center-test/backups/2d07debbefac-framework-test-20261009` | `c2cfb2bbe4198f517867eef438b61812262f4cfa459da81a690298b134b32e51` |
+| 正式 | `/opt/account-center/backups/2d07debbefac-framework-production-20261009` | `c0a0204ab9283668ef214d69e69fec361de6a97617bde5f84a33cf2cfd9ab362` |
+
+转储完成且 `pg_restore --list` 可读；未做完整数据库恢复演练。测试演练为代码/静态回退，不恢复数据库、不降级 schema。回退时仍须保留当前数据库和附件，不能用旧备份覆盖新业务资料。服务器回执位于 `/opt/account-center/releases/framework-2d07debbefac-upload`，本机冻结包/回执/公网检查位于 `.deploy-artifacts/asset-unified-framework/2d07debbefac/`。
+
+正式截图仅在本机，不随 Git 提交：
+
+- `.local/asset-library-unified-production-20261009.jpg`：自研系统分类；SHA-256 `7d226ff10eae3b4df16f5cc5cac6f8610638b079832b0cef2794b13ce3d1bae3`。
+- `.local/asset-library-unified-narrow-production-20261009.jpg`：390px；SHA-256 `6a4e59adcba57540ef8b5133ae8bebfce0b7d9db13cb26d029b22d5df7411530`。
+- `.local/management-unified-production-20261009.jpg`：刷新后的当前管理首页。
+
+发布与自动/只读页面验证已完成；真实管理员/员工的业务 UAT 仍独立。此次未代用户登记、删除、指派、审核或保存外观配置。
