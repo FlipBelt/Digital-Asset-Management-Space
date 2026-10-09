@@ -14,6 +14,8 @@ import {
 } from "lucide-vue-next";
 
 import ModalPanel from "../components/ModalPanel.vue";
+import AssetStructureGuide from "../components/AssetStructureGuide.vue";
+import { assetStructureCategories } from "../lib/assetStructure";
 import PageHeader from "../components/PageHeader.vue";
 import SimpleBarChart from "../components/SimpleBarChart.vue";
 import StatusBadge from "../components/StatusBadge.vue";
@@ -72,24 +74,20 @@ function normalizeDisplayMode(value: unknown): DisplayMode {
 }
 const displayMode = ref<DisplayMode>(normalizeDisplayMode(route.query.view));
 const businessFilters = reactive({ keyword: "", status: "", include_archived: false });
-const layerOptions = [
-  { value: 1, label: "公司主体", hint: "先看有哪些公司" },
-  { value: 2, label: "注册身份", hint: "手机号、邮箱等身份" },
-  { value: 3, label: "平台", hint: "服务平台目录" },
-  { value: 4, label: "公司平台账号", hint: "公司在平台上的账号" },
-  { value: 5, label: "人员授权", hint: "谁可使用什么" },
-  { value: 6, label: "实体服务 / 资源", hint: "日常最常查看" },
-];
+const layerOptions = assetStructureCategories;
 const currentLayer = computed(
   () =>
     layerOptions.find((item) => item.value === layer.value) ?? layerOptions[5],
 );
 const displayModeMeta: Record<DisplayMode, { label: string; description: string }> = {
   business: { label: "业务台账", description: "按资产名称、类型、归属和状态查看日常需要管理的真实实例。" },
-  governance: { label: "六层治理", description: "面向管理员查看 L1-L6 对象、关系和缺失项；不会因缺层自动补造对象。" },
+  governance: { label: "账号与资源结构", description: "按公司、登录身份、平台、企业账号、人员授权和具体资源查看；各类资料独立登记，关联按实际情况补充。" },
   source: { label: "原始台账", description: "保留来源文件和原始记录，并查看它们与正式资产的映射及确认状态。" },
 };
 const currentDisplayMode = computed(() => displayModeMeta[displayMode.value]);
+function ownershipScopeLabel(value: string | null | undefined) {
+  return ({ company: "公司统一管理", department: "部门管理", pending: "待确认" } as Record<string,string>)[value ?? ""] ?? value ?? "待确认";
+}
 function ownershipLabel(value: string | null) {
   return ({ company_owned: "公司所有", personal_for_company: "个人注册、公司使用", unknown: "归属待确认" } as Record<string, string>)[value ?? ""] ?? "未填写";
 }
@@ -365,7 +363,7 @@ onMounted(loadActiveView);
         <strong>业务台账</strong><span>日常查看资产、归属和状态</span>
       </button>
       <button :class="{ active: displayMode === 'governance' }" @click="selectDisplayMode('governance')">
-        <strong>六层治理</strong><span>管理员查看层级、关系和缺失项</span>
+        <strong>账号与资源结构</strong><span>按业务对象查看关联与责任</span>
       </button>
       <button :class="{ active: displayMode === 'source' }" @click="selectDisplayMode('source')">
         <strong>原始台账</strong><span>核对来源记录和资产映射</span>
@@ -374,7 +372,7 @@ onMounted(loadActiveView);
 
     <section v-if="displayMode === 'business'" class="ledger-view-identity business-view-identity">
       <div><span class="section-kicker">业务台账回答什么</span><strong>现在有哪些正式资产可以直接管理？</strong></div>
-      <span>只看已建立的资产实例，不混入来源文件、候选对象和六层治理字段。</span>
+      <span>只看已建立的资产实例，不混入来源文件、候选对象和结构管理资料。</span>
     </section>
 
     <section v-else-if="displayMode === 'source'" class="ledger-view-identity source-view-identity">
@@ -384,7 +382,7 @@ onMounted(loadActiveView);
 
     <section v-if="displayMode === 'business'" class="list-surface business-ledger-surface">
       <div class="section-heading business-ledger-heading">
-        <div><span class="section-kicker">默认工作视图</span><h2>真实资产台账</h2><p>不要求先理解六层；需要治理信息时再切换到“六层治理”。</p></div>
+        <div><span class="section-kicker">默认工作视图</span><h2>真实资产台账</h2><p>先按名称、类型和负责人查看资产；需要核对账号或平台关系时，切换到“账号与资源结构”。</p></div>
         <span class="record-count">{{ filteredBusinessAssets.length }} / {{ total }} 项</span>
       </div>
       <div class="filter-grid business-filter-grid">
@@ -395,36 +393,37 @@ onMounted(loadActiveView);
       <div class="list-toolbar"><label class="check-label"><input v-model="businessFilters.include_archived" type="checkbox" @change="loadActiveView" />包含已归档</label><div class="toolbar-spacer" /><span class="ledger-note">同一资产在不同视图中使用同一个详情页</span></div>
       <div class="asset-table-wrap">
         <table class="asset-table business-ledger-table"><thead><tr><th>资产名称</th><th>资产类型</th><th>资产编号</th><th>归属范围</th><th>状态</th><th>到期时间</th><th>最后更新</th></tr></thead>
-          <tbody><tr v-for="asset in filteredBusinessAssets" :key="asset.id"><td><RouterLink :to="`/assets/${asset.id}`"><strong>{{ asset.name }}</strong><span>查看资产详情</span></RouterLink></td><td><span class="type-tag">{{ assetTypeLabel(asset.asset_type_id) }}</span></td><td>{{ asset.asset_code }}</td><td>{{ asset.ownership_scope || "待确认" }}</td><td><StatusBadge :tone="asset.status === 'active' ? 'success' : 'warning'">{{ displayStatus(asset.status) }}</StatusBadge></td><td>{{ asset.expires_at ? new Date(asset.expires_at).toLocaleDateString('zh-CN') : '未设置' }}</td><td>{{ new Date(asset.updated_at).toLocaleString("zh-CN") }}</td></tr></tbody>
+          <tbody><tr v-for="asset in filteredBusinessAssets" :key="asset.id"><td><RouterLink :to="`/assets/${asset.id}`"><strong>{{ asset.name }}</strong><span>查看资产详情</span></RouterLink></td><td><span class="type-tag">{{ assetTypeLabel(asset.asset_type_id) }}</span></td><td>{{ asset.asset_code }}</td><td>{{ ownershipScopeLabel(asset.ownership_scope) }}</td><td><StatusBadge :tone="asset.status === 'active' ? 'success' : 'warning'">{{ displayStatus(asset.status) }}</StatusBadge></td><td>{{ asset.expires_at ? new Date(asset.expires_at).toLocaleDateString('zh-CN') : '未设置' }}</td><td>{{ new Date(asset.updated_at).toLocaleString("zh-CN") }}</td></tr></tbody>
         </table>
         <div v-if="!loading && !filteredBusinessAssets.length" class="empty-state"><span class="empty-icon"><List :size="26" /></span><strong>暂无符合条件的资产</strong><p>可以调整搜索条件，或从“登记 / 发现资产”新增一条真实实例。</p></div>
         <div v-if="loading" class="loading-state">正在读取业务台账…</div>
       </div>
     </section>
 
-    <section v-if="displayMode === 'governance'" class="layer-browser-guide" aria-label="六层浏览器">
+    <section v-if="displayMode === 'governance'" class="layer-browser-guide" aria-label="账号与资源分类">
       <div class="layer-browser-heading">
-        <span class="section-kicker">第一步：选择查看层级</span>
-        <h2>你想看什么，就只看什么。</h2>
+        <span class="section-kicker">选择要查看的资料</span>
+        <h2>按业务名称查看，不用记层级编号。</h2>
         <p>
-          默认展示第六层实体服务/资源。只有来源中真实存在的对象才会出现在相应层级，空层级不自动补造。
+          默认查看系统、订阅与资源。公司、登录身份和账号独立维护，不需要为一项资产补齐所有类别。
         </p>
       </div>
-      <div class="layer-tabs" role="tablist" aria-label="六层数据筛选">
+      <div class="layer-tabs" role="group" aria-label="按资料类别筛选">
         <button
           v-for="item in layerOptions"
           :key="item.value"
           :class="{ active: layer === item.value }"
-          role="tab"
-          :aria-selected="layer === item.value"
+          :aria-pressed="layer === item.value"
           @click="changeLayer(item.value)"
         >
-          <b>L{{ item.value }}</b
-          ><span>{{ item.label }}</span
+          <span>{{ item.label }}</span
           ><small>{{ item.hint }} · {{ layerCounts[item.value] ?? "—" }} 项</small>
         </button>
       </div>
     </section>
+
+    <section v-if="displayMode === 'governance'" class="governance-context content-panel"><div><h3>{{ currentLayer.label }}：{{ currentLayer.hint }}</h3><p>例如：{{ currentLayer.example }}。{{ currentLayer.when }}</p></div><RouterLink :to="{path:'/intake',query:{mode:currentLayer.mode}}" class="secondary-button">{{ layer === 5 ? '分配使用权' : '登记这类资料' }}</RouterLink></section>
+    <AssetStructureGuide v-if="displayMode === 'governance'" />
 
     <section v-if="displayMode === 'governance'" class="list-surface">
       <div class="filter-grid">
@@ -766,3 +765,13 @@ onMounted(loadActiveView);
     </ModalPanel>
   </div>
 </template>
+
+<style scoped>
+.governance-context { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; }
+.governance-context > div { flex:1 1 300px; min-width:0; }
+.governance-context h3, .governance-context p { margin:0; }
+.governance-context p { margin-top:8px; color:var(--muted); line-height:1.7; }
+.layer-browser-guide { grid-template-columns:1fr; }
+.layer-tabs { grid-template-columns:repeat(3,minmax(0,1fr)); }
+@media(max-width:650px) { .layer-tabs { grid-template-columns:1fr 1fr; } }
+</style>

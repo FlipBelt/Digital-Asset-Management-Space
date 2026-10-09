@@ -23,6 +23,7 @@ import {
 import { useRoute, useRouter } from "vue-router";
 
 import AssetAttachments from "../components/AssetAttachments.vue";
+import PeoplePicker from "../components/PeoplePicker.vue";
 import PageHeader from "../components/PageHeader.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import {
@@ -377,7 +378,7 @@ const relationshipSlots = computed(() => {
   return [
     {
       layer: "L1",
-      label: "所属法人",
+      label: "归属公司",
       value: asset.value?.legal_entity_id
         ? (entityName.value[asset.value.legal_entity_id] ?? "待确认")
         : "暂无法人归属证据",
@@ -576,6 +577,11 @@ async function saveChildAccount() {
     saving.value = false;
   }
 }
+function useResponsibleDepartment() {
+  if (assignment.ownership_scope !== "pending" || !responsibleDepartmentHint.value) return;
+  assignment.ownership_scope = "department";
+  assignment.owner_department_id = responsibleDepartmentHint.value;
+}
 function applyProposals() {
   const responsible = proposals.value.find(r => r.role_type === "proposed_responsible");
   if (responsible?.person_id) assignment.responsible_person_id = responsible.person_id;
@@ -709,11 +715,7 @@ watch(
 watch(
   () => assignment.responsible_person_id,
   (personId) => {
-    const person = people.value.find((item) => item.id === personId);
-    if (assignment.ownership_scope === "pending" && person?.department_id) {
-      assignment.ownership_scope = "department";
-      assignment.owner_department_id = person.department_id;
-    }
+    assignment.user_person_ids = assignment.user_person_ids.filter(id => id !== personId);
   },
 );
 watch(
@@ -794,8 +796,7 @@ onMounted(load);
             :key="slot.label"
             :class="{ confirmed: slot.confirmed }"
           >
-            <span>{{ slot.layer }}</span
-            ><small>{{ slot.label }}</small
+            <small>{{ slot.label }}</small
             ><strong>{{ slot.value }}</strong>
           </article>
           <div v-if="!confirmedRelationshipSlots.length" class="relationship-summary-empty">暂未建立明确关系</div>
@@ -832,8 +833,8 @@ onMounted(load);
         <header>
           <div>
             <span class="section-kicker">资产概览</span>
-            <h2>让名称回归名称，让编号负责区分</h2>
-            <p>默认只处理核心事实；治理字段和历史标识按需展开。</p>
+            <h2>基本资料</h2>
+            <p>确认资产名称和使用入口；状态与补充说明可以按需展开。</p>
           </div>
           <Server :size="30" />
         </header>
@@ -928,7 +929,7 @@ onMounted(load);
               <span class="governance-toggle-title">
                 <ShieldCheck :size="20" />
                 <span>
-                  <b>还有可选的治理资料</b>
+                  <b>使用状态与补充说明（选填）</b>
                   <small>状态、重要程度、保密、到期、用途</small>
                 </span>
               </span>
@@ -970,7 +971,7 @@ onMounted(load);
           </details>
           <div class="form-actions wide">
             <button class="primary-button" :disabled="saving">
-              <Save :size="16" />保存核心资料
+              <Save :size="16" />保存基本资料
             </button>
           </div>
         </form>
@@ -1154,7 +1155,7 @@ onMounted(load);
           <div>
             <span class="section-kicker">责任人员</span>
             <h2>先确定归属，再安排负责人和协同人</h2>
-            <p>负责人部门只作智能建议；不会悄悄覆盖已经确认的归属。</p>
+            <p>确认资产归公司还是部门管理，再搜索选择负责人；协同人员可以稍后添加。</p>
           </div>
           <UserRound :size="30" />
         </header>
@@ -1163,12 +1164,13 @@ onMounted(load);
           class="balanced-form responsibility-form"
           @submit.prevent="saveAssignment"
         >
+          <p class="wide responsibility-hint">归属决定由公司还是部门管理；公司级不等于全员可见，成果共享范围单独设置。</p>
           <label
             ><span>归属范围</span
             ><select v-model="assignment.ownership_scope">
-              <option value="pending">待确认</option>
-              <option value="company">公司级</option>
-              <option value="department">部门级</option>
+              <option value="pending">暂不确定</option>
+              <option value="company">公司统一管理</option>
+              <option value="department">指定部门管理</option>
             </select></label
           ><label v-if="assignment.ownership_scope === 'department'"
             ><span>归属部门</span
@@ -1190,39 +1192,13 @@ onMounted(load);
                 : "请确认该资产应归公司级还是部门级。"
             }}
           </div>
-          <label class="wide"
-            ><span>负责人</span
-            ><select v-model="assignment.responsible_person_id" required>
-              <option :value="null" disabled>选择一名负责人</option>
-              <option v-for="item in people" :key="item.id" :value="item.id">
-                {{ item.display_name
-                }}{{
-                  item.department_id
-                    ? ` · ${departmentName[item.department_id] ?? ""}`
-                    : ""
-                }}
-              </option></select
-            ><small v-if="responsibleDepartmentHint"
-              >负责人主部门：{{
-                departmentName[responsibleDepartmentHint]
-              }}；仅在归属待确认时用于建议。</small
-            ></label
-          ><label class="wide"
-            ><span>协同使用人员</span
-            ><select v-model="assignment.user_person_ids" multiple size="7">
-              <option
-                v-for="item in people.filter(
-                  (row) => row.id !== assignment.responsible_person_id,
-                )"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ item.display_name }}
-              </option></select
-            ><small
-              >负责人默认已拥有管理和使用权限，无需重复选择。</small
-            ></label
-          >
+          <div class="wide responsibility-people">
+            <PeoplePicker id="asset-responsible" v-model:person-id="assignment.responsible_person_id" label="负责人（必选一人）" :people="people" :departments="departments" :disabled="saving" />
+            <p v-if="responsibleDepartmentHint" class="responsibility-hint">负责人主部门：{{ departmentName[responsibleDepartmentHint] }}。归属范围单独确认。
+              <button v-if="assignment.ownership_scope === 'pending'" type="button" class="secondary-button" :disabled="saving" @click="useResponsibleDepartment">采用该部门作为归属</button>
+            </p>
+          </div>
+          <PeoplePicker id="asset-users" v-model:person-ids="assignment.user_person_ids" class="wide" label="协同使用人员（选填）" :people="people" :departments="departments" multiple :excluded-ids="assignment.responsible_person_id ? [assignment.responsible_person_id] : []" :disabled="saving" hint="负责人已拥有管理和使用权限，无需重复选择；协同人员按现有规则拥有使用权限。" />
           <div class="form-actions wide">
             <button
               class="primary-button"
@@ -1409,6 +1385,9 @@ onMounted(load);
 </template>
 
 <style scoped>
+.responsibility-people { display:grid; gap:12px; min-width:0; }
+.responsibility-hint { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:0; color:var(--muted); font-size:12px; line-height:1.6; }
+
 .detail-page-v2 {
   gap: 18px;
 }
