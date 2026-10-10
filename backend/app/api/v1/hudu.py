@@ -37,7 +37,7 @@ from app.models import (
     ResourceProfile,
 )
 from app.services.account_structure import (
-    account_asset_clause,
+    asset_library_exclusion_clause,
     child_employee_issue,
     owner_facts,
     responsibility_map,
@@ -139,7 +139,7 @@ def overview(db: Session = Depends(get_db), access: AccessContext = Depends(get_
     categories, types, departments, entities, people, owners = _maps(db)
     assets = list(db.scalars(select(Asset).where(
         Asset.archived_at.is_(None), Asset.status != "deleted",
-        asset_visibility_clause(access), ~account_asset_clause(),
+        asset_visibility_clause(access), ~asset_library_exclusion_clause(),
     ).order_by(Asset.updated_at.desc(), Asset.id)))
     today = date.today()
     soon = today + timedelta(days=30)
@@ -178,7 +178,7 @@ def list_hudu_assets(
     access: AccessContext = Depends(get_access_context),
 ):
     categories, types, departments, entities, people, owners = _maps(db)
-    excluded = set(db.scalars(select(Asset.id).where(account_asset_clause()))) if library_only else set()
+    excluded = set(db.scalars(select(Asset.id).where(asset_library_exclusion_clause()))) if library_only else set()
     items = [_asset_item(item, categories, types, departments, entities, people, owners) for item in _active_assets(db, access, include_archived=include_archived, keyword=keyword) if item.id not in excluded]
     today = date.today()
     soon = today + timedelta(days=30)

@@ -38,7 +38,7 @@ function pendingFor(id: string) {
   const item = structureFor(id);
   return item ? [...item.company_accounts, ...item.personal_accounts].filter(row => !row.is_subscription && (row.verification_status !== "verified" || row.children.some(needsEmployeeReview))).length + item.pending_identities.length : 0;
 }
-function openPlatform(id: string) { query.value = ""; void router.push({ query: { platform: id } }); }
+function openPlatform(id: string) { query.value = ""; void router.push({ query: { platform: id, ...(route.query.section === "personal" ? { section: "personal" } : {}) } }); }
 function openTenant(row: HierarchyTenant) {
   if (row.is_subscription) void router.push(`/assets/${row.asset_id}`);
   else void router.push({ query: { platform: route.query.platform, tenant: row.asset_id } });

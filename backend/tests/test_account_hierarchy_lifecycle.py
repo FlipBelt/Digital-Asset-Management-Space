@@ -136,6 +136,67 @@ def test_library_filters_before_count_pages_export_and_preserves_uuid(actors, co
     assert marker + " parent" not in names and marker + " child" not in names
 
 
+@pytest.mark.parametrize("funding", ["personal", "company"])
+def test_personal_subscription_only_in_platform_view(actors, company_account, funding):
+    before = actors.admin.get("/api/v1/hudu/overview").json()["total_assets"]
+    asset, _ = membership(actors.owner, actors, funding)
+    marker = "PersonalLibrary-" + uuid4().hex
+    with SessionLocal() as db:
+        personal = db.get(Asset, UUID(asset["id"]))
+        personal.name = marker + " personal"
+        db.get(ServiceProduct, UUID(actors.product)).platform_id = company_account["platform"]
+        company = Asset(
+            name=marker + " company",
+            asset_code="COMPANY-" + uuid4().hex,
+            asset_type_id=personal.asset_type_id,
+            legal_entity_id=UUID(actors.entity),
+            source_system=None,
+        )
+        other_type = Asset(
+            name=marker + " other",
+            asset_code="OTHER-" + uuid4().hex,
+            asset_type_id=db.scalar(select(AssetType.id).where(AssetType.code == "cloud_server")),
+            legal_entity_id=UUID(actors.entity),
+            source_system="membership-registration",
+        )
+        db.add_all([company, other_type])
+        db.commit()
+        company_id, other_id = str(company.id), str(other_type.id)
+    result = actors.admin.get(
+        "/api/v1/assets", params={"keyword": marker, "library_only": True, "page_size": 1}
+    ).json()
+    assert result["pagination"]["total"] == 2
+    assert {item["id"] for item in result["data"]}.issubset({company_id, other_id})
+    saas = actors.admin.get(
+        "/api/v1/assets",
+        params={"keyword": marker, "library_only": True, "asset_type_id": asset["asset_type_id"]},
+    ).json()
+    assert saas["pagination"]["total"] == 1 and saas["data"][0]["id"] == company_id
+    hudu = actors.admin.get(
+        "/api/v1/hudu/assets", params={"keyword": marker, "library_only": True, "page_size": 1}
+    ).json()
+    assert hudu["total"] == 2 and hudu["items"][0]["id"] != asset["id"]
+    assert actors.admin.get("/api/v1/hudu/overview").json()["total_assets"] == before + 2
+    export = actors.admin.get("/api/v1/exports/assets.xlsx?library_only=true")
+    names = {
+        row[1]
+        for row in load_workbook(BytesIO(export.content)).active.iter_rows(
+            min_row=2, values_only=True
+        )
+    }
+    assert marker + " personal" not in names
+    assert {marker + " company", marker + " other"}.issubset(names)
+    compatible = actors.admin.get("/api/v1/assets", params={"keyword": marker}).json()
+    assert compatible["pagination"]["total"] == 3
+    detail = actors.owner.get(f"/api/v1/assets/{asset['id']}").json()
+    assert detail["is_personal_subscription"] and detail["review_status"] == "not_required"
+    hierarchy = actors.owner.get("/api/v1/account-hierarchy").json()
+    platform = next(
+        row for row in hierarchy["platforms"] if row["id"] == str(company_account["platform"])
+    )
+    assert asset["id"] in {row["asset_id"] for row in platform["personal_accounts"]}
+
+
 def test_effective_company_owner_and_child_followup_are_one_parent(actors, company_account):
     row, _ = child(actors, company_account)
     with SessionLocal() as db:

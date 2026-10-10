@@ -6,7 +6,7 @@ from sqlalchemy import ColumnElement, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Asset, AssetIdentifier, AssetRelation, AssetResponsibility, AssetType
-from app.services.account_structure import account_asset_clause
+from app.services.account_structure import asset_library_exclusion_clause
 
 
 class AssetRepository:
@@ -44,7 +44,7 @@ class AssetRepository:
         if visibility_filter is not None:
             filters.append(visibility_filter)
         if library_only:
-            filters.append(~account_asset_clause())
+            filters.append(~asset_library_exclusion_clause())
         if legal_entity_id:
             filters.append(Asset.legal_entity_id == legal_entity_id)
         if department_id:

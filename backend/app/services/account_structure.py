@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -37,6 +37,15 @@ def account_asset_clause():
             for model in (Account, PlatformTenant, RegistrationIdentityProfile)
         ],
     )
+
+
+def asset_library_exclusion_clause():
+    personal_subscription = and_(
+        Asset.source_system.is_not(None),
+        Asset.source_system == "membership-registration",
+        Asset.asset_type_id.in_(select(AssetType.id).where(AssetType.code == "saas_subscription")),
+    )
+    return or_(account_asset_clause(), personal_subscription)
 
 
 def responsibility_map(db: Session):

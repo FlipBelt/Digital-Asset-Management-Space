@@ -175,6 +175,7 @@ const navigationContext = computed(() => route.path.startsWith("/discover/")
   ? assetReturnContext(route.query.returnTo)
   : { path: route.path, category: route.query.category === "workflows" ? "workflows" : "all" });
 function isNavActive(to: string) {
+  if (to === "/my/subscriptions") return route.path === "/accounts" && route.query.section === "personal";
   if (to === "/workflows") {
     return navigationContext.value.path === "/workflows" || (navigationContext.value.path === "/discover" && navigationContext.value.category === "workflows");
   }
