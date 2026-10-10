@@ -31,10 +31,16 @@ T3 风险验证使用一次性 loopback PostgreSQL 55439，数据库 dam_v13_tes
 
 证据 .local/subscription-verification/d532501c85。覆盖账号过滤/计数/导出/历史 UUID、责任有效期/离职/提议负向路径、子账号归并、私有订阅、已核验注册身份保留、员工绑定权限/跨公司/版本/CSRF/幂等、离职证据/本人/权限/版本/会话/同步及交接保留。前一次测试客户端启用后台循环后的退出停滞已改为无 lifespan 的隔离客户端；未修改实际后台任务。
 
-内部浏览器合成资料检查已完成平台逐级导航、新建员工自动带入、现有绑定保存回读、子账号树、离职交接链接/登记表单、个人订阅免审和平台套餐选择、只读员工及读取失败重试；弹窗 Tab/Escape 焦点恢复通过。390px 文档宽375px、离职弹窗325px无整页横向溢出；窄屏全页截图能力不可用，不能将 DOM 尺寸检查称为人工视觉验收。Vue 类型检查通过，最终双路径构建与冻结发布记录待追加。
+内部浏览器合成资料检查已完成平台逐级导航、新建员工自动带入、现有绑定保存回读、子账号树、离职交接链接/登记表单、个人订阅免审和平台套餐选择、只读员工及读取失败重试；弹窗 Tab/Escape 焦点恢复通过。390px 文档宽375px、离职弹窗325px无整页横向溢出；窄屏全页截图能力不可用，不能将 DOM 尺寸检查称为人工视觉验收。Vue 类型检查、根路径及 /test 双路径构建、改动范围 Ruff（既有 E501 基线保留）及 diff 检查通过。仓库无 GitHub CI 检查，不能将本地检查报告为 CI 通过。
 
 ## 发布与人工验收
 
-当前实现已本地完成，尚未冻结提交或更新测试/正式站点。发布从两环境实际 acf10fb 运行时基线对账，测试备份/切换/旧代码回退/再应用后，独立公网字节和真实管理员只读界面检查通过才更新正式站点。保留数据库备份、旧代码与回退清单。
+应用冻结版本 0541db065e51c61ad05e1efd62510f1b1e9b2b26 已推送分支 codex/platform-account-hierarchy-and-offboarding，并先测试、再正式发布。Draft PR #6：https://github.com/FlipBelt/Digital-Asset-Management-Space/pull/6。文档追加提交不改变已发布应用版本。
+
+从两环境实际 acf10fb 运行时和 f13f schema 对账，33 个运行文件的分片包共 160766 字节，SHA-256 为 89155b7b567f94cd8da8a452ba8f242711ddeb5e891c4399ace81d02d01b1200；服务用户下编译和 OpenAPI 探针通过后切换。测试命令 t-hz06zln90me9zi8 成功，包含旧代码/静态回退再应用，并确认正式进程及状态不变；测试公网资源和真实管理员只读页面通过后，正式命令 t-hz06zlo1u2i3tvk 成功。每环境 75 张业务表全行内容指纹一致；无 schema 迁移、业务登记或权限写入。正式环境未执行旧代码回退或数据库恢复演练。
+
+独立公网回读（2026-10-10 08:20:25 UTC）确认每环境 8 个冻结文件逐字节一致、7 条 SPA 路径、5 个匿名读取及离职 POST 均 401，ready/database 正常。现有管理员会话兼容。正式页面回读：OpenAI 公司账号 FB GPT 内含 8 个子账号，现有绑定弹窗可搜索 67 位当前候选员工；平台个人页保留 Plus 免审订阅；资产库 13 项业务资产，分类、清单和导出不包含账号；跟进 12 项且子账号问题汇总于 FB GPT 父账号。MiniMax 已确认负责人正确显示并退出待补负责人清单；FB GPT 当前负责人仍为“建议尚未生效”，需管理员在责任页确认后生效。离职页按实际状态显示尚无明确离职记录，日期/依据表单只读打开后取消。控制台 warning/error 为空。以上数字为此次回读时点快照。
+
+本地证据目录 .deploy-artifacts/platform-hierarchy/0541db065e51，含 PACKAGE.json、DEPLOYMENT.json、local-package-PASS.json、test-server-PASS.json、test-public-PASS.json、test-ui-PASS.json、production-server-PASS.json、final-public-PASS.json、production-ui-PASS.json 及 production-platform-hierarchy.png。服务器备份：/opt/account-center-test/backups/0541db065e51-platform-hierarchy-test-20261010 与 /opt/account-center/backups/0541db065e51-platform-hierarchy-production-20261010，保留旧代码、旧静态、数据库转储与 schema 保留回退清单；发生上线后业务写入时，不能直接用旧数据库覆盖新记录。
 
 真实员工离职名单、账号登录标识、外部平台权限回收及责任交接由管理员根据实际依据操作；自动检查、合成交互、技术发布和人工业务验收分别记录。
