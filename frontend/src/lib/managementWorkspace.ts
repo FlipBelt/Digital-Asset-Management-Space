@@ -4,7 +4,7 @@ type Identity = Pick<CurrentUser, "roles" | "permissions"> | null;
 export const managementSections = [
   { key: "overview", to: "/manage", label: "管理概览", description: "选择登记、维护和处理事项。", group: "overview" },
   { key: "assets", to: "/assets", label: "资产", description: "查询资产、维护资料与责任，归档或恢复记录。", group: "records" },
-  { key: "accounts", to: "/accounts", label: "平台与账号", description: "维护平台、企业账号、登录身份和供应商。", group: "records" },
+  { key: "accounts", to: "/accounts", label: "平台与账号", description: "统一维护平台/供应商、套餐和企业账号。", group: "records" },
   { key: "organization", to: "/organization", label: "组织与授权", description: "核对公司、部门、人员与有效使用授权。", group: "records" },
   { key: "services", to: "/services", label: "订阅与用量", description: "查看服务、费用、余额和用量记录。", group: "records" },
   { key: "reviews", to: "/manage/reviews", label: "成果审核", description: "核对责任和资料，通过或退回当前成果版本。", group: "actions" },
@@ -44,14 +44,14 @@ export function managementSection(path: string, query: Record<string, unknown> =
 export const registrationKinds = [
   { mode: "resource", label: "系统、订阅与资源", description: "管理具体系统、服务、云资源或其他成果。" },
   { mode: "platform-account", label: "企业平台账号", description: "登记已经开通的企业账号或工作区。" },
-  { mode: "platform", label: "服务平台", description: "登记提供服务的平台名称和官网。" },
+  { mode: "platform", label: "平台/供应商", description: "统一登记服务提供方和官网，审核后维护可选套餐。" },
   { mode: "identity", label: "登录与注册身份", description: "保管手机号、邮箱或其他登录标识。" },
   { mode: "entity", label: "公司主体", description: "登记真实公司及有来源的法人资料。" },
-  { mode: "provider", label: "供应商", description: "记录服务提供方，供平台和服务引用。" },
   { mode: "grant", label: "人员使用授权", description: "分配已有批准依据的席位或使用权。" },
 ] as const;
 export type RegistrationMode = "" | typeof registrationKinds[number]["mode"];
 export function registrationMode(value: unknown): RegistrationMode {
+  if (value === "provider") return "platform";
   return typeof value === "string" && registrationKinds.some(item => item.mode === value) ? value as RegistrationMode : "";
 }
 

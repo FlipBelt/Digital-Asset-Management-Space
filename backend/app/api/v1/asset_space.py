@@ -400,6 +400,7 @@ class MembershipInput(BaseModel):
     request_id: UUID
     service_product_id: UUID
     plan: str = Field(min_length=1, max_length=200)
+    catalog_plan: str | None = Field(default=None, min_length=1, max_length=200)
     funding_source: Literal["company", "department", "personal", "free", "trial"]
     starts_at: date
     usage_frequency: Literal["daily", "weekly", "monthly", "rarely"]
@@ -438,6 +439,9 @@ def create_membership(
         ):
             raise HTTPException(409, "请求编号对应的登记内容已改变")
         return existing
+    from app.services.service_catalog import validate_subscription
+
+    validate_subscription(db, product, payload.plan, payload.catalog_plan)
     asset_type = db.scalar(
         select(AssetType).where(
             AssetType.code == "saas_subscription", AssetType.archived_at.is_(None)

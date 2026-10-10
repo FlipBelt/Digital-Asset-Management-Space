@@ -23,7 +23,7 @@ const platformAccount = reactive({ platform_id: "", legal_entity_id: "", interna
 const resource = reactive({ legal_entity_id: "", asset_type_id: "", resource_family: "platform_service", name: "", business_purpose: "", managed_under_account_id: "", platform_id: "", platform_relation_type: "uses", owner_department_id: "", responsible_person_id: "", user_person_ids: [] as string[], external_identifier_type: "", external_identifier_value: "", management_url: "", status: "draft", criticality: "normal" });
 const grant = reactive({ account_id: "", asset_id: "", person_id: "", department_id: "", grant_type: "seat", grant_role: "member", monthly_budget: "", currency: "CNY", renewal_day: "", note: "" });
 const entity = reactive({ name: "" });
-const provider = reactive({ code: "", name: "", website: "" });
+let directoryRequestId = crypto.randomUUID(), directoryPrevious = "";
 const entityProfile = reactive({ entity_type: "", jurisdiction: "", registration_status: "", legal_representative: "", established_on: "", registered_address: "", registered_capital: "", business_scope: "", source_note: "", verification_status: "pending" });
 const entityIdentifier = reactive({ identifier_type: "unified_social_credit_code", identifier_value: "" });
 
@@ -77,22 +77,23 @@ async function save() {
       if (entityIdentifier.identifier_value.trim()) await api.createLegalEntityIdentifier(created.id, { namespace: "cn", identifier_type: entityIdentifier.identifier_type || "other", identifier_value: entityIdentifier.identifier_value.trim(), is_primary: true, verification_status: "pending", source_note: null });
       receipt.value = { id: created.id, asset_id: null, asset_code: created.code, name: created.name, object_type: "legal_entity", completion_percent: hasProfile || Boolean(entityIdentifier.identifier_value.trim()) ? 60 : 25, links: [], next_actions: [{ key: "complete_entity_profile", label: "补充主体档案", description: "法人资料和主体标识可以稍后在组织架构中继续补充。", target: "/organization", required: false }] };
     }
-    if (mode.value === "provider") {
-      const created = await api.createProvider({ code: provider.code.trim(), name: provider.name.trim(), website: provider.website.trim() || null });
-      receipt.value = { id: created.id, asset_id: null, asset_code: created.code, name: created.name, object_type: "provider", completion_percent: 100, links: [], next_actions: [{ key: "providers", label: "查看供应商目录", description: "供应商目录已保存，可供平台和服务引用。", target: "/accounts?tab=providers", required: false }] };
-    }
     if (mode.value === "identity") {
       if (!identity.source_nature) throw new Error("请选择归属性质");
       receipt.value = receiptFromIdentity(await api.createRegistrationIdentity({ ...identity, identity_type: identity.identity_type || null, legal_entity_id: identity.legal_entity_id || null, platform_id: identity.platform_id || null, custodian_person_id: identity.custodian_person_id || null }));
     }
     if (mode.value === "platform") {
-      const created = await api.createPlatform({ ...platform, code: platform.code || `USER-${Date.now()}`, provider_id: platform.provider_id || null, submitted_by_person_id: currentUser.value?.person_id ?? null });
+      const body = { name: platform.name, category: platform.category, website: platform.website || null, description: platform.description || null, provider_id: platform.provider_id || null };
+      const snapshot = JSON.stringify(body);
+      if (directoryPrevious && snapshot !== directoryPrevious) directoryRequestId = crypto.randomUUID();
+      directoryPrevious = snapshot;
+      const entry = await api.createDirectoryEntry({ ...body, request_id: directoryRequestId });
+      const created = { ...entry, code: '目录', submitted_by_person_id: currentUser.value?.person_id || null };
       const links = [
         ...platformRelation.identity_asset_ids.map((asset_id) => ({ asset_id, relation_type: "registered_on", note: "平台登记时建立的显式关联" })),
         ...platformRelation.resource_asset_ids.map((asset_id) => ({ asset_id, relation_type: "uses", note: "平台登记时建立的显式关联" })),
       ];
       if (links.length) await Promise.all(links.map((link) => api.createAssetPlatformLink(link.asset_id, { platform_id: created.id, relation_type: link.relation_type, review_status: "pending_review", note: link.note })));
-      receipt.value = receiptFromPlatform(created);
+      receipt.value = { ...receiptFromPlatform(created), next_actions: [{ key: "directory", label: "维护套餐并审核目录", description: "登记已保存，补齐服务和套餐后核对来源，完成目录审核。", target: "/accounts?tab=directory", required: true }] };
     }
     if (mode.value === "platform-account") receipt.value = await api.createCompanyPlatformAccount({ ...platformAccount, registration_identity_asset_id: platformAccount.historical_unknown ? null : platformAccount.registration_identity_asset_id || null, external_identifier_type: platformAccount.external_identifier_type || null, external_identifier_value: platformAccount.external_identifier_value || null, evidence_note: platformAccount.evidence_note || null, owner_department_id: platformAccount.ownership_scope === "department" ? platformAccount.owner_department_id || null : null, responsible_person_id: platformAccount.responsible_person_id || null });
     if (mode.value === "resource") receipt.value = await api.createResource({ ...resource, legal_entity_id: resource.legal_entity_id || null, platform_id: resource.platform_id || null, business_purpose: resource.business_purpose || null, managed_under_account_id: resource.managed_under_account_id || null, owner_department_id: resource.owner_department_id || null, responsible_person_id: resource.responsible_person_id || null, external_identifier_type: resource.external_identifier_type || null, external_identifier_value: resource.external_identifier_value || null, management_url: resource.management_url || null });
@@ -165,11 +166,6 @@ onMounted(initialize);
       <button class="quiet-button intake-back" @click="choose('')"><ArrowLeft :size="16" />返回选择</button>
       <div class="intake-form-heading"><div><h2 id="intake-form-title" tabindex="-1">登记{{ selectedRegistration?.label }}</h2><p>{{ selectedRegistration?.description }} 标有 * 的信息必填，其他资料按需展开。</p></div></div>
       <form @submit.prevent="save" :aria-busy="saving">
-        <template v-if="mode === 'provider'">
-          <label><span>供应商名称 *</span><input v-model="provider.name" required maxlength="200" placeholder="填写供应商名称" /></label>
-          <label><span>供应商编码 *</span><input v-model="provider.code" required maxlength="80" placeholder="填写现有编码或稳定的唯一标识" /></label>
-          <label class="span-2"><span>官方网站（选填）</span><input v-model="provider.website" type="url" placeholder="https://" /></label>
-        </template>
         <template v-if="mode === 'entity'">
           <label class="span-2"><span>公司主体名称 *</span><input v-model="entity.name" required placeholder="例如：杭州飞比特体育用品有限公司" /></label>
           <details class="intake-optional span-2"><summary>补充主体资料（选填）</summary><div class="optional-grid"><label><span>主体类型</span><select v-model="entityProfile.entity_type"><option value="">暂不确定</option><option value="domestic_company">境内公司</option><option value="branch">分公司</option><option value="individual_business">个体工商户</option><option value="overseas_entity">境外法人</option><option value="other">其他主体</option></select></label><label><span>注册地 / 司法辖区</span><input v-model="entityProfile.jurisdiction" placeholder="例如：中国浙江省杭州市" /></label><label><span>存续状态</span><select v-model="entityProfile.registration_status"><option value="">暂不确定</option><option value="active">存续</option><option value="inactive">注销 / 停业</option><option value="pending">待核验</option></select></label><label><span>法定代表人</span><input v-model="entityProfile.legal_representative" placeholder="可稍后补充" /></label><label><span>成立日期</span><input v-model="entityProfile.established_on" type="date" /></label><label><span>注册资本</span><input v-model="entityProfile.registered_capital" placeholder="例如：100 万元" /></label><label class="wide"><span>注册地址</span><textarea v-model="entityProfile.registered_address" rows="2" placeholder="可稍后补充" /></label><label class="wide"><span>经营范围</span><textarea v-model="entityProfile.business_scope" rows="2" placeholder="可稍后补充" /></label><label class="wide"><span>来源说明</span><textarea v-model="entityProfile.source_note" rows="2" placeholder="例如：工商资料、原始清单或人工确认" /></label></div></details>
@@ -182,8 +178,8 @@ onMounted(initialize);
           <details class="intake-optional span-2"><summary>补充身份资料（类型、保管人、说明）</summary><div class="optional-grid"><label><span>身份类型</span><select v-model="identity.identity_type"><option value="">自动识别</option><option value="phone">手机号</option><option value="email">邮箱</option><option value="wechat">微信身份</option><option value="other">其他</option></select></label><PeoplePicker id="identity-custodian" :person-id="identity.custodian_person_id" @update:person-id="identity.custodian_person_id = $event || ''" label="当前保管人（选填）" :people="people" :departments="departments" :disabled="saving" /><label class="wide"><span>说明</span><textarea v-model="identity.note" rows="3" placeholder="例如：技术部门公共注册手机号" /></label></div></details>
         </template>
         <template v-if="mode === 'platform'">
-          <label class="span-2"><span>服务提供方（选填）</span><select v-model="platform.provider_id"><option value="">暂不关联供应商</option><option v-for="item in providers" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
-          <label class="span-2"><span>平台名称 *</span><input v-model="platform.name" required placeholder="例如：火山引擎" /></label>
+          <label class="span-2"><span>平台/供应商名称 *</span><input v-model="platform.name" required maxlength="200" placeholder="例如：OpenAI、Anthropic、阿里云" /></label>
+          <p class="span-2">套餐在目录的服务下维护，例如 OpenAI → ChatGPT → Plus / Pro / Business。</p>
           <details class="intake-optional span-2"><summary>关联已有对象（选填：注册身份、服务 / 资源）</summary><div class="optional-grid"><label><span>已有注册身份</span><select v-model="platformRelation.identity_asset_ids" multiple size="4"><option v-for="item in identities" :key="item.asset_id" :value="item.asset_id">{{ item.identifier }} · {{ item.name }}</option></select><small>按住 Ctrl 可多选；不选也可以先保存平台。</small></label><label><span>已有服务 / 资源</span><select v-model="platformRelation.resource_asset_ids" multiple size="4"><option v-for="item in resourceAssets" :key="item.id" :value="item.id">{{ item.name }}</option></select><small>只保存已选择的关联；企业账号需要单独登记。</small></label></div></details>
           <details class="intake-optional span-2"><summary>补充平台资料（类别、官网、说明）</summary><div class="optional-grid"><label><span>平台类别</span><select v-model="platform.category"><option value="cloud">云平台</option><option value="ai">大模型 / AI</option><option value="saas">SaaS / 协作</option><option value="marketing">营销 / 电商</option><option value="payment">支付</option><option value="other">其他</option></select></label><label><span>官方网站</span><input v-model="platform.website" placeholder="https://" /></label><label class="wide"><span>说明</span><textarea v-model="platform.description" rows="3" /></label></div></details>
         </template>

@@ -53,6 +53,7 @@ from app.schemas.inventory import (
     ServiceProductCreate,
     ServiceProductRead,
 )
+from app.services.service_catalog import validate_subscription
 
 router = APIRouter(tags=["inventory"])
 
@@ -150,6 +151,7 @@ def update_platform(
         raise HTTPException(status_code=404, detail="平台目录对象不存在")
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, key, value)
+    item.review_status = "pending_review"
     return commit(db, item, "platform.update", "platform")
 
 
@@ -430,6 +432,17 @@ def create_service_product(
     db: Session = Depends(get_db),
     _: AccessContext = Depends(require_global_manager),
 ) -> ServiceProduct:
+    if payload.platform_id:
+        platform = db.scalar(
+            select(Platform).where(Platform.id == payload.platform_id).with_for_update()
+        )
+        if (
+            platform is None
+            or platform.archived_at is not None
+            or platform.provider_id != payload.provider_id
+        ):
+            raise HTTPException(422, "服务与平台/供应商的归属不一致")
+        platform.review_status = "pending_review"
     item = ServiceProduct(**payload.model_dump())
     db.add(item)
     return commit(db, item, "service_product.create", "service_product")
@@ -463,7 +476,11 @@ def create_service_instance(
     require_manageable_asset(db, access, payload.asset_id)
     if payload.funding_source == "personal" and payload.payer_person_id != access.person_id:
         raise HTTPException(403, "个人自费仅可登记当前员工本人")
-    item = ServiceInstance(**payload.model_dump())
+    product = db.get(ServiceProduct, payload.service_product_id)
+    if product is None or product.archived_at is not None:
+        raise HTTPException(422, "服务不可用，请联系管理员补充服务目录")
+    validate_subscription(db, product, payload.subscription_name, payload.catalog_plan)
+    item = ServiceInstance(**payload.model_dump(exclude={"catalog_plan"}))
     db.add(item)
     return commit(db, item, "service_instance.create", "service_instance")
 

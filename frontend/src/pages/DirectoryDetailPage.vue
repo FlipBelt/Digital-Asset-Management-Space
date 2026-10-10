@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
-import { ArrowLeft, Building2, CheckCircle2, Database, ExternalLink, GitBranch, Layers3, Save, ShieldCheck, Users, X } from "lucide-vue-next";
+import { computed, onMounted, ref, watch } from "vue";
+import { ArrowLeft, Building2, CheckCircle2, Database, ExternalLink, GitBranch, Layers3, ShieldCheck, Users } from "lucide-vue-next";
 import { useRoute } from "vue-router";
 
 import PageHeader from "../components/PageHeader.vue";
@@ -20,8 +20,7 @@ const entityProfile = ref<LegalEntityProfile | null>(null);
 const entityIdentifiers = ref<LegalEntityIdentifier[]>([]);
 const platform = ref<Platform | null>(null);
 const relationshipGraph = ref<AssetRelationshipView | null>(null);
-const editingPlatform = ref(false);
-const platformForm = reactive({ name: "", code: "", category: "other", website: "", description: "" });
+
 
 const kind = computed(() => String(route.params.kind) as DirectoryKind);
 const objectId = computed(() => String(route.params.id));
@@ -64,29 +63,6 @@ function relationOtherNode(edge: RelationshipEdge) {
 function relationDirectionLabel(direction: RelationshipEdge["direction"]) {
   return { upstream: "来源", downstream: "下游", peer: "同级", responsibility: "责任 / 使用" }[direction];
 }
-function startPlatformEdit() {
-  if (!platform.value) return;
-  Object.assign(platformForm, {
-    name: platform.value.name,
-    code: platform.value.code,
-    category: platform.value.category,
-    website: platform.value.website ?? "",
-    description: platform.value.description ?? "",
-  });
-  editingPlatform.value = true;
-}
-function cancelPlatformEdit() { editingPlatform.value = false; }
-async function savePlatformEdit() {
-  if (!platform.value) return;
-  try {
-    platform.value = await api.updatePlatform(platform.value.id, { ...platformForm });
-    record.value = record.value ? { ...record.value, name: platform.value.name, status: platform.value.review_status, updated_at: new Date().toISOString(), category: platform.value.category } : record.value;
-    relationshipGraph.value = await api.platformRelationshipView(platform.value.id);
-    editingPlatform.value = false;
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : "平台资料保存失败";
-  }
-}
 
 async function load() {
   loading.value = true;
@@ -118,7 +94,6 @@ async function load() {
       const item = platforms.find((row) => row.id === objectId.value);
       if (!item) throw new Error("平台目录对象不存在或已不可见");
       platform.value = item;
-      Object.assign(platformForm, { name: item.name, code: item.code, category: item.category, website: item.website ?? "", description: item.description ?? "" });
       record.value = { ...emptyLayerRecord(3, item.name, "平台", item.review_status, `platform:${item.id}`), category: item.category, updated_at: new Date().toISOString() };
       const [identities, tenants, platformRelations] = await Promise.all([api.layerRecords(2), api.layerRecords(4), api.platformRelationshipView(item.id)]);
       relationshipGraph.value = platformRelations;
@@ -168,20 +143,13 @@ watch(() => route.fullPath, load);
       <section class="directory-summary detail-surface">
         <div class="directory-summary-icon"><Building2 v-if="kind === 'entity'" :size="28" /><Layers3 v-else-if="kind === 'platform'" :size="28" /><Users v-else :size="28" /></div>
         <div><span class="section-kicker">{{ kindLabel }}</span><h2>{{ record.name }}</h2><p>先看核心事实、关联关系和责任位置；没有数据的字段不强行补齐。</p></div>
-        <button v-if="kind === 'platform' && !editingPlatform" class="secondary-button" @click="startPlatformEdit">编辑平台</button>
+        <RouterLink v-if="kind === 'platform'" class="secondary-button" to="/accounts?tab=directory">维护平台/供应商与套餐</RouterLink>
         <StatusBadge tone="success">{{ displayStatus(record.status) }}</StatusBadge>
       </section>
 
       <section class="detail-surface directory-info-surface">
         <header><div><span class="section-kicker">核心信息</span><h2>基本资料</h2><p>查看当前对象的类型、状态、归属与更新时间。</p></div><CheckCircle2 :size="26" /></header>
-        <form v-if="kind === 'platform' && editingPlatform" class="directory-edit-form" @submit.prevent="savePlatformEdit">
-          <label><span>平台名称</span><input v-model="platformForm.name" required /></label>
-          <label><span>平台编码</span><input v-model="platformForm.code" required /></label>
-          <label><span>平台类别</span><select v-model="platformForm.category"><option value="cloud">云平台</option><option value="ai">大模型 / AI</option><option value="saas">SaaS / 协作</option><option value="marketing">营销 / 电商</option><option value="payment">支付</option><option value="other">其他</option></select></label>
-          <label><span>官网</span><input v-model="platformForm.website" placeholder="https://" /></label>
-          <label class="wide"><span>平台说明</span><textarea v-model="platformForm.description" rows="3" /></label>
-          <div class="directory-edit-actions"><button class="primary-button" type="submit"><Save :size="16" />保存平台</button><button class="secondary-button" type="button" @click="cancelPlatformEdit"><X :size="16" />取消</button></div>
-        </form>
+
         <div class="directory-field-grid">
           <div><span>资料类型</span><strong>{{ kindLabel }}</strong></div>
           <div><span>状态</span><strong>{{ displayStatus(record.status) }}</strong></div>

@@ -43,7 +43,9 @@ from app.models import (
 def actors():
     if os.environ.get("ASSET_CENTER_ISOLATED_TESTS") != "1":
         pytest.skip("Set ASSET_CENTER_ISOLATED_TESTS=1 only for the disposable rehearsal DB.")
-    assert engine.url.host == "127.0.0.1" and engine.url.port == 55433
+    port = int(os.environ.get("ASSET_CENTER_TEST_PORT", "55433"))
+    assert port in {55433, 55439}
+    assert engine.url.host == "127.0.0.1" and engine.url.port == port
     assert (engine.url.database or "").startswith("dam_v13_tests_")
     assert get_settings().app_env == "local"
     marker = uuid4().hex[:10]

@@ -691,10 +691,12 @@ class ServiceProduct(UUIDPrimaryKeyMixin, TimestampMixin, ArchiveMixin, Base):
     __table_args__ = (UniqueConstraint("provider_id", "code"),)
 
     provider_id: Mapped[UUID] = mapped_column(ForeignKey("providers.id"), nullable=False)
+    platform_id: Mapped[UUID | None] = mapped_column(ForeignKey("platforms.id"), nullable=True)
     code: Mapped[str] = mapped_column(String(80), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     service_category: Mapped[str] = mapped_column(String(80), nullable=False)
     billing_mode: Mapped[str] = mapped_column(String(50), nullable=False)
+    plan_options: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
 
 
 class ServiceInstance(UUIDPrimaryKeyMixin, TimestampMixin, ArchiveMixin, Base):

@@ -95,7 +95,9 @@ export interface Platform { id: string; provider_id: string | null; code: string
 export interface PlatformTenant { id: string; asset_id: string; platform_id: string; legal_entity_id: string; tenant_identifier: string | null; external_identifier_type: string | null; ownership_nature: string; account_scope: string; verification_status: string }
 export interface Account { id: string; asset_id: string; platform_tenant_id: string; login_identifier: string; account_type: string; registration_identity_type: string; registration_person_id: string | null; mfa_status: string; privilege_level: string; parent_account_id: string | null; account_kind: string; login_method: string; account_role: string; primary_person_id: string | null; legacy_source_id: string | null; legacy_metadata: Record<string, unknown> }
 export interface CredentialReference { id: string; account_id: string | null; asset_id: string | null; provider: string; item_id: string; secure_url: string | null; last_rotated_at: string | null; last_verified_at: string | null }
-export interface ServiceProduct { id: string; provider_id: string; code: string; name: string; service_category: string; billing_mode: string }
+export interface ServiceProduct { id: string; provider_id: string; platform_id: string | null; code: string; name: string; service_category: string; billing_mode: string; plan_options: string[] }
+export interface PlatformDirectoryEntry { id: string; kind: "platform" | "provider"; provider_id: string | null; provider_name: string | null; name: string; category: string; website: string | null; description: string | null; review_status: string; revision: string; review_note: string | null; source_url: string | null; services: ServiceProduct[] }
+export interface SubscriptionOption extends ServiceProduct { platform_name: string }
 export interface ServiceInstance { id: string; asset_id: string; service_product_id: string; purchase_platform_id: string | null; purchase_tenant_asset_id: string | null; subscription_name: string | null; currency: string; starts_at: string | null; expires_at: string | null }
 export interface MetricDefinition { id: string; metric_key: string; display_name: string; unit: string; aggregation: string }
 export interface MetricSample { id: string; service_instance_id: string; metric_definition_id: string; value: string; currency: string | null; collected_at: string; source_type: string }
@@ -224,7 +226,7 @@ export async function request<T>(path: string, init: RequestInit = {}, timeoutMs
   }
   if (!response.ok) {
     let message = `请求失败：${response.status}`;
-    try { const body = await response.json(); message = body.detail ?? body.message ?? message } catch { /* keep generic */ }
+    try { const body = await response.json(); message = Array.isArray(body.detail) ? body.detail.map((item: { msg?: string }) => item.msg || "输入有误").join("；") : body.detail ?? body.message ?? message } catch { /* keep generic */ }
     throw new ApiError(response.status, message);
   }
   if (response.status === 204) return undefined as T;
@@ -362,6 +364,12 @@ export const api = {
   assetFieldValues: (id: string) => request<AssetFieldValue[]>(`/api/v1/assets/${id}/field-values`),
   saveAssetFieldValues: (id: string, body: { field_definition_id: string; value: unknown }[]) => request<AssetFieldValue[]>(`/api/v1/assets/${id}/field-values`, json("PUT", body)),
   providers: () => request<Provider[]>("/api/v1/providers"),
+  platformDirectory: () => request<PlatformDirectoryEntry[]>("/api/v1/platform-directory"),
+  createDirectoryEntry: (body: Record<string, unknown>) => request<PlatformDirectoryEntry>("/api/v1/platform-directory", json("POST", body)),
+  updateDirectoryEntry: (id: string, body: Record<string, unknown>) => request<PlatformDirectoryEntry>(`/api/v1/platform-directory/${id}`, json("PATCH", body)),
+  saveDirectoryService: (id: string, body: Record<string, unknown>) => request<PlatformDirectoryEntry>(`/api/v1/platform-directory/${id}/services`, json("POST", body)),
+  reviewDirectoryEntry: (id: string, body: Record<string, unknown>) => request<PlatformDirectoryEntry>(`/api/v1/platform-directory/${id}/review`, json("POST", body)),
+  subscriptionOptions: () => request<SubscriptionOption[]>("/api/v1/subscription-options"),
   createProvider: (body: Record<string, unknown>) => request<Provider>("/api/v1/providers", json("POST", body)),
   platforms: () => request<Platform[]>("/api/v1/platforms"),
   createPlatform: (body: Record<string, unknown>) => request<Platform>("/api/v1/platforms", json("POST", body)),

@@ -19,6 +19,7 @@ from app.api.v1 import (
     inventory,
     organizations,
     scenarios,
+    service_catalog,
     sessions,
     transfers,
     usage,
@@ -40,6 +41,7 @@ api_router.include_router(asset_attachments.router, dependencies=authenticated)
 api_router.include_router(assets.router, dependencies=authenticated)
 api_router.include_router(asset_reviews.router, dependencies=authenticated)
 api_router.include_router(inventory.router, dependencies=authenticated)
+api_router.include_router(service_catalog.router, dependencies=authenticated)
 api_router.include_router(usage.router, dependencies=authenticated)
 api_router.include_router(usage_monitoring.router, dependencies=authenticated)
 api_router.include_router(scenarios.router, dependencies=authenticated)

@@ -254,7 +254,10 @@ def test_membership_uses_unified_asset_and_private_visibility(monkeypatch):
     person = SimpleNamespace(
         id=uuid4(), legal_entity_id=uuid4(), department_id=uuid4(), archived_at=None
     )
-    product = SimpleNamespace(id=payload.service_product_id, name="Tool", archived_at=None)
+    product = SimpleNamespace(
+        id=payload.service_product_id, name="Tool", archived_at=None,
+        platform_id=None, plan_options=[],
+    )
     access = SimpleNamespace(person_id=person.id, user=SimpleNamespace(id=uuid4()))
     db = Mock()
     db.scalar.return_value = SimpleNamespace(id=uuid4())

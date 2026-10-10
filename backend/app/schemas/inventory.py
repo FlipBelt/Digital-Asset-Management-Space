@@ -3,15 +3,23 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.common import ORMModel
+from app.services.catalog_reference import known_plan_name
+
+
+def service_name(value):
+    if value is not None and known_plan_name(value.strip()):
+        raise ValueError("套餐须在服务下维护，不能作为平台/供应商或服务名称")
+    return value
 
 
 class ProviderCreate(BaseModel):
     code: str = Field(min_length=1, max_length=80)
     name: str = Field(min_length=1, max_length=200)
     website: str | None = None
+    validate_name = field_validator("name")(service_name)
 
 
 class ProviderRead(ORMModel):
@@ -30,6 +38,7 @@ class PlatformCreate(BaseModel):
     review_status: str = "pending_review"
     description: str | None = None
     submitted_by_person_id: UUID | None = None
+    validate_name = field_validator("name")(service_name)
 
 
 class PlatformPatch(BaseModel):
@@ -38,6 +47,7 @@ class PlatformPatch(BaseModel):
     category: str | None = None
     website: str | None = None
     description: str | None = None
+    validate_name = field_validator("name")(service_name)
 
 
 class PlatformRead(ORMModel):
@@ -141,24 +151,41 @@ class CredentialReferenceRead(ORMModel):
 
 class ServiceProductCreate(BaseModel):
     provider_id: UUID
+    platform_id: UUID | None = None
     code: str = Field(min_length=1, max_length=80)
     name: str = Field(min_length=1, max_length=200)
     service_category: str = "other"
     billing_mode: str = "subscription"
+    plan_options: list[str] = Field(default_factory=list, max_length=50)
+    validate_name = field_validator("name")(service_name)
+
+    @field_validator("plan_options")
+    @classmethod
+    def validate_plans(cls, values):
+        values = [value.strip() for value in values]
+        if (
+            any(not value or len(value) > 200 for value in values)
+            or len({value.casefold() for value in values}) != len(values)
+        ):
+            raise ValueError("套餐名称不能为空、超过200字或重复")
+        return values
 
 
 class ServiceProductRead(ORMModel):
     id: UUID
     provider_id: UUID
+    platform_id: UUID | None
     code: str
     name: str
     service_category: str
     billing_mode: str
+    plan_options: list[str]
 
 
 class ServiceInstanceCreate(BaseModel):
     asset_id: UUID
     service_product_id: UUID
+    catalog_plan: str | None = Field(default=None, min_length=1, max_length=200)
     purchase_platform_id: UUID | None = None
     purchase_tenant_asset_id: UUID | None = None
     funding_source: Literal["company", "department", "personal", "free", "trial"] | None = None
