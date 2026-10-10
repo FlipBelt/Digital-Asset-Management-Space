@@ -130,7 +130,7 @@ trashOpen.value = route.query.trash === "1";
 const router = useRouter();
 type DisplayMode = "business" | "governance" | "source";
 function normalizeDisplayMode(value: unknown): DisplayMode {
-  return value === "governance" || value === "source" ? value : "business";
+  return value === "source" ? value : "business";
 }
 const displayMode = ref<DisplayMode>(normalizeDisplayMode(route.query.view));
 function queryText(value: unknown) { return typeof value === "string" ? value : ""; }
@@ -291,7 +291,7 @@ async function selectDisplayMode(mode: DisplayMode) {
 
 async function loadBusiness(sequence = loadSequence) {
   const [assetsResponse, typeResponse, user, departmentRows, categoryRows] = await Promise.all([
-    api.assets({ include_archived: !trashOpen.value && businessFilters.include_archived,
+    api.assets({ library_only: true, include_archived: !trashOpen.value && businessFilters.include_archived,
       deleted_only: trashOpen.value, keyword: businessFilters.keyword,
       status: businessFilters.status, department_id: businessFilters.department_id || undefined,
       category_id: businessCategory.value === "all" ? undefined : businessCategory.value,
@@ -304,13 +304,18 @@ async function loadBusiness(sequence = loadSequence) {
   if (sequence !== loadSequence) return;
   currentUser.value = user;
   departments.value = departmentRows;
-  businessCategories.value = categoryRows;
+  businessCategories.value = categoryRows.filter(item => item.code !== "platform_account");
+  const accountCategoryIds = new Set(categoryRows.filter(item => item.code === "platform_account").map(item => item.id));
+  const accountTypeIds = new Set(typeResponse.filter(item => accountCategoryIds.has(item.category_id) || ["platform_account", "platform_tenant", "registration_identity"].includes(item.code)).map(item => item.id));
+  if (accountCategoryIds.has(businessCategory.value) || accountTypeIds.has(businessFilters.asset_type_id)) {
+    await router.replace("/accounts"); return;
+  }
   if (businessPage.value > 1 && !assetsResponse.data.length) {
     businessPage.value = Math.max(1, Math.ceil(assetsResponse.pagination.total / pageSize));
     return loadBusiness(sequence);
   }
   businessAssets.value = assetsResponse.data;
-  businessTypes.value = typeResponse;
+  businessTypes.value = typeResponse.filter(item => !accountTypeIds.has(item.id));
   total.value = assetsResponse.pagination.total;
 }
 
@@ -442,19 +447,19 @@ watch(() => [route.query.trash, route.query.view, route.query.category, route.qu
   businessCategory.value = nextCategory; businessFilters.asset_type_id = nextType;
   await loadActiveView();
 });
-onMounted(loadActiveView);
+onMounted(() => { if (route.query.view === "governance") void router.replace("/accounts"); else void loadActiveView(); });
 </script>
 
 <template>
   <div class="page-stack">
     <PageHeader eyebrow="管理区" :title="trashOpen && displayMode === 'business' ? '资产回收站' : '资产库'" :description="currentDisplayMode.description">
-      <a class="secondary-button" :href="apiPath('/api/v1/exports/assets.xlsx')"><Download :size="16" />导出</a>
+      <a class="secondary-button" :href="apiPath('/api/v1/exports/assets.xlsx?library_only=true')"><Download :size="16" />导出</a>
       <RouterLink v-if="canRegisterBasics(currentUser)" class="primary-button" to="/intake"><Plus :size="17" />登记资产</RouterLink>
     </PageHeader>
     <div v-if="message" role="status" class="message-panel success-message">{{ message }}</div>
     <div v-if="error" role="alert" class="message-panel error-message">{{ error }}<button class="secondary-button" :disabled="loading" @click="loadActiveView">重试</button></div>
     <div class="asset-library-tools">
-      <label><span>查看</span><select :value="displayMode" aria-label="资产视图" @change="selectDisplayMode(($event.target as HTMLSelectElement).value as DisplayMode)"><option value="business">资产清单</option><option value="governance">账号与关联</option><option value="source">来源资料</option></select></label>
+      <label><span>查看</span><select :value="displayMode" aria-label="资产视图" @change="selectDisplayMode(($event.target as HTMLSelectElement).value as DisplayMode)"><option value="business">资产清单</option><option value="source">来源资料</option></select></label>
       <div><RouterLink to="/discover">浏览 AI 成果</RouterLink><RouterLink v-if="canRegisterBasics(currentUser)" to="/imports">批量导入资料</RouterLink></div>
     </div>
 

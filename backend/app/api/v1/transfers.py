@@ -17,6 +17,7 @@ from app.core.access import (
 )
 from app.db.session import get_db
 from app.models import Asset, AssetType, Department, LegalEntity
+from app.services.account_structure import account_asset_clause
 
 router = APIRouter(tags=["data-transfer"])
 
@@ -154,9 +155,9 @@ def commit_import(
 
 
 @router.get("/exports/assets.xlsx")
-def export_assets(db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)) -> StreamingResponse:
+def export_assets(library_only: bool = False, db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)) -> StreamingResponse:
     assets = list(
-        db.scalars(select(Asset).where(Asset.archived_at.is_(None), asset_visibility_clause(access)).order_by(Asset.asset_code))
+        db.scalars(select(Asset).where(Asset.archived_at.is_(None), asset_visibility_clause(access), ~account_asset_clause() if library_only else Asset.id.is_not(None)).order_by(Asset.asset_code))
     )
     types = {item.id: item.code for item in db.scalars(select(AssetType))}
     entities = {item.id: item.code for item in db.scalars(select(LegalEntity))}

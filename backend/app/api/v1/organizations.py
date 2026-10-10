@@ -264,6 +264,12 @@ def patch_person(
         from fastapi import HTTPException
 
         raise HTTPException(status_code=404, detail="人员不存在")
+    if payload.employment_status is not None and (
+        item.employment_status == "departed" or payload.employment_status == "departed"
+    ):
+        from fastapi import HTTPException
+
+        raise HTTPException(409, "离职登记或纠正请使用员工状态管理并填写依据")
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, key, value)
     db.commit()

@@ -131,6 +131,8 @@ class PlatformAccountChildCreate(BaseModel):
     mfa_status: str = "unknown"
     privilege_level: str = "normal"
     parent_account_id: UUID | None = None
+    primary_person_id: UUID | None = None
+    request_id: UUID | None = None
     note: str | None = Field(default=None, max_length=2000)
 
 

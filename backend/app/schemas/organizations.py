@@ -97,6 +97,7 @@ class PersonRead(ORMModel):
     email: str | None
     employment_status: str
     person_type: str
+    updated_at: datetime
 
 
 class PersonPatch(BaseModel):

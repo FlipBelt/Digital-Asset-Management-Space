@@ -5,7 +5,6 @@ import PageHeader from "../components/PageHeader.vue";
 import WorkspaceTabs from "../components/WorkspaceTabs.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import { api, type HuduAssetItem } from "../lib/api";
-import { displayStatus } from "../lib/labels";
 
 const items = ref<HuduAssetItem[]>([]);
 const loading = ref(true); const error = ref(""); const query = ref("");
@@ -16,11 +15,12 @@ const tabs = computed(() => [
   { value: "all", label: "全部待跟进", count: items.value.length },
   { value: "due", label: "到期事项", count: items.value.filter(isDue).length },
   { value: "owner", label: "待补负责人", count: items.value.filter(item => !item.has_owner).length },
+  { value: "children", label: "账号待核实 / 交接", count: items.value.filter(item => item.pending_child_count).length },
 ]);
 const filtered = computed(() => {
   const term = query.value.trim().toLocaleLowerCase();
-  return items.value.filter(item => (active.value === "all" || (active.value === "owner" ? !item.has_owner : isDue(item)))
-    && `${item.name} ${item.asset_code} ${item.owner_department_name || ""}`.toLocaleLowerCase().includes(term));
+  return items.value.filter(item => (active.value === "all" || (active.value === "owner" ? !item.has_owner : active.value === "children" ? !!item.pending_child_count : isDue(item)))
+    && `${item.name} ${item.asset_code} ${item.owner_department_name || ""} ${item.responsible_person_name || ""}`.toLocaleLowerCase().includes(term));
 });
 function dueLabel(item: HuduAssetItem) {
   return item.expires_at ? new Date(item.expires_at).toLocaleDateString("zh-CN") : "未记录到期时间";
@@ -50,9 +50,9 @@ onMounted(load);
         <div class="followup-toolbar"><label class="fusion-search"><Search :size="17" aria-hidden="true" /><input v-model="query" aria-label="搜索跟进资产" placeholder="搜索名称、编号或部门" type="search" /></label><span class="fusion-muted">{{ windowDays === null ? '' : `到期窗口：${windowDays} 天` }} · {{ filtered.length }} 项</span></div>
         <div v-if="!filtered.length" class="empty-state"><strong>{{ query ? '没有匹配的跟进事项' : '当前没有待跟进事项' }}</strong><p>{{ query ? '试试其他名称、编号或部门。' : '有到期或责任待补事项时，会在这里显示。' }}</p><button v-if="query" class="secondary-button" @click="query = ''">清除搜索</button></div>
         <ul v-else class="followup-list"><li v-for="item in filtered" :key="item.id">
-          <div><RouterLink :to="`/assets/${item.id}`"><strong>{{ item.name }}</strong></RouterLink><p>{{ item.asset_code }} · {{ item.asset_type_name }} · {{ item.owner_department_name || '归属待确认' }}</p></div>
-          <div class="followup-facts"><span>{{ dueLabel(item) }}</span><StatusBadge :tone="item.has_owner ? 'success' : 'warning'">{{ item.has_owner ? displayStatus(item.status) : '待补负责人' }}</StatusBadge></div>
-          <RouterLink class="secondary-button" :to="`/assets/${item.id}`">查看资料<ArrowRight :size="15" /></RouterLink>
+          <div><RouterLink :to="item.management_href || `/assets/${item.id}`"><strong>{{ item.name }}</strong></RouterLink><p>{{ item.asset_code }} · {{ item.asset_type_name }} · {{ item.owner_department_name || (item.ownership_scope === 'company' ? '公司统一管理' : '归属待确认') }}</p><p>负责人：{{ item.responsible_person_name || '尚未配置' }}<span v-if="item.responsibility_issue"> · {{ item.responsibility_issue }}</span></p><p v-if="item.pending_child_count">{{ item.pending_child_count }} 个子账号待绑定员工、核实状态或交接</p></div>
+          <div class="followup-facts"><span>{{ dueLabel(item) }}</span><StatusBadge v-if="!item.has_owner" tone="warning">{{ item.responsibility_issue || '待补负责人' }}</StatusBadge><StatusBadge v-else tone="success">负责人已配置</StatusBadge></div>
+          <RouterLink class="secondary-button" :to="item.management_href || `/assets/${item.id}?tab=responsibility`">{{ item.management_href ? '管理账号' : '维护责任' }}<ArrowRight :size="15" /></RouterLink>
         </li></ul>
       </section>
     </template>

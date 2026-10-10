@@ -4,11 +4,12 @@ import ModalPanel from "./ModalPanel.vue";
 import StatusBadge from "./StatusBadge.vue";
 import { api, type PlatformDirectoryEntry, type ServiceProduct } from "../lib/api";
 
-defineProps<{ canManage: boolean }>();
+const props = defineProps<{ canManage: boolean; entryId?: string }>();
+const emit = defineEmits<{ changed: [] }>();
 const rows = ref<PlatformDirectoryEntry[]>([]), loading = ref(true), saving = ref(false), error = ref(""), message = ref("");
 const keyword = ref(""), status = ref(""), selected = ref<PlatformDirectoryEntry | null>(null);
 const mode = ref<"details" | "service" | "review" | null>(null);
-const filtered = computed(() => rows.value.filter(item => (!status.value || item.review_status === status.value) && `${item.name} ${item.provider_name || ""} ${item.services.map(service => service.name).join(" ")}`.toLowerCase().includes(keyword.value.trim().toLowerCase())));
+const filtered = computed(() => rows.value.filter(item => (!props.entryId || item.id === props.entryId) && (!status.value || item.review_status === status.value) && `${item.name} ${item.provider_name || ""} ${item.services.map(service => service.name).join(" ")}`.toLowerCase().includes(keyword.value.trim().toLowerCase())));
 const labels: Record<string, string> = { approved: "已审核", pending_review: "待审核", rejected: "已退回", incomplete: "待完善登记" };
 const details = reactive({ name: "", category: "other", website: "", description: "" });
 const service = reactive({ product_id: "", name: "", billing_mode: "subscription", plans: "" });
@@ -42,6 +43,7 @@ async function save() {
     rows.value = rows.value.filter(row => row.id !== item.id); rows.value.push(updated); rows.value.sort((a, b) => a.name.localeCompare(b.name));
     message.value = mode.value === "review" ? "目录审核已保存。" : "目录已保存，资料和套餐待审核。";
     mode.value = null; selected.value = null;
+    emit("changed");
   } catch (reason) { error.value = reason instanceof Error ? reason.message : "保存失败"; }
   finally { saving.value = false; }
 }
