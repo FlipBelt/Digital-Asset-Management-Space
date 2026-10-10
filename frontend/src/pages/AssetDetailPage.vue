@@ -197,7 +197,7 @@ const coreFieldValue = (field: AssetFieldDefinition) => {
 const coreProfileFacts = computed(() => {
   if (type.value?.code !== "internal_system" || !profile.value) return [];
   return [
-    { label: "生产访问地址", value: profile.value.production_url },
+    { label: "访问地址", value: profile.value.production_url },
     { label: "代码仓库", value: profile.value.repository_url },
   ].filter((item): item is { label: string; value: string } => Boolean(item.value));
 });
@@ -1123,7 +1123,7 @@ onMounted(load);
               ><span>代码仓库地址</span
               ><input v-model="profileForm.repository_url" /></label
             ><label
-              ><span>生产访问地址</span
+              ><span>访问地址</span
               ><input v-model="profileForm.production_url" /></label
             ><label class="wide"
               ><span>技术栈</span
@@ -1277,7 +1277,7 @@ onMounted(load);
                 ><span>备注（可选）</span
                 ><input
                   v-model="relationForm.note"
-                  placeholder="例如生产环境主实例" /></label
+                  placeholder="例如业务系统主实例" /></label
               ><button
                 class="primary-button"
                 :disabled="!relationOptions.length"

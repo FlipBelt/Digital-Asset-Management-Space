@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { Play, Plug, Plus } from "lucide-vue-next";
+import { ArrowRight, Play, Plug, Plus } from "lucide-vue-next";
 
 import CatalogRulesPanel from "../components/CatalogRulesPanel.vue";
 import ModalPanel from "../components/ModalPanel.vue";
@@ -14,7 +14,11 @@ const active = ref("catalog"); const loading = ref(true); const saving = ref(fal
 const categories = ref<AssetCategory[]>([]); const types = ref<AssetType[]>([]); const definitions = ref<ConnectorDefinition[]>([]); const connections = ref<ProviderConnection[]>([]); const entities = ref<LegalEntity[]>([]); const logs = ref<AuditLog[]>([]);
 const typeForm = reactive({ category_id: "", code: "", name: "", profile_kind: "generic", code_prefix: "AST", ownership_default: "manual" });
 const connectionForm = reactive({ connector_definition_id: "", legal_entity_id: "", name: "", status: "disabled", configuration: {} });
-const modules = [{ value: "catalog", label: "分类与规则" }, { value: "connections", label: "外部集成" }, { value: "appearance", label: "外观" }, { value: "audit", label: "操作审计" }];
+const modules = [{ value: "catalog", label: "分类与规则" }, { value: "connections", label: "外部集成" }, { value: "appearance", label: "外观" }, { value: "audit", label: "操作审计" }, { value: "environment", label: "环境管理" }];
+const isTestEnvironment = import.meta.env.BASE_URL === "/test" || import.meta.env.BASE_URL.startsWith("/test/");
+const isLocalDevelopment = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const environmentLabel = isLocalDevelopment ? "本地预览" : isTestEnvironment ? "测试环境" : "资产中心";
+const environmentTarget = isLocalDevelopment ? null : isTestEnvironment ? "/" : "/test/";
 const definitionName = computed(() => Object.fromEntries(definitions.value.map((item) => [item.id, item.name])));
 
 async function load() { loading.value = true; try { [categories.value, types.value, definitions.value, connections.value, entities.value, logs.value] = await Promise.all([api.assetCategories(), api.assetTypes(), api.connectorDefinitions(), api.connections(), api.legalEntities(), api.auditLogs()]); typeForm.category_id ||= categories.value[0]?.id ?? ""; connectionForm.connector_definition_id ||= definitions.value[0]?.id ?? ""; connectionForm.legal_entity_id ||= entities.value[0]?.id ?? ""; } catch (reason) { error.value = reason instanceof Error ? reason.message : "配置读取失败"; } finally { loading.value = false; } }
@@ -35,6 +39,10 @@ onMounted(load);
         <template v-else-if="active === 'connections'"><div class="panel-heading"><div><h2>外部集成</h2><p>真实连接须先在外部密码库创建安全引用，本系统不保存 Secret 明文。</p></div><button class="primary-button" @click="modal = 'connection'"><Plus :size="16" />新增连接</button></div><div class="record-list"><div v-for="item in connections" :key="item.id"><span class="record-icon"><Plug :size="18" /></span><div><strong>{{ item.name }}</strong><span>{{ definitionName[item.connector_definition_id] }} · {{ item.last_synced_at ? new Date(item.last_synced_at).toLocaleString('zh-CN') : '尚未同步' }}</span></div><StatusBadge :tone="item.status === 'healthy' ? 'success' : 'default'">{{ item.status }}</StatusBadge><button class="secondary-button" @click="testConnection(item)">测试</button><button class="secondary-button" @click="syncConnection(item)"><Play :size="14" />同步</button></div><div v-if="!connections.length" class="mini-empty">尚未建立公司连接配置</div></div></template>
         <template v-else-if="active === 'appearance'"><div class="panel-heading"><div><h2>外观与功能</h2><p>资产中心使用统一界面规范，登记、维护与审核使用同一套组件。</p></div></div><div class="appearance-fixed-card"><span class="appearance-swatch" /><div><strong>资产中心统一设计</strong><p>白色侧栏、荧黄选中态；统一字体、间距、表格、表单与操作反馈。</p></div><StatusBadge tone="success">当前启用</StatusBadge></div></template>
         <template v-else-if="active === 'audit'"><div class="panel-heading"><div><h2>审计与系统</h2><p>写操作、导入和系统事件统一留痕。</p></div></div><div class="audit-table"><div v-for="item in logs" :key="item.id"><time>{{ new Date(item.created_at).toLocaleString('zh-CN') }}</time><strong>{{ item.action }}</strong><span>{{ item.object_type }}</span><code>{{ item.object_id || '系统级' }}</code></div><div v-if="!logs.length" class="mini-empty">暂无审计日志</div></div></template>
+        <template v-else-if="active === 'environment'">
+          <div class="panel-heading"><div><h2>环境管理</h2><p>测试环境用于验证新功能，与资产中心使用独立登录会话。</p></div></div>
+          <div class="record-list"><div><div><strong>当前：{{ environmentLabel }}</strong><span>{{ isLocalDevelopment ? '本地预览不提供环境切换。' : isTestEnvironment ? '完成测试后可返回资产中心。' : '验证新功能时，可从这里进入测试环境。' }}</span></div><a v-if="environmentTarget" class="secondary-button" :href="environmentTarget">{{ isTestEnvironment ? '返回资产中心' : '进入测试环境' }}<ArrowRight :size="16" aria-hidden="true" /></a></div></div>
+        </template>
         <div v-else class="loading-state">正在加载配置…</div>
       </section>
     </div>

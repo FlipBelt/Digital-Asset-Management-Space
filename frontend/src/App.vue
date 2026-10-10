@@ -167,13 +167,9 @@ const sharedNav = [
   { to: "/workflows", label: "AI 工作流", icon: Workflow },
   { to: "/team", label: "团队 AI 空间", icon: Users },
 ];
-const isTestEnvironment = window.location.pathname === "/test" || window.location.pathname.startsWith("/test/");
-const isLocalDevelopment = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const canManage = computed(() => Boolean(currentUser.value?.roles.some(
   role => ["system_admin", "asset_manager", "department_manager", "group_leader", "auditor"].includes(role),
 )));
-const environmentLabel = computed(() => isLocalDevelopment ? "本地预览" : isTestEnvironment ? "测试环境" : "生产环境");
-const environmentTarget = computed(() => isTestEnvironment ? "/" : "/test/");
 
 const navigationContext = computed(() => route.path.startsWith("/discover/")
   ? assetReturnContext(route.query.returnTo)
@@ -501,7 +497,7 @@ onBeforeUnmount(() => { window.clearTimeout(searchTimer); ++searchSequence; wind
       <footer class="sidebar-session">
         <SessionAvatar :src="currentUser?.avatar_url" :name="currentUser?.display_name || currentUser?.username || '访客'" />
         <div><strong>{{ dingtalkIdentity?.display_name || currentUser?.display_name || currentUser?.username || "访客" }}</strong>
-          <small>{{ currentUser ? verifiedRoleLabel : "未登录" }} · {{ environmentLabel }}</small></div>
+          <small>{{ currentUser ? verifiedRoleLabel : "未登录" }}</small></div>
       </footer>
     </aside>
 
@@ -531,7 +527,6 @@ onBeforeUnmount(() => { window.clearTimeout(searchTimer); ++searchSequence; wind
         </div>
         <div class="topbar-actions">
           <RouterLink :to="managementSearch && canRegisterBasics(currentUser) ? '/intake' : '/register'" class="primary-button compact"><Plus :size="16" />{{ managementSearch && canRegisterBasics(currentUser) ? '登记资料' : '登记 AI 成果' }}</RouterLink>
-          <a v-if="!isLocalDevelopment" class="environment-switcher" :href="environmentTarget" :title="`切换到${isTestEnvironment ? '生产' : '测试'}环境`"><span class="environment-dot" :class="{ test: isTestEnvironment }" /><span>{{ environmentLabel }}</span><ChevronDown :size="14" /></a>
           <button class="user-menu" type="button" :aria-label="identityLabel + (currentUser ? '，刷新登录状态' : '，登录')" :disabled="identityState === 'recognizing'" :title="identityHint || identityLabel" @click="openIdentityEntry">
             <SessionAvatar :src="currentUser?.avatar_url" :name="currentUser?.display_name || currentUser?.username || '访客'" />
             <span>{{ identityLabel }}</span>

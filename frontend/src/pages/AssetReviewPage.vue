@@ -14,7 +14,7 @@ const reason = ref(""); const error = ref(""); const message = ref(""); const lo
 let sequence = 0; let selection = 0;
 const names = computed(() => Object.fromEntries(definitions.value.map(f => [f.id, f.label])));
 const externalIdentifiers = computed(() => detail.value?.identifiers.filter(item => !item.namespace.startsWith("internal:")) ?? []);
-const profileLabels: Record<string,string> = {repository_url:"代码仓库",production_url:"生产访问地址",tech_stack:"技术栈",deployment_guide_url:"部署说明",recovery_guide_url:"恢复说明",backup_description:"备份方式"};
+const profileLabels: Record<string,string> = {repository_url:"代码仓库",production_url:"访问地址",tech_stack:"技术栈",deployment_guide_url:"部署说明",recovery_guide_url:"恢复说明",backup_description:"备份方式"};
 async function load() {
   const request = ++sequence; loading.value = true; error.value = ""; items.value = [];
   selected.value = null; detail.value = null; selection++;
