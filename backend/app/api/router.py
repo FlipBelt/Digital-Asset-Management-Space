@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends
 
 from app.api.v1 import (
+    account_binding,
+    account_hierarchy,
     account_verification,
     admin,
     agent_connector,
@@ -13,6 +15,7 @@ from app.api.v1 import (
     dashboard,
     developer,
     dingtalk,
+    employee_lifecycle,
     employee_requests,
     governance,
     health,
@@ -43,6 +46,9 @@ api_router.include_router(assets.router, dependencies=authenticated)
 api_router.include_router(asset_reviews.router, dependencies=authenticated)
 api_router.include_router(inventory.router, dependencies=authenticated)
 api_router.include_router(account_verification.router, dependencies=authenticated)
+api_router.include_router(account_binding.router, dependencies=authenticated)
+api_router.include_router(account_hierarchy.router, dependencies=authenticated)
+api_router.include_router(employee_lifecycle.router, dependencies=authenticated)
 api_router.include_router(service_catalog.router, dependencies=authenticated)
 api_router.include_router(usage.router, dependencies=authenticated)
 api_router.include_router(usage_monitoring.router, dependencies=authenticated)

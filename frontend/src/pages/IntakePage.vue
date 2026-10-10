@@ -116,6 +116,7 @@ function finishReceipt() { receipt.value = null; mode.value = ""; void router.re
 function applyRoutePreset() {
   mode.value = registrationMode(route.query.mode);
   if (route.query.platform) platformAccount.platform_id = String(route.query.platform);
+  if (route.query.ownership === "personal_for_company") platformAccount.ownership_nature = "personal_for_company";
   if (route.query.identity) platformAccount.registration_identity_asset_id = String(route.query.identity);
   if (route.query.account) resource.managed_under_account_id = String(route.query.account);
 }

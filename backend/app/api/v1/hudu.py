@@ -33,7 +33,14 @@ from app.models import (
     Person,
     Platform,
     PlatformTenant,
+    RegistrationIdentityProfile,
     ResourceProfile,
+)
+from app.services.account_structure import (
+    asset_library_exclusion_clause,
+    child_employee_issue,
+    owner_facts,
+    responsibility_map,
 )
 
 router = APIRouter(prefix="/hudu", tags=["hudu-workspace"])
@@ -64,10 +71,10 @@ def _maps(db: Session):
         item.id: item
         for item in db.scalars(select(Person).where(Person.archived_at.is_(None)))
     }
-    return categories, types, departments, entities, people
+    return categories, types, departments, entities, people, responsibility_map(db)
 
 
-def _asset_item(asset: Asset, categories, types, departments, entities, people):
+def _asset_item(asset: Asset, categories, types, departments, entities, people, owners):
     asset_type = types.get(asset.asset_type_id)
     category = categories.get(asset_type.category_id) if asset_type else None
     department = departments.get(asset.owner_department_id) if asset.owner_department_id else None
@@ -107,13 +114,13 @@ def _asset_item(asset: Asset, categories, types, departments, entities, people):
         "updated_at": _iso(asset.updated_at),
         "created_at": _iso(asset.created_at),
         "archived_at": _iso(asset.archived_at),
-        "has_owner": bool(asset.owner_department_id),
+        **owner_facts(owners, asset.id),
     }
 
 
 def _active_assets(db: Session, access: AccessContext, *, include_archived: bool = False, keyword: str | None = None):
     filters = [] if include_archived else [Asset.archived_at.is_(None)]
-    filters.append(asset_visibility_clause(access))
+    filters.extend([asset_visibility_clause(access), Asset.status != "deleted"])
     if keyword and keyword.strip():
         term = f"%{keyword.strip()}%"
         identifier_match = exists(
@@ -129,11 +136,14 @@ def _active_assets(db: Session, access: AccessContext, *, include_archived: bool
 
 @router.get("/overview")
 def overview(db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)):
-    categories, types, departments, entities, people = _maps(db)
-    assets = _active_assets(db, access)
+    categories, types, departments, entities, people, owners = _maps(db)
+    assets = list(db.scalars(select(Asset).where(
+        Asset.archived_at.is_(None), Asset.status != "deleted",
+        asset_visibility_clause(access), ~asset_library_exclusion_clause(),
+    ).order_by(Asset.updated_at.desc(), Asset.id)))
     today = date.today()
     soon = today + timedelta(days=30)
-    items = [_asset_item(item, categories, types, departments, entities, people) for item in assets]
+    items = [_asset_item(item, categories, types, departments, entities, people, owners) for item in assets]
     due = [item for item in items if item["expires_at"] and item["expires_at"][:10] <= soon.isoformat()]
     missing_owner = [item for item in items if not item["has_owner"]]
     category_counts: dict[str, int] = {}
@@ -163,11 +173,13 @@ def list_hudu_assets(
     status: str | None = None,
     only_due: bool = False,
     include_archived: bool = False,
+    library_only: bool = False,
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
 ):
-    categories, types, departments, entities, people = _maps(db)
-    items = [_asset_item(item, categories, types, departments, entities, people) for item in _active_assets(db, access, include_archived=include_archived, keyword=keyword)]
+    categories, types, departments, entities, people, owners = _maps(db)
+    excluded = set(db.scalars(select(Asset.id).where(asset_library_exclusion_clause()))) if library_only else set()
+    items = [_asset_item(item, categories, types, departments, entities, people, owners) for item in _active_assets(db, access, include_archived=include_archived, keyword=keyword) if item.id not in excluded]
     today = date.today()
     soon = today + timedelta(days=30)
     if category_id:
@@ -200,23 +212,45 @@ def list_hudu_assets(
 
 @router.get("/expirations")
 def expirations(db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)):
-    categories, types, departments, entities, people = _maps(db)
-    assets = [_asset_item(item, categories, types, departments, entities, people) for item in _active_assets(db, access)]
+    categories, types, departments, entities, people, owners = _maps(db)
+    visible = _active_assets(db, access)
+    children = list(db.scalars(select(Account).join(Asset).where(
+        Account.archived_at.is_(None), Asset.archived_at.is_(None), Asset.status != "deleted",
+        asset_visibility_clause(access),
+    )))
+    details = {row.asset_id for row in children} | set(db.scalars(
+        select(RegistrationIdentityProfile.asset_id)
+    ))
+    tenants = {row.asset_id: row for row in db.scalars(select(PlatformTenant).where(
+        PlatformTenant.archived_at.is_(None)
+    ))}
+    assets = []
+    for row in visible:
+        if row.id in details or row.is_personal_subscription:
+            continue
+        item = _asset_item(row, categories, types, departments, entities, people, owners)
+        tenant = tenants.get(row.id)
+        if tenant:
+            pending = sum(1 for child in children if child.platform_tenant_id == tenant.id
+                          and child_employee_issue(child, people))
+            item.update(pending_child_count=pending,
+                        management_href=f"/accounts?platform={tenant.platform_id}&tenant={row.id}")
+        assets.append(item)
     today = date.today()
     soon = today + timedelta(days=90)
-    due = [item for item in assets if (item["expires_at"] and item["expires_at"][:10] <= soon.isoformat()) or not item["has_owner"]]
+    due = [item for item in assets if (item["expires_at"] and item["expires_at"][:10] <= soon.isoformat()) or not item["has_owner"] or item.get("pending_child_count", 0)]
     due.sort(key=lambda item: (item["expires_at"] is None, item["expires_at"] or "9999-12-31", item["name"]))
     return {"items": due, "total": len(due), "window_days": 90}
 
 
 @router.get("/assets/{asset_id}")
 def get_hudu_asset(asset_id: UUID, db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)):
-    categories, types, departments, entities, people = _maps(db)
+    categories, types, departments, entities, people, owners = _maps(db)
     asset = db.scalar(select(Asset).where(Asset.id == asset_id, Asset.archived_at.is_(None), asset_visibility_clause(access)))
     if asset is None:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="资产不存在")
-    base = _asset_item(asset, categories, types, departments, entities, people)
+    base = _asset_item(asset, categories, types, departments, entities, people, owners)
     responsibilities = []
     for row in db.scalars(select(AssetResponsibility).where(AssetResponsibility.asset_id == asset_id, AssetResponsibility.archived_at.is_(None)).order_by(AssetResponsibility.is_primary.desc(), AssetResponsibility.created_at)):
         person = people.get(row.person_id) if row.person_id else None
@@ -231,7 +265,7 @@ def get_hudu_asset(asset_id: UUID, db: Session = Depends(get_db), access: Access
         related = related_assets.get(related_id)
         if not related:
             continue
-        related_item = _asset_item(related, categories, types, departments, entities, people)
+        related_item = _asset_item(related, categories, types, departments, entities, people, owners)
         relations.append({"id": str(row.id), "relation_type": row.relation_type, "note": row.note, "direction": "outbound" if row.source_asset_id == asset_id else "inbound", "related_asset_id": str(related.id), "related_name": related.name, "related_asset_code": related.asset_code, "related_type_name": related_item["asset_type_name"], "related_category_name": related_item["category_name"]})
     identifiers = [{"id": str(row.id), "namespace": row.namespace, "identifier_type": row.identifier_type, "identifier_value": row.identifier_value, "is_primary": row.is_primary, "verification_status": row.verification_status} for row in db.scalars(select(AssetIdentifier).where(AssetIdentifier.asset_id == asset_id, AssetIdentifier.archived_at.is_(None)).order_by(AssetIdentifier.is_primary.desc(), AssetIdentifier.created_at))]
     profile = None

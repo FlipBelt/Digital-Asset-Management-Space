@@ -80,6 +80,7 @@ def list_assets(
     criticality: str | None = None,
     include_archived: bool = False,
     deleted_only: bool = False,
+    library_only: bool = False,
     keyword: str | None = None,
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
@@ -99,6 +100,7 @@ def list_assets(
         criticality=criticality,
         include_archived=include_archived,
         deleted_only=deleted_only,
+        library_only=library_only,
         keyword=keyword,
         visibility_filter=asset_visibility_clause(access),
     )

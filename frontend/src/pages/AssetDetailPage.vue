@@ -24,6 +24,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import AssetAttachments from "../components/AssetAttachments.vue";
 import PeoplePicker from "../components/PeoplePicker.vue";
+import ChildAccountsPanel from "../components/ChildAccountsPanel.vue";
 import PageHeader from "../components/PageHeader.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import {
@@ -125,18 +126,6 @@ const identifierForm = reactive({
   is_primary: false,
   verification_status: "pending",
   confidentiality: "internal",
-});
-const childAccountForm = reactive({
-  display_name: "",
-  login_identifier: "",
-  account_kind: "member_login",
-  account_role: "member",
-  account_type: "shared_business",
-  login_method: "password_vault",
-  mfa_status: "unknown",
-  privilege_level: "normal",
-  parent_account_id: "",
-  note: "",
 });
 
 const personName = computed(() =>
@@ -546,35 +535,6 @@ async function saveAsset() {
     message.value = "概览资料已保存";
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "保存失败";
-  } finally {
-    saving.value = false;
-  }
-}
-async function saveChildAccount() {
-  if (!childAccountForm.display_name || !childAccountForm.login_identifier) return;
-  saving.value = true;
-  try {
-    await api.createPlatformAccountChild(id, {
-      ...childAccountForm,
-      parent_account_id: childAccountForm.parent_account_id || null,
-      note: childAccountForm.note || null,
-    });
-    childAccounts.value = await api.platformAccountChildren(id);
-    Object.assign(childAccountForm, {
-      display_name: "",
-      login_identifier: "",
-      account_kind: "member_login",
-      account_role: "member",
-      account_type: "shared_business",
-      login_method: "password_vault",
-      mfa_status: "unknown",
-      privilege_level: "normal",
-      parent_account_id: "",
-      note: "",
-    });
-    message.value = "账号明细已添加到当前公司平台账号";
-  } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : "账号明细保存失败";
   } finally {
     saving.value = false;
   }
@@ -1012,34 +972,9 @@ onMounted(load);
         </section>
       </section>
 
-      <section v-if="tab === 'accounts' && isPlatformTenant" class="detail-surface profile-surface">
-        <header>
-          <div>
-            <span class="section-kicker">公司平台账号明细</span>
-            <h2>访问账号与席位</h2>
-            <p>登记管理员、子账号和开发账号的登录标识与权限，不填写密码。服务与资源另行登记，按实际依赖关联。</p>
-          </div>
-          <StatusBadge tone="default">{{ childAccounts.length }} 个账号</StatusBadge>
-        </header>
-        <div v-if="childAccounts.length" class="account-detail-grid">
-          <article v-for="item in childAccounts" :key="item.id" class="account-detail-card">
-            <UserRound :size="19" />
-            <div>
-              <strong>{{ item.login_identifier }}</strong>
-              <small>{{ item.account_role === 'admin' ? '管理员账号' : item.account_kind === 'developer' ? '开发账号' : '登录账号 / 席位' }}</small>
-            </div>
-            <StatusBadge :tone="item.privilege_level === 'admin' || item.privilege_level === 'root' ? 'warning' : 'default'">{{ item.privilege_level }}</StatusBadge>
-          </article>
-        </div>
-        <div v-else class="mini-empty">尚未登记账号明细。确认公司平台账号后，再将原始资料中的登录账号添加到这里。</div>
-        <form class="balanced-form account-detail-form" @submit.prevent="saveChildAccount">
-          <label><span>账号名称 *</span><input v-model="childAccountForm.display_name" required placeholder="例如：法务账号 / 开发账号 A" /></label>
-          <label><span>登录标识 *</span><input v-model="childAccountForm.login_identifier" required placeholder="邮箱、手机号或用户名；不填写密码" /></label>
-          <label><span>账号用途</span><select v-model="childAccountForm.account_kind"><option value="member_login">普通登录账号</option><option value="developer">开发账号</option><option value="admin">管理员账号</option><option value="service">服务账号</option></select></label>
-          <label><span>权限级别</span><select v-model="childAccountForm.privilege_level"><option value="normal">普通</option><option value="admin">管理员</option><option value="root">根权限</option></select></label>
-          <details class="asset-governance-details wide"><summary><span class="governance-toggle-title"><ShieldCheck :size="20" /><span><b>可选的账号说明</b><small>上级账号、MFA、来源说明</small></span></span><span class="governance-toggle-action">展开补充 <Plus :size="16" /></span></summary><div class="governance-grid"><label><span>上级账号</span><select v-model="childAccountForm.parent_account_id"><option value="">无 / 直属企业账号</option><option v-for="item in childAccounts" :key="item.id" :value="item.id">{{ item.login_identifier }}</option></select></label><label><span>MFA 状态</span><select v-model="childAccountForm.mfa_status"><option value="unknown">未知</option><option value="enabled">已开启</option><option value="disabled">未开启</option></select></label><label class="wide"><span>来源说明</span><textarea v-model="childAccountForm.note" rows="3" placeholder="例如：来源于账号资料；密码仅保存在密码库。" /></label></div></details>
-          <div class="form-actions wide"><button class="primary-button" :disabled="saving"><Plus :size="16" />添加账号明细</button></div>
-        </form>
+      <section v-if="tab === 'accounts' && isPlatformTenant && asset" class="detail-surface profile-surface">
+        <RouterLink v-if="platformAccountContext" :to="{ path: '/accounts', query: { platform: platformAccountContext.platform_id, tenant: asset.id } }" class="secondary-button">返回平台账号管理</RouterLink>
+        <ChildAccountsPanel :asset-id="asset.id" :legal-entity-id="asset.legal_entity_id" :can-manage="canReview" @changed="load" />
       </section>
 
       <section v-if="tab === 'profile'" class="detail-surface profile-surface">

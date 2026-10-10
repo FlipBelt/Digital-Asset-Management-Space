@@ -646,7 +646,8 @@ class DingTalkDirectorySync:
             person.department_id = department.id
             person.display_name = str(data.get("name") or person.display_name)[:100]
             person.email = data.get("email") or person.email
-            person.employment_status = "active" if data.get("active", True) else "inactive"
+            if person.employment_status != "departed":
+                person.employment_status = "active" if data.get("active", True) else "inactive"
             result.people_updated += 1
         if profile is None:
             profile = DingTalkPersonProfile(person_id=person.id, dingtalk_user_id=user_id)
@@ -733,5 +734,5 @@ class DingTalkDirectorySync:
             )
             membership.is_manager = linked_dingtalk_id in manager_department_ids
             membership.is_primary = placement.id == primary_department.id
-            membership.is_active = True
+            membership.is_active = person.employment_status == "active"
             result.memberships_synced += 1

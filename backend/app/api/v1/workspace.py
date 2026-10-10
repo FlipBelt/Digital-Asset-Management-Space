@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.access import (
     AccessContext,
     asset_visibility_clause,
+    can_manage_asset,
     get_access_context,
     require_asset_visible,
     require_asset_write,
@@ -87,12 +88,15 @@ from app.schemas.workspace import (
     RegistrationIdentityRead,
     ResourceCreate,
 )
+from app.services.account_binding import require_active_employee
 from app.services.aliyun_colleague_import import (
     commit_aliyun_colleague_import,
     reclassify_aliyun_colleague_as_l4_accounts,
     rollback_aliyun_colleague_import,
 )
+from app.services.asset_confirmation import lock_asset
 from app.services.assets import allocate_asset_code, ensure_internal_identifier
+from app.services.audited_requests import audited_retry
 from app.services.import_commit import commit_reviewed_import_batch
 from app.services.import_planning import (
     AI_ANALYZER_VERSION,
@@ -677,6 +681,9 @@ def list_platform_account_children(
             .where(
                 Account.platform_tenant_id == tenant.id,
                 Account.archived_at.is_(None),
+                Account.asset_id.in_(select(Asset.id).where(
+                    Asset.archived_at.is_(None), Asset.status != "deleted", asset_visibility_clause(access)
+                )),
             )
             .order_by(Account.created_at)
         )
@@ -694,7 +701,24 @@ def create_platform_account_child(
     db: Session = Depends(get_db),
     access: AccessContext = Depends(require_asset_write),
 ) -> Account:
+    previous, fingerprint = audited_retry(
+        db, access, "platform_account.child_account.create", payload, asset_id
+    ) if payload.request_id else (None, None)
+    lock_asset(db, asset_id)
     parent_asset, tenant = require_platform_tenant_asset(db, access, asset_id)
+    if not can_manage_asset(db, access, parent_asset):
+        raise HTTPException(403, "无权维护该公司平台账号")
+    if previous:
+        child = db.get(Account, previous.object_id)
+        if not child or child.archived_at or child.platform_tenant_id != tenant.id:
+            raise HTTPException(409, "账号明细已改变，请重新读取")
+        child_asset = db.get(Asset, child.asset_id)
+        snapshot = {"primary_person_id": str(child.primary_person_id) if child.primary_person_id else None,
+                    "asset_version": child_asset.version if child_asset else None}
+        if not child_asset or child_asset.archived_at or child_asset.status == "deleted" or snapshot != previous.after_data.get("snapshot"):
+            raise HTTPException(409, "账号明细已改变，请重新读取")
+        return child
+    require_active_employee(db, payload.primary_person_id, tenant.legal_entity_id)
     normalized = payload.login_identifier.strip().lower()
     duplicate = db.scalar(
         select(Account).where(
@@ -743,8 +767,10 @@ def create_platform_account_child(
         account_kind=payload.account_kind,
         login_method=payload.login_method,
         account_role=payload.account_role,
+        primary_person_id=payload.primary_person_id,
     )
     db.add(item)
+    db.flush()
     db.add(
         AuditLog(
             actor_user_id=access.user.id,
@@ -756,8 +782,12 @@ def create_platform_account_child(
                 "login_identifier": item.login_identifier,
                 "account_kind": item.account_kind,
                 "account_role": item.account_role,
+                "primary_person_id": str(item.primary_person_id) if item.primary_person_id else None,
+                "request_digest": fingerprint,
+                "snapshot": {"primary_person_id": str(item.primary_person_id) if item.primary_person_id else None,
+                             "asset_version": account_asset.version},
             },
-            request_id="workspace-platform-account-child",
+            request_id=str(payload.request_id) if payload.request_id else "workspace-platform-account-child",
         )
     )
     db.commit()

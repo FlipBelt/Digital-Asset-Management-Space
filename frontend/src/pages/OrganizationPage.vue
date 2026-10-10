@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { Building2, ChevronDown, ChevronRight, Crown, FolderTree, Plus, RefreshCw, Save, Search, TriangleAlert, UserRound, Users } from "lucide-vue-next";
 import PageHeader from "../components/PageHeader.vue";
 import StatusBadge from "../components/StatusBadge.vue";
+import EmployeeLifecyclePanel from "../components/EmployeeLifecyclePanel.vue";
 import {
   api, type Department, type DepartmentMembership, type DingTalkOrganization, type DingTalkProfile,
   type LegalEntity, type LegalEntityIdentifier, type LegalEntityProfile, type Person,
@@ -18,7 +19,7 @@ const refreshingCompanies = ref(false);
 const error = ref("");
 const success = ref("");
 const search = ref("");
-const organizationView = ref<"companies" | "departments">("companies");
+const organizationView = ref<"companies" | "departments" | "employees">("companies");
 const selectedCompanyId = ref("");
 const selectedDepartmentId = ref("");
 const expandedDepartmentIds = ref<string[]>([]);
@@ -43,7 +44,7 @@ let companyProfileRequest = 0;
 
 const organizationEntity = computed(() => organizationBinding.value?.status === "bound"
   ? entities.value.find((item) => item.id === organizationBinding.value?.legal_entity_id) : undefined);
-const allScoped = computed(() => organizationScope(organizationEntity.value?.id, departments.value, people.value, memberships.value));
+const allScoped = computed(() => organizationScope(organizationEntity.value?.id, departments.value, people.value.filter(person => person.employment_status !== "departed"), memberships.value));
 const scoped = computed(() => currentDirectoryScope(allScoped.value, [...dingtalkProfiles.value.map(item => item.person_id), ...(organizationBinding.value?.directory_snapshot?.current_person_ids ?? []), ...(organizationBinding.value?.directory_snapshot?.historical_person_ids ?? [])], organizationBinding.value?.directory_snapshot?.current_person_ids));
 const historicalPeople = computed(() => allScoped.value.people.filter(item => !scoped.value.people.some(current => current.id === item.id)));
 const structure = computed(() => organizationStructure(organizationEntity.value, entities.value, scoped.value,
@@ -265,7 +266,9 @@ watch(showLegalProfile, async (visible) => {
     <div class="organization-view-tabs" role="group" aria-label="组织查看方式">
       <button v-if="globalManager" :class="{ active: organizationView === 'companies' }" :aria-pressed="organizationView === 'companies'" @click="organizationView = 'companies'"><Building2 :size="17" />公司<span>{{ structure.companies.length }}</span></button>
       <button :class="{ active: organizationView === 'departments' }" :aria-pressed="organizationView === 'departments'" @click="organizationView = 'departments'"><FolderTree :size="17" />部门<span>{{ structure.departments.length }}</span></button>
+      <button v-if="globalManager" :class="{ active: organizationView === 'employees' }" :aria-pressed="organizationView === 'employees'" @click="organizationView = 'employees'"><UserRound :size="17" />离职员工</button>
     </div>
+    <EmployeeLifecyclePanel v-if="organizationView === 'employees' && globalManager" @changed="load" />
     <section v-if="organizationView === 'companies'" class="content-panel organization-workspace">
       <aside class="organization-tree">
         <div class="tree-heading"><div><strong>公司</strong><span>成员按钉钉公司主体字段分组</span></div></div>
@@ -313,7 +316,7 @@ watch(showLegalProfile, async (visible) => {
       </main>
     </section>
 
-    <section v-else class="content-panel organization-workspace">
+    <section v-else-if="organizationView === 'departments'" class="content-panel organization-workspace">
       <aside class="organization-tree">
         <div class="tree-heading"><div><strong>部门</strong><span>{{ structure.departments.length }} 个部门及小组 · 数字为直接成员</span></div></div>
         <div class="tree-root"><FolderTree :size="16" /><span>部门协作架构</span></div>

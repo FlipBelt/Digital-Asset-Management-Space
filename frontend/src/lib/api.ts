@@ -60,6 +60,8 @@ export interface Asset {
 }
 export interface AssetListResponse { data: Asset[]; pagination: { page: number; page_size: number; total: number } }
 export interface HuduAssetItem {
+  responsible_person_id?: string | null; responsible_person_name?: string | null; responsibility_issue?: string | null;
+  pending_child_count?: number; management_href?: string;
   id: string; asset_code: string; name: string; status: string; review_status: string;
   criticality: string; confidentiality: string; ownership_scope: string;
   is_personal_subscription?: boolean;
@@ -96,6 +98,13 @@ export interface Provider { id: string; code: string; name: string; website: str
 export interface Platform { id: string; provider_id: string | null; code: string; name: string; category: string; website: string | null; review_status: string; description: string | null; submitted_by_person_id: string | null }
 export interface PlatformTenant { id: string; asset_id: string; platform_id: string; legal_entity_id: string; tenant_identifier: string | null; external_identifier_type: string | null; ownership_nature: string; account_scope: string; verification_status: string; evidence_note: string | null }
 export interface Account { id: string; asset_id: string; platform_tenant_id: string; login_identifier: string; account_type: string; registration_identity_type: string; registration_person_id: string | null; mfa_status: string; privilege_level: string; parent_account_id: string | null; account_kind: string; login_method: string; account_role: string; primary_person_id: string | null; legacy_source_id: string | null; legacy_metadata: Record<string, unknown> }
+export interface HierarchyAccount extends Account { version: number; person_name: string | null; employment_status: string | null }
+export interface HierarchyTenant extends Partial<PlatformTenant> { asset_id: string; name: string; asset_code: string; version?: number; company_name?: string | null; has_owner?: boolean; responsible_person_name?: string | null; children: HierarchyAccount[]; is_subscription?: boolean; plan_name?: string | null; person_name?: string | null }
+export interface PendingIdentity { asset_id: string; name: string; asset_code: string; verification_status: string }
+export interface PlatformHierarchy { id: string; name: string; category: string; website: string | null; review_status: string; company_accounts: HierarchyTenant[]; personal_accounts: HierarchyTenant[]; pending_identities: PendingIdentity[]; registration_identities: PendingIdentity[] }
+export interface AccountHierarchy { platforms: PlatformHierarchy[]; unlinked_identities: PendingIdentity[] }
+export interface HandoverReference { asset_id: string; name: string; href: string; account_id?: string; login_identifier?: string; grant_id?: string; grant_role?: string }
+export interface EmployeeLifecycle extends Person { updated_at: string; last_event: { evidence_note: string; departed_on: string | null; recorded_at: string } | null; handover: { accounts: HandoverReference[]; responsibilities: HandoverReference[]; grants: HandoverReference[]; local_login_enabled: boolean } }
 export interface CredentialReference { id: string; account_id: string | null; asset_id: string | null; provider: string; item_id: string; secure_url: string | null; last_rotated_at: string | null; last_verified_at: string | null }
 export interface ServiceProduct { id: string; provider_id: string; platform_id: string | null; code: string; name: string; service_category: string; billing_mode: string; plan_options: string[] }
 export interface PlatformDirectoryEntry { id: string; kind: "platform" | "provider"; provider_id: string | null; provider_name: string | null; name: string; category: string; website: string | null; description: string | null; review_status: string; revision: string; review_note: string | null; source_url: string | null; services: ServiceProduct[] }
@@ -340,6 +349,10 @@ export const api = {
   },
   huduAsset: (id: string) => request<HuduAssetDetail>(`/api/v1/hudu/assets/${id}`),
   huduExpirations: () => request<HuduExpirationsResponse>("/api/v1/hudu/expirations"),
+  accountHierarchy: () => request<AccountHierarchy>("/api/v1/account-hierarchy"),
+  employeeLifecycle: () => request<{ items: EmployeeLifecycle[] }>("/api/v1/employee-lifecycle"),
+  changeEmployeeLifecycle: (id: string, body: Record<string, unknown>) => request<Person>(`/api/v1/people/${id}/lifecycle`, json("POST", body)),
+  bindAccountEmployee: (assetId: string, accountId: string, body: Record<string, unknown>) => request<Account>(`/api/v1/workspace/platform-accounts/${assetId}/child-accounts/${accountId}/employee`, json("PATCH", body)),
   asset: (id: string) => request<Asset>(`/api/v1/assets/${id}`),
   assetIdentifiers: (id: string) => request<AssetIdentifier[]>(`/api/v1/assets/${id}/identifiers`),
   createAssetIdentifier: (id: string, body: Record<string, unknown>) => request<AssetIdentifier>(`/api/v1/assets/${id}/identifiers`, json("POST", body)),
