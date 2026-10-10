@@ -49,6 +49,8 @@ import {
   type ServiceInstance,
 } from "../lib/api";
 import { displayStatus } from "../lib/labels";
+import { isPersonalSubscription, subscriptionStatus } from "../lib/personalSubscriptions";
+import { isAIOutcome } from "../lib/aiDiscovery";
 import { relationshipNodeHref } from "../lib/relationship";
 
 type RelationDirection = "upstream" | "downstream" | "peer";
@@ -737,9 +739,11 @@ onMounted(load);
       :title="asset?.name ?? '资产详情'"
       :description="type?.name ?? '统一资产资料'"
     >
-      <RouterLink v-if="canReview && asset?.status === 'active' && asset.review_status === 'pending_review'" :to="{path: '/manage/reviews', query: {asset: asset.id}}" class="secondary-button">审核此成果</RouterLink>
+      <RouterLink v-if="canReview && asset && type && isAIOutcome(asset, type) && asset.status === 'active' && asset.review_status === 'pending_review'" :to="{path: '/manage/reviews', query: {asset: asset.id}}" class="secondary-button">审核此成果</RouterLink>
+      <StatusBadge v-if="asset && isPersonalSubscription(asset)">个人订阅 · 无需审核</StatusBadge>
+      <RouterLink v-if="platformAccountContext" :to="{path: '/accounts', query: {tab: 'tenants', verify: asset?.id}}" class="secondary-button">查看账号核验</RouterLink>
       <StatusBadge :tone="asset?.archived_at ? 'default' : 'success'">{{
-        asset?.archived_at ? "已归档" : displayStatus(asset?.status ?? "")
+        asset?.archived_at ? "已归档" : asset ? subscriptionStatus(asset) : "待核验"
       }}</StatusBadge
       ><button v-if="asset" class="secondary-button" @click="toggleArchive">
         <component :is="asset.archived_at ? RotateCcw : Archive" :size="16" />{{

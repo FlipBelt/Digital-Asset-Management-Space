@@ -438,6 +438,11 @@ def test_expired_or_mismatched_confirmation_is_rejected(actors):
 
 def test_subscription_snapshot_and_changes_are_bound_to_confirmation(actors):
     asset, instance = membership(actors.owner, actors)
+    # Legacy personal drafts may still use their existing snapshot receipts.
+    with SessionLocal() as db:
+        row = db.get(Asset, UUID(asset["id"]))
+        row.status = "draft"
+        db.commit()
     receipt = prepare(actors.owner, asset)
     assert receipt["preview"]["subscriptions"][0]["funding_source"] == "personal"
     with SessionLocal() as db:

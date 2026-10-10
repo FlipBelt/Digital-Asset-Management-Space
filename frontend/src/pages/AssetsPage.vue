@@ -37,6 +37,7 @@ import {
   type LegalEntity,
 } from "../lib/api";
 import { displayStatus } from "../lib/labels";
+import { isPersonalSubscription, subscriptionStatus } from "../lib/personalSubscriptions";
 
 const loading = ref(true);
 let loadSequence = 0;
@@ -479,9 +480,9 @@ onMounted(loadActiveView);
             <thead><tr><th scope="col">资产</th><th scope="col">类型</th><th scope="col">归属</th><th scope="col">状态</th><th scope="col">到期</th><th v-if="canDelete" scope="col">操作</th></tr></thead>
             <tbody><tr v-for="asset in filteredBusinessAssets" :key="asset.id">
               <td><strong v-if="asset.archived_at">{{ asset.name }}</strong><RouterLink v-else :to="`/assets/${asset.id}`" class="asset-name-link">{{ asset.name }}</RouterLink><small class="asset-code">{{ asset.asset_code }}</small></td>
-              <td>{{ assetTypeLabel(asset.asset_type_id) }}</td>
-              <td><span>{{ departmentLabel(asset) }}</span><small v-if="asset.owner_department_id" class="asset-code">{{ ownershipScopeLabel(asset.ownership_scope) }}</small></td>
-              <td><StatusBadge :tone="asset.status === 'active' ? 'success' : 'warning'">{{ displayStatus(asset.status) }}</StatusBadge></td>
+              <td>{{ assetTypeLabel(asset.asset_type_id) }}<small v-if="isPersonalSubscription(asset)" class="asset-code"><StatusBadge>个人订阅</StatusBadge></small></td>
+              <td><span>{{ departmentLabel(asset) }}</span><small v-if="isPersonalSubscription(asset)" class="asset-code">个人登记 · 无需审核</small><small v-else-if="asset.owner_department_id" class="asset-code">{{ ownershipScopeLabel(asset.ownership_scope) }}</small></td>
+              <td><StatusBadge :tone="asset.status === 'active' || isPersonalSubscription(asset) && asset.status === 'draft' ? 'success' : 'warning'">{{ subscriptionStatus(asset) }}</StatusBadge></td>
               <td>{{ asset.expires_at ? new Date(asset.expires_at).toLocaleDateString('zh-CN') : '—' }}</td>
               <td v-if="canDelete"><button v-if="asset.archived_at" class="asset-row-action" :disabled="loading" :aria-label="`恢复资产 ${asset.name}`" @click="openMutation(asset, 'restore')">恢复</button><button v-if="!trashOpen" class="asset-row-action deletion-button" :disabled="loading" :aria-label="`删除资产 ${asset.name}`" @click="openMutation(asset, 'delete')">删除</button></td>
             </tr></tbody>

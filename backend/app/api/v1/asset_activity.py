@@ -287,8 +287,6 @@ def prepare_confirmation(
     access: AccessContext = Depends(require_asset_write),
 ):
     asset = owned_draft(db, access, asset_id)
-    if asset.status != "draft" or asset.version != payload.version:
-        raise HTTPException(409, "草稿已改变，请重新读取")
     if payload.sharing_scope == "team" and asset.owner_department_id is None:
         raise HTTPException(422, "未关联部门，暂不能选择团队共享")
     # A self-funded subscription is a personal fact, not a company license.
@@ -303,6 +301,8 @@ def prepare_confirmation(
         and payload.sharing_scope != "private"
     ):
         raise HTTPException(422, "个人自费订阅请保留私有；分享探索证据不转移使用许可")
+    if asset.status != "draft" or asset.version != payload.version:
+        raise HTTPException(409, "草稿已改变，请重新读取")
     snapshot = draft_snapshot(db, asset, payload.sharing_scope)
     digest = snapshot_digest(snapshot)
     outcome_version = max(1, asset.outcome_version + int(payload.publish_new_version))
@@ -389,7 +389,7 @@ def confirm_draft(
     asset.confidentiality = "personal" if row.sharing_scope == "private" else "internal"
     asset.status = "active"
     # Confirmation records the employee's deposit, not management approval or value.
-    asset.review_status = "pending_review"
+    asset.review_status = "not_required" if asset.is_personal_subscription else "pending_review"
     asset.confirmed_by_person_id = access.person_id
     asset.confirmed_at = now
     asset.outcome_version = row.outcome_version
@@ -406,7 +406,7 @@ def confirm_draft(
             "outcome_version": asset.outcome_version,
             "content_digest": row.content_digest,
             "sharing_scope": row.sharing_scope,
-            "review_status": "pending_review",
+            "review_status": asset.review_status,
         },
     )
     db.commit()

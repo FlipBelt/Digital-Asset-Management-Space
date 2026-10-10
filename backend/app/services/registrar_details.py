@@ -101,9 +101,10 @@ def details(db, asset):
 
 def invalidate(asset):
     # Supplementing an already registered outcome requires a fresh private draft preview.
-    asset.status = "draft"
+    personal_subscription = getattr(asset, "is_personal_subscription", False)
+    asset.status = "active" if personal_subscription else "draft"
     asset.sharing_scope = "private"
-    asset.review_status = "pending_review"
+    asset.review_status = "not_required" if personal_subscription else "pending_review"
     asset.confirmed_at = None
     asset.confirmed_by_person_id = None
     asset.version += 1

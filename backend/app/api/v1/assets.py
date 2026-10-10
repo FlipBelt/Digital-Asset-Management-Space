@@ -1504,7 +1504,10 @@ def save_assignment(
                 "ownership_scope": ownership_scope,
                 "responsible_person_id": str(payload.responsible_person_id),
                 "user_person_ids": [str(person_id) for person_id in payload.user_person_ids],
-                "review_status": "approved" if asset.sharing_scope is None else "pending_review",
+                "review_status": (
+                    "not_required" if asset.is_personal_subscription
+                    else "approved" if asset.sharing_scope is None else "pending_review"
+                ),
             },
             request_id="asset-assignment",
         )
@@ -1518,7 +1521,9 @@ def save_assignment(
         asset.confirmed_by_person_id = access.person_id
         asset.confirmed_at = now
     else:
-        asset.review_status = "pending_review"
+        asset.review_status = (
+            "not_required" if asset.is_personal_subscription else "pending_review"
+        )
     asset.version += 1
     db.commit()
     return AssetAssignmentRead(

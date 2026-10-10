@@ -152,7 +152,14 @@ def personal_scope(person_id, department_id, category):
     if category == "using":
         return or_(responsible, using, granted)
     if category == "drafts":
-        return and_(created, Asset.status == "draft")
+        personal_subscription = and_(
+            Asset.source_system.is_not(None),
+            Asset.source_system == "membership-registration",
+            Asset.asset_type_id.in_(
+                select(AssetType.id).where(AssetType.code == "saas_subscription")
+            ),
+        )
+        return and_(created, Asset.status == "draft", ~personal_subscription)
     if category == "subscriptions":
         return and_(
             mine,
@@ -457,13 +464,13 @@ def create_membership(
         legal_entity_id=person.legal_entity_id,
         owner_department_id=person.department_id,
         created_by_person_id=person.id,
-        ownership_scope="pending",
+        ownership_scope="personal",
         confidentiality="personal",
         sharing_scope="private",
         source_type="manual",
         source_system="membership-registration",
-        status="draft",
-        review_status="pending_review",
+        status="active",
+        review_status="not_required",
         description=payload.primary_purpose,
     )
     db.add(item)
@@ -489,7 +496,7 @@ def create_membership(
                 object_type="asset",
                 object_id=item.id,
                 request_id=str(payload.request_id),
-                after_data={"status": "draft"},
+                after_data={"status": "active", "review_status": "not_required"},
             )
         )
         db.commit()

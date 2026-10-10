@@ -53,6 +53,7 @@ export interface Asset {
   id: string; asset_code: string; name: string; asset_type_id: string; legal_entity_id: string | null;
   owner_department_id: string | null; ownership_scope: string; status: string; criticality: string; confidentiality: string;
   sharing_scope?: string | null; source_system?: string | null; source_agent?: string | null; source_reference?: string | null; development_method?: string | null;
+  is_personal_subscription?: boolean;
   source_type: string; started_at: string | null; expires_at: string | null; last_verified_at: string | null;
   description: string | null; version: number; outcome_version?: number; created_at: string; updated_at: string; archived_at: string | null;
   created_by_person_id?: string | null; confirmed_by_person_id?: string | null; confirmed_at?: string | null; review_status?: string;
@@ -61,6 +62,7 @@ export interface AssetListResponse { data: Asset[]; pagination: { page: number; 
 export interface HuduAssetItem {
   id: string; asset_code: string; name: string; status: string; review_status: string;
   criticality: string; confidentiality: string; ownership_scope: string;
+  is_personal_subscription?: boolean;
   asset_type_id: string; asset_type_code: string | null; asset_type_name: string;
   profile_kind: string; category_id: string | null; category_code: string | null; category_name: string;
   legal_entity_id: string | null; legal_entity_name: string | null;
@@ -92,7 +94,7 @@ export interface AssetRelationshipView { current_node: RelationshipNode; nodes: 
 export interface AssetPlatformLink { id: string; asset_id: string; platform_id: string; relation_type: string; source_type: string; source_import_record_id: string | null; review_status: string; confirmed_by_person_id: string | null; confirmed_at: string | null; note: string | null; archived_at: string | null }
 export interface Provider { id: string; code: string; name: string; website: string | null }
 export interface Platform { id: string; provider_id: string | null; code: string; name: string; category: string; website: string | null; review_status: string; description: string | null; submitted_by_person_id: string | null }
-export interface PlatformTenant { id: string; asset_id: string; platform_id: string; legal_entity_id: string; tenant_identifier: string | null; external_identifier_type: string | null; ownership_nature: string; account_scope: string; verification_status: string }
+export interface PlatformTenant { id: string; asset_id: string; platform_id: string; legal_entity_id: string; tenant_identifier: string | null; external_identifier_type: string | null; ownership_nature: string; account_scope: string; verification_status: string; evidence_note: string | null }
 export interface Account { id: string; asset_id: string; platform_tenant_id: string; login_identifier: string; account_type: string; registration_identity_type: string; registration_person_id: string | null; mfa_status: string; privilege_level: string; parent_account_id: string | null; account_kind: string; login_method: string; account_role: string; primary_person_id: string | null; legacy_source_id: string | null; legacy_metadata: Record<string, unknown> }
 export interface CredentialReference { id: string; account_id: string | null; asset_id: string | null; provider: string; item_id: string; secure_url: string | null; last_rotated_at: string | null; last_verified_at: string | null }
 export interface ServiceProduct { id: string; provider_id: string; platform_id: string | null; code: string; name: string; service_category: string; billing_mode: string; plan_options: string[] }
@@ -377,6 +379,7 @@ export const api = {
   platformRelationshipView: (id: string) => request<AssetRelationshipView>(`/api/v1/platforms/${id}/relationship-view`),
   platformTenants: () => request<PlatformTenant[]>("/api/v1/platform-tenants"),
   createPlatformTenant: (body: Record<string, unknown>) => request<PlatformTenant>("/api/v1/platform-tenants", json("POST", body)),
+  verifyPlatformTenant: (id: string, body: Record<string, unknown>) => request<PlatformTenant>(`/api/v1/platform-tenants/${id}/verification`, json("POST", body)),
   accounts: () => request<Account[]>("/api/v1/accounts"),
   platformAccountChildren: (assetId: string) => request<Account[]>(`/api/v1/workspace/platform-accounts/${assetId}/child-accounts`),
   createPlatformAccountChild: (assetId: string, body: Record<string, unknown>) => request<Account>(`/api/v1/workspace/platform-accounts/${assetId}/child-accounts`, json("POST", body)),
