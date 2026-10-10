@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { AppWindow, ArrowRight, Bookmark, Bot, CreditCard, FileBox, Hexagon, Puzzle, Terminal, Users, Workflow } from "lucide-vue-next";
 import { type Asset } from "../lib/api";
 import { displayStatus } from "../lib/labels";
+import { displayOutcomeVersion } from "../lib/assetVersions";
 
 const props = defineProps<{ asset: Asset; typeName?: string; typeCode?: string; teamName?: string; bookmarked: boolean; busy?: boolean; returnTo?: string; aiFocus?: boolean; groupLabel?: string }>();
 defineEmits<{ bookmark: [asset: Asset] }>();
@@ -19,7 +20,7 @@ const bookmarkLabel = computed(() => `${props.bookmarked ? '取消收藏' : '收
     <div class="fusion-card-meta">
       <div class="fusion-type">
         <span class="fusion-asset-symbol" :class="typeCode"><component :is="typeIcon" :size="22" aria-hidden="true" /></span>
-        <span><strong>{{ typeName || '资产' }}</strong><small>版本 {{ asset.version }}</small></span>
+        <span><strong>{{ typeName || '资产' }}</strong><small>{{ displayOutcomeVersion(asset) }}</small></span>
       </div>
       <button class="icon-button fusion-bookmark" :class="{ saved: bookmarked }" :aria-label="bookmarkLabel" :title="bookmarkLabel" :aria-pressed="bookmarked" :disabled="busy" @click="$emit('bookmark', asset)"><Bookmark :size="19" aria-hidden="true" /></button>
     </div>

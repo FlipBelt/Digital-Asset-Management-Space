@@ -57,11 +57,11 @@ const objectLabels: Record<string, string> = {
   budget_snapshot: "历史预算快照",
 };
 const layerLabels: Record<string, string> = {
-  registration_identity: "第二层 · 注册身份",
-  platform_directory: "第三层 · 平台目录",
-  company_platform_account: "第四层 · 公司平台账号",
-  access_authorization: "第五层 · 访问与授权",
-  service_resource_system: "第六层 · 服务、资源与系统",
+  registration_identity: "登录与注册身份",
+  platform_directory: "服务平台",
+  company_platform_account: "公司平台账号",
+  access_authorization: "人员使用授权",
+  service_resource_system: "系统、订阅与资源",
   historical_reference: "历史资料区 · 待核对",
 };
 const reviewLabels: Record<string, string> = {
@@ -265,11 +265,11 @@ function relationSummary(item: ImportProposalObject) {
 }
 
 function relationGuidance(item: ImportProposalObject) {
-  if (item.object_type === "registration_identity") return "可关联 L3；L4 / L5 暂不推断";
-  if (item.object_type === "platform") return "平台目录；不自动生成 L4";
-  if (item.object_type === "platform_account") return "L4 候选；需确认主体、租户或商户证据";
-  if (item.object_type === "access_grant") return "L5 候选；需确认人员与权限";
-  if (["service_instance", "resource", "internal_system"].includes(item.object_type)) return "可直接作为 L6；平台、L4、L5 均可后续关联";
+  if (item.object_type === "registration_identity") return "核对使用该身份的平台；公司账号与人员权限需另有证据";
+  if (item.object_type === "platform") return "平台目录资料；公司平台账号需核对实际开通证据";
+  if (item.object_type === "platform_account") return "公司平台账号候选；需确认所属公司及租户或商户证据";
+  if (item.object_type === "access_grant") return "人员使用授权候选；需确认人员与权限范围";
+  if (["service_instance", "resource", "internal_system"].includes(item.object_type)) return "可独立登记；平台、公司账号与使用授权按实际情况关联";
   return "仅保留为历史或参考资料";
 }
 </script>
@@ -277,9 +277,9 @@ function relationGuidance(item: ImportProposalObject) {
 <template>
   <div class="page-stack import-workbench">
     <PageHeader
-      eyebrow="六层资料接入"
+      eyebrow="管理区"
       title="资料接入规划工作台"
-      description="先保留原始资料，再拆解为六层对象、关系与待确认项；预检前不会写入正式资产库。"
+      description="保留原始来源，识别资料类型与关联建议，再逐项确认并预检；当前页面不创建正式资产。"
     />
     <div v-if="message" class="message-panel success-message">
       <CheckCircle2 :size="18" />{{ message }}
@@ -338,13 +338,13 @@ function relationGuidance(item: ImportProposalObject) {
         <div>
           <span>接入后的展示结构</span>
           <h2>先看实例，再决定是否连接</h2>
-          <p>上传并暂存后，系统会按来源文件展示原子实例。以下是老板台账和阿里云资料的展示示意。</p>
+          <p>上传并暂存后，按来源文件查看候选资料与关联建议。下方示例说明不同资料如何归类。</p>
         </div>
       </div>
       <div class="mapping-quick-grid">
-        <article><span class="mapping-kicker">老板台账 · 服务记录</span><strong>ChatGPT Plus / Team、Claude Pro、API</strong><p><b>L6</b> 具体订阅或 API 实例；可关联 OpenAI / Anthropic / Google 等 L3；L4、L5 待确认。</p></article>
-        <article><span class="mapping-kicker">阿里云.txt</span><strong>阿里云、163 邮箱、登录身份</strong><p><b>L3</b> 平台目录；<b>L2</b> 邮箱身份；没有企业租户证据，不自动生成 L4。</p></article>
-        <article><span class="mapping-kicker">影刀.txt</span><strong>影刀服务、VPN 入口、管理员身份</strong><p><b>L6</b> 影刀与 VPN 服务；<b>L2</b> 登录身份；VPN 供应商和租户关系待确认。</p></article>
+        <article><span class="mapping-kicker">订阅与 API 资料</span><strong>ChatGPT Plus / Team、Claude Pro、API</strong><p><b>订阅或 API 实例</b> 可关联实际服务平台；公司账号和人员使用授权分别核对。</p></article>
+        <article><span class="mapping-kicker">平台与登录身份</span><strong>阿里云、163 邮箱、登录身份</strong><p><b>平台目录与邮箱身份</b> 分别登记；公司平台账号需有实际开通或历史使用证据。</p></article>
+        <article><span class="mapping-kicker">系统与访问资料</span><strong>影刀服务、VPN 入口、管理员身份</strong><p><b>服务与登录身份</b> 分别核对；供应商、公司账号及人员权限按来源证据关联。</p></article>
       </div>
     </section>
 
@@ -353,14 +353,14 @@ function relationGuidance(item: ImportProposalObject) {
         <div>
           <span>来源：{{ preview.source_name }}</span>
           <h2>识别出 {{ preview.candidates.length }} 条候选资料</h2>
-          <p>先选择要保留的来源记录。下一步会按六层模型拆解对象和关系，不直接创建正式资产。</p>
+          <p>选择要保留的来源记录，再识别资料类型与关联建议。候选资料需逐项核对，不直接创建正式资产。</p>
           <small v-if="preview.source_sha256">源文件指纹：{{ preview.source_sha256.slice(0, 16) }}…</small>
           <small v-if="preview.recognized_counts">{{ Object.entries(preview.recognized_counts).map(([key, value]) => `${objectLabels[key] || key} ${value} 条`).join("；") }}</small>
         </div>
         <button class="secondary-button" @click="preview = null">重新选择</button>
       </div>
       <div class="import-candidate-table"><table><thead><tr><th></th><th>识别名称</th><th>建议归类</th><th>可信度</th><th>原始内容</th></tr></thead><tbody><tr v-for="candidate in preview.candidates" :key="candidate.row_number"><td><input type="checkbox" :checked="selectedRows.has(candidate.row_number)" @change="toggleRow(candidate.row_number)" /></td><td><strong>{{ candidate.suggested_name }}</strong><small v-if="candidate.warnings.length">{{ candidate.warnings.join("；") }}</small></td><td><StatusBadge tone="default">{{ objectLabels[candidate.suggested_object_type] || candidate.suggested_object_type }}</StatusBadge></td><td>{{ Math.round(candidate.confidence * 100) }}%</td><td><span class="raw-preview">{{ Object.values(candidate.raw).filter(Boolean).join(" · ") }}</span></td></tr></tbody></table></div>
-      <div class="import-commit-bar"><span><Inbox :size="18" />已选择 {{ selectedCandidates.length }} 条，将保留原始来源供后续核对</span><button class="primary-button" :disabled="loading || !selectedCandidates.length" @click="stage">{{ loading ? "正在建立规划…" : "建立六层规划" }}</button></div>
+      <div class="import-commit-bar"><span><Inbox :size="18" />已选择 {{ selectedCandidates.length }} 条，将保留原始来源供后续核对</span><button class="primary-button" :disabled="loading || !selectedCandidates.length" @click="stage">{{ loading ? "正在建立规划…" : "建立导入规划" }}</button></div>
     </section>
 
     <template v-if="plan">
@@ -368,8 +368,8 @@ function relationGuidance(item: ImportProposalObject) {
         <div class="import-preview-heading">
           <div>
             <span>导入批次 {{ plan.batch_id.slice(0, 8) }} · {{ plan.analysis_mode === "rules" ? "规则规划" : plan.analysis_mode === "ai_enhanced" ? "DeepSeek 增强规划" : plan.analysis_mode }}</span>
-            <h2>六层对象与关系规划</h2>
-            <p>当前规划只保存候选项。确认后先运行提交预检；正式入库会在后续统一提交步骤中执行。</p>
+            <h2>候选资料与关联规划</h2>
+            <p>逐项确认候选资料，再运行提交预检。当前页面保存候选项并展示预检结果，不提交正式资产。</p>
           </div>
           <div class="button-row"><button class="secondary-button" :disabled="loading" @click="enhanceWithAi"><WandSparkles :size="16" />DeepSeek 增强分析</button><button class="secondary-button" :disabled="loading" @click="rebuildPlan"><RotateCcw :size="16" />仅按规则重建</button><button class="secondary-button" :disabled="loading" @click="resetWorkbench">新建接入</button></div>
         </div>
@@ -380,10 +380,10 @@ function relationGuidance(item: ImportProposalObject) {
         <div class="section-heading">
           <div>
             <span>实例化映射预览</span>
-            <h2>每条来源资料先确定自身层级</h2>
-            <p>这里按来源文件展开原子实例。关系只展示已有证据和规则建议；没有证据的 L4、L5 不会被自动补出。</p>
+            <h2>按来源核对资料类型</h2>
+            <p>按来源文件查看候选资料与关联建议。公司平台账号及人员授权需有证据，未知关系保持待确认。</p>
           </div>
-          <div class="instance-map-legend"><span><i class="legend-dot source-dot" />来源事实</span><span><i class="legend-dot layer-dot" />建议层级</span><span><i class="legend-dot relation-dot" />候选关系</span></div>
+          <div class="instance-map-legend"><span><i class="legend-dot source-dot" />来源事实</span><span><i class="legend-dot layer-dot" />建议类型</span><span><i class="legend-dot relation-dot" />候选关系</span></div>
         </div>
         <div class="source-instance-groups">
           <article v-for="[source, items] in sourceGroups" :key="source" class="source-instance-group">
@@ -411,7 +411,7 @@ function relationGuidance(item: ImportProposalObject) {
       </section>
 
       <section v-if="accountCandidates.length" class="import-preview-panel">
-        <div class="section-heading"><div><span>惜君批次 · 账号资料承载</span><h2>待归属账号</h2><p>这些是脱敏的“平台＋登录标识”资料，不是 L2、L4 或 L6 正式对象。确认公司及 L4 证据后再归入账号与席位。</p></div></div>
+        <div class="section-heading"><div><span>账号来源资料</span><h2>待归属账号</h2><p>这些是待核对的平台与登录标识，尚未形成正式资产。确认所属公司与公司平台账号的证据后，再归入访问账号或席位。</p></div></div>
         <div class="import-candidate-table"><table><thead><tr><th>平台</th><th>账号标识</th><th>来源文件与证据</th><th>置信度</th><th>当前状态</th></tr></thead><tbody><tr v-for="item in accountCandidates" :key="`${item.source_record_id}-${item.platform_name}-${item.login_identifier}`"><td><strong>{{ item.platform_name }}</strong></td><td>{{ item.login_identifier }}</td><td><small><b>{{ item.source_file }}</b> · {{ item.evidence.join("；") }}</small><small>{{ item.pending_reason }}</small></td><td>{{ Math.round(item.confidence * 100) }}%</td><td><RouterLink v-if="item.assigned_l4_asset_id" :to="`/assets/${item.assigned_l4_asset_id}?tab=accounts`"><StatusBadge tone="success">{{ item.status }} · {{ item.assigned_l4_name }}</StatusBadge></RouterLink><StatusBadge v-else tone="warning">{{ item.status }}</StatusBadge></td></tr></tbody></table></div>
       </section>
 

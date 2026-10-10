@@ -1,0 +1,14 @@
+html, body { margin: 0; }
+.boot-fallback { box-sizing: border-box; min-height: 100vh; min-height: 100dvh; display: grid; place-content: center; padding: 24px; background: #f6f7f6; color: #151a17; font: 14px/1.65 Inter, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif; }
+.boot-card { box-sizing: border-box; display: grid; justify-items: center; gap: 16px; width: min(100%, 440px); padding: 36px 28px; border: 1px solid #e2e7e0; border-radius: 16px; background: #fff; text-align: center; }
+.boot-fallback-mark { display: block; width: 48px; height: 48px; }
+.boot-card strong { font-size: 20px; font-weight: 650; }
+.boot-card p { margin: 0; max-width: 340px; color: #677164; }
+.boot-progress { width: 88px; height: 4px; border-radius: 4px; background: #e7ff3f; }
+.boot-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+.boot-actions[hidden] { display: none; }
+.boot-actions button, .boot-actions a { box-sizing: border-box; min-height: 44px; border: 1px solid #e2e7e0; border-radius: 9px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; }
+.boot-actions button { color: #e7ff3f; background: #151a17; border-color: #151a17; }
+.boot-actions a { color: #151a17; background: #fff; }
+.boot-actions :focus-visible { outline: 3px solid #526c2b; outline-offset: 3px; }
+.boot-noscript { display: block; padding: 24px; background: #fff; color: #151a17; text-align: center; font: 14px/1.6 sans-serif; }

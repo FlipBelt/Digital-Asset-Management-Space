@@ -23,6 +23,7 @@ import {
 import { useRoute, useRouter } from "vue-router";
 
 import AssetAttachments from "../components/AssetAttachments.vue";
+import PeoplePicker from "../components/PeoplePicker.vue";
 import PageHeader from "../components/PageHeader.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import {
@@ -58,7 +59,7 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref("");
 const message = ref("");
-const tab = ref("overview");
+const tab = ref(typeof route.query.tab === "string" && ["overview", "relations", "responsibility", "fields", "history"].includes(route.query.tab) ? route.query.tab : "overview");
 const asset = ref<Asset | null>(null);
 const types = ref<AssetType[]>([]);
 const departments = ref<Department[]>([]);
@@ -74,6 +75,10 @@ const platformAccountContext = ref<PlatformAccountContext | null>(null);
 const platforms = ref<Platform[]>([]);
 const serviceInstances = ref<ServiceInstance[]>([]);
 const childAccounts = ref<Account[]>([]);
+const confirmedResponsible = ref<string | null>(null);
+const canReview = ref(false);
+const canUploadOutcome = ref(false);
+const proposals = ref<{person_id: string | null; role_type: string}[]>([]);
 const assignment = reactive<AssetAssignment>({
   owner_department_id: null,
   ownership_scope: "pending",
@@ -192,7 +197,7 @@ const coreFieldValue = (field: AssetFieldDefinition) => {
 const coreProfileFacts = computed(() => {
   if (type.value?.code !== "internal_system" || !profile.value) return [];
   return [
-    { label: "生产访问地址", value: profile.value.production_url },
+    { label: "访问地址", value: profile.value.production_url },
     { label: "代码仓库", value: profile.value.repository_url },
   ].filter((item): item is { label: string; value: string } => Boolean(item.value));
 });
@@ -233,6 +238,10 @@ const completeness = computed(() => {
           ? 5
           : 0),
     );
+  }
+  if (type.value?.profile_kind === "internal_system") {
+    const values = Object.values(profileForm);
+    return Math.round(100 * values.filter(value => value.trim()).length / values.length);
   }
   const required = fieldDefinitions.value.filter((item) => item.is_required);
   const filled = required.filter(
@@ -363,13 +372,13 @@ const candidateAssets = computed(() => {
   );
 });
 const relationshipSlots = computed(() => {
-  const responsible = assignment.responsible_person_id
-    ? personName.value[assignment.responsible_person_id]
+  const responsible = confirmedResponsible.value
+    ? personName.value[confirmedResponsible.value]
     : null;
   return [
     {
       layer: "L1",
-      label: "所属法人",
+      label: "归属公司",
       value: asset.value?.legal_entity_id
         ? (entityName.value[asset.value.legal_entity_id] ?? "待确认")
         : "暂无法人归属证据",
@@ -414,6 +423,9 @@ async function load() {
   cancelRelationEdit();
   try {
     const item = await api.asset(id);
+    const currentUser = await api.currentSession();
+    canReview.value = currentUser.roles.some(role => ["system_admin", "asset_manager", "department_manager", "group_leader"].includes(role));
+    canUploadOutcome.value = item.created_by_person_id === currentUser.person_id || currentUser.roles.some(role => ["system_admin", "asset_manager"].includes(role));
     const [
       typeRows,
       deptRows,
@@ -456,6 +468,9 @@ async function load() {
     serviceInstances.value = serviceInstanceRows;
     fieldDefinitions.value = fieldRows;
     Object.assign(assignment, assignmentRow);
+    const responsibilities = await api.assetResponsibilities(id);
+    confirmedResponsible.value = responsibilities.find(r => r.role_type === "responsible")?.person_id || null;
+    proposals.value = responsibilities.filter(r => ["proposed_responsible", "proposed_user"].includes(r.role_type));
     Object.assign(edit, {
       name: item.name,
       status: item.status,
@@ -562,6 +577,16 @@ async function saveChildAccount() {
     saving.value = false;
   }
 }
+function useResponsibleDepartment() {
+  if (assignment.ownership_scope !== "pending" || !responsibleDepartmentHint.value) return;
+  assignment.ownership_scope = "department";
+  assignment.owner_department_id = responsibleDepartmentHint.value;
+}
+function applyProposals() {
+  const responsible = proposals.value.find(r => r.role_type === "proposed_responsible");
+  if (responsible?.person_id) assignment.responsible_person_id = responsible.person_id;
+  assignment.user_person_ids = proposals.value.filter(r => r.role_type === "proposed_user" && r.person_id).map(r => r.person_id!);
+}
 async function saveAssignment() {
   if (!asset.value || !assignment.responsible_person_id) return;
   saving.value = true;
@@ -580,7 +605,9 @@ async function saveAssignment() {
       }),
     );
     asset.value = await api.asset(id);
-    message.value = "责任配置已保存";
+    proposals.value = [];
+    confirmedResponsible.value = assignment.responsible_person_id;
+    message.value = "责任配置已保存，成果审核请进入管理区 → 成果审核";
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "保存失败";
   } finally {
@@ -597,6 +624,7 @@ async function saveCustomFields() {
         value: fieldValues[field.id] ?? null,
       })),
     );
+    asset.value = await api.asset(id);
     message.value = "专属资料已保存";
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "保存失败";
@@ -608,6 +636,7 @@ async function saveProfile() {
   saving.value = true;
   try {
     profile.value = await api.saveInternalProfile(id, profileForm);
+    asset.value = await api.asset(id);
     message.value = "接管资料已保存";
   } finally {
     saving.value = false;
@@ -686,11 +715,7 @@ watch(
 watch(
   () => assignment.responsible_person_id,
   (personId) => {
-    const person = people.value.find((item) => item.id === personId);
-    if (assignment.ownership_scope === "pending" && person?.department_id) {
-      assignment.ownership_scope = "department";
-      assignment.owner_department_id = person.department_id;
-    }
+    assignment.user_person_ids = assignment.user_person_ids.filter(id => id !== personId);
   },
 );
 watch(
@@ -712,6 +737,7 @@ onMounted(load);
       :title="asset?.name ?? '资产详情'"
       :description="type?.name ?? '统一资产资料'"
     >
+      <RouterLink v-if="canReview && asset?.status === 'active' && asset.review_status === 'pending_review'" :to="{path: '/manage/reviews', query: {asset: asset.id}}" class="secondary-button">审核此成果</RouterLink>
       <StatusBadge :tone="asset?.archived_at ? 'default' : 'success'">{{
         asset?.archived_at ? "已归档" : displayStatus(asset?.status ?? "")
       }}</StatusBadge
@@ -721,7 +747,7 @@ onMounted(load);
         }}
       </button>
     </PageHeader>
-    <AssetAttachments v-if="asset" :asset-id="asset.id" />
+    <AssetAttachments v-if="asset" :key="asset.version" :asset-id="asset.id" :can-upload="canUploadOutcome" @uploaded="load" />
     <div v-if="message" class="message-panel success-message">
       {{ message }}
     </div>
@@ -744,8 +770,8 @@ onMounted(load);
         <article>
           <span>负责人</span
           ><strong>{{
-            assignment.responsible_person_id
-              ? personName[assignment.responsible_person_id]
+            confirmedResponsible
+              ? personName[confirmedResponsible]
               : "待配置"
           }}</strong
           ><small>{{ assignment.user_person_ids.length }} 位协同使用人</small>
@@ -770,8 +796,7 @@ onMounted(load);
             :key="slot.label"
             :class="{ confirmed: slot.confirmed }"
           >
-            <span>{{ slot.layer }}</span
-            ><small>{{ slot.label }}</small
+            <small>{{ slot.label }}</small
             ><strong>{{ slot.value }}</strong>
           </article>
           <div v-if="!confirmedRelationshipSlots.length" class="relationship-summary-empty">暂未建立明确关系</div>
@@ -808,8 +833,8 @@ onMounted(load);
         <header>
           <div>
             <span class="section-kicker">资产概览</span>
-            <h2>让名称回归名称，让编号负责区分</h2>
-            <p>默认只处理核心事实；治理字段和历史标识按需展开。</p>
+            <h2>基本资料</h2>
+            <p>确认资产名称和使用入口；状态与补充说明可以按需展开。</p>
           </div>
           <Server :size="30" />
         </header>
@@ -880,10 +905,10 @@ onMounted(load);
               }}</small>
             </article>
             <article>
-              <UserRound :size="19" /><span>登记人与负责人</span
+              <UserRound :size="19" /><span>负责人</span
               ><strong>{{
-                assignment.responsible_person_id
-                  ? personName[assignment.responsible_person_id]
+                confirmedResponsible
+                  ? personName[confirmedResponsible]
                   : "待确认"
               }}</strong
               ><small
@@ -904,7 +929,7 @@ onMounted(load);
               <span class="governance-toggle-title">
                 <ShieldCheck :size="20" />
                 <span>
-                  <b>还有可选的治理资料</b>
+                  <b>使用状态与补充说明（选填）</b>
                   <small>状态、重要程度、保密、到期、用途</small>
                 </span>
               </span>
@@ -946,7 +971,7 @@ onMounted(load);
           </details>
           <div class="form-actions wide">
             <button class="primary-button" :disabled="saving">
-              <Save :size="16" />保存核心资料
+              <Save :size="16" />保存基本资料
             </button>
           </div>
         </form>
@@ -986,9 +1011,9 @@ onMounted(load);
       <section v-if="tab === 'accounts' && isPlatformTenant" class="detail-surface profile-surface">
         <header>
           <div>
-            <span class="section-kicker">L4 下的账号明细</span>
-            <h2>账号与席位，不是新的资产层级</h2>
-            <p>这里记录管理员、子账号和开发账号；不填写密码，也不会因账号自动创建 L6 服务。</p>
+            <span class="section-kicker">公司平台账号明细</span>
+            <h2>访问账号与席位</h2>
+            <p>登记管理员、子账号和开发账号的登录标识与权限，不填写密码。服务与资源另行登记，按实际依赖关联。</p>
           </div>
           <StatusBadge tone="default">{{ childAccounts.length }} 个账号</StatusBadge>
         </header>
@@ -1098,7 +1123,7 @@ onMounted(load);
               ><span>代码仓库地址</span
               ><input v-model="profileForm.repository_url" /></label
             ><label
-              ><span>生产访问地址</span
+              ><span>访问地址</span
               ><input v-model="profileForm.production_url" /></label
             ><label class="wide"
               ><span>技术栈</span
@@ -1129,21 +1154,23 @@ onMounted(load);
         <header>
           <div>
             <span class="section-kicker">责任人员</span>
-            <h2>先确定归属，再安排负责人和协同人</h2>
-            <p>负责人部门只作智能建议；不会悄悄覆盖已经确认的归属。</p>
+            <h2>登记人固定，负责人可由管理员调整</h2>
+            <p>AI 成果默认由认证登记人负责；改派不改变登记人，也不增加成果版本。归属与协同人员单独维护。</p>
           </div>
           <UserRound :size="30" />
         </header>
+        <section v-if="proposals.length" class="content-panel"><h3>登记器建议的责任人员</h3><p v-for="row in proposals" :key="String(row.person_id)">{{ row.role_type === 'proposed_responsible' ? '建议负责人' : '建议协同人' }}：{{ people.find(p => p.id === row.person_id)?.display_name || '人员待核对' }}</p><p>建议尚未生效。核对后采用建议，再确认责任配置。</p><button class="secondary-button" type="button" @click="applyProposals">采用建议填写下方表单</button></section>
         <form
           class="balanced-form responsibility-form"
           @submit.prevent="saveAssignment"
         >
+          <p class="wide responsibility-hint">归属决定由公司还是部门管理；公司级不等于全员可见，成果共享范围单独设置。</p>
           <label
             ><span>归属范围</span
             ><select v-model="assignment.ownership_scope">
-              <option value="pending">待确认</option>
-              <option value="company">公司级</option>
-              <option value="department">部门级</option>
+              <option value="pending">暂不确定</option>
+              <option value="company">公司统一管理</option>
+              <option value="department">指定部门管理</option>
             </select></label
           ><label v-if="assignment.ownership_scope === 'department'"
             ><span>归属部门</span
@@ -1165,39 +1192,13 @@ onMounted(load);
                 : "请确认该资产应归公司级还是部门级。"
             }}
           </div>
-          <label class="wide"
-            ><span>负责人</span
-            ><select v-model="assignment.responsible_person_id" required>
-              <option :value="null" disabled>选择一名负责人</option>
-              <option v-for="item in people" :key="item.id" :value="item.id">
-                {{ item.display_name
-                }}{{
-                  item.department_id
-                    ? ` · ${departmentName[item.department_id] ?? ""}`
-                    : ""
-                }}
-              </option></select
-            ><small v-if="responsibleDepartmentHint"
-              >负责人主部门：{{
-                departmentName[responsibleDepartmentHint]
-              }}；仅在归属待确认时用于建议。</small
-            ></label
-          ><label class="wide"
-            ><span>协同使用人员</span
-            ><select v-model="assignment.user_person_ids" multiple size="7">
-              <option
-                v-for="item in people.filter(
-                  (row) => row.id !== assignment.responsible_person_id,
-                )"
-                :key="item.id"
-                :value="item.id"
-              >
-                {{ item.display_name }}
-              </option></select
-            ><small
-              >负责人默认已拥有管理和使用权限，无需重复选择。</small
-            ></label
-          >
+          <div class="wide responsibility-people">
+            <PeoplePicker id="asset-responsible" v-model:person-id="assignment.responsible_person_id" label="负责人（必选一人）" :people="people" :departments="departments" :disabled="saving" />
+            <p v-if="responsibleDepartmentHint" class="responsibility-hint">负责人主部门：{{ departmentName[responsibleDepartmentHint] }}。归属范围单独确认。
+              <button v-if="assignment.ownership_scope === 'pending'" type="button" class="secondary-button" :disabled="saving" @click="useResponsibleDepartment">采用该部门作为归属</button>
+            </p>
+          </div>
+          <PeoplePicker id="asset-users" v-model:person-ids="assignment.user_person_ids" class="wide" label="协同使用人员（选填）" :people="people" :departments="departments" multiple :excluded-ids="assignment.responsible_person_id ? [assignment.responsible_person_id] : []" :disabled="saving" hint="负责人已拥有管理和使用权限，无需重复选择；协同人员按现有规则拥有使用权限。" />
           <div class="form-actions wide">
             <button
               class="primary-button"
@@ -1218,7 +1219,7 @@ onMounted(load);
             <span class="section-kicker">关联资产</span>
             <h2>像搭积木一样建立清晰关系</h2>
             <p>
-              先选“我和谁的关系”，系统只提供符合层级的对象，不再出现一整页无关选项。
+              先选择关系类型，再选择符合条件的关联对象。
             </p>
           </div>
           <Network :size="30" />
@@ -1276,7 +1277,7 @@ onMounted(load);
                 ><span>备注（可选）</span
                 ><input
                   v-model="relationForm.note"
-                  placeholder="例如生产环境主实例" /></label
+                  placeholder="例如业务系统主实例" /></label
               ><button
                 class="primary-button"
                 :disabled="!relationOptions.length"
@@ -1384,6 +1385,9 @@ onMounted(load);
 </template>
 
 <style scoped>
+.responsibility-people { display:grid; gap:12px; min-width:0; }
+.responsibility-hint { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:0; color:var(--muted); font-size:12px; line-height:1.6; }
+
 .detail-page-v2 {
   gap: 18px;
 }

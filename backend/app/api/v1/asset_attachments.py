@@ -4,9 +4,9 @@ import hashlib
 import io
 import stat
 import zipfile
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Annotated
-from uuid import NAMESPACE_URL, UUID, uuid5
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -38,6 +38,7 @@ class AttachmentRead(BaseModel):
     asset_id: UUID
     file_name: str
     size_bytes: int
+    content_type: str
 
 
 def validate_zip(content: bytes) -> None:
@@ -104,7 +105,7 @@ async def upload_attachment(
     owns_draft = (
         access.person_id is not None
         and asset.created_by_person_id == access.person_id
-        and asset.status == "draft"
+        and asset.status in {"draft", "active"}
     )
     if not access.has_permission("asset.write") or not (
         owns_draft or can_manage_asset(db, access, asset)
@@ -112,33 +113,22 @@ async def upload_attachment(
         raise HTTPException(403, "无权上传该资产附件")
     content = await file.read(MAX_BYTES + 1)
     await file.close()
-    validate_zip(content)
+    from app.services.outcome_attachments import store_outcome
+
+    item, created = store_outcome(db, asset, content, file.filename or "asset.zip", STORAGE)
+    if not created:
+        return item
+    identity = item.id
     digest = hashlib.sha256(content).hexdigest()
-    identity = uuid5(NAMESPACE_URL, f"asset-attachment:{asset_id}:{digest}")
-    existing = db.get(AssetAttachment, identity)
-    if existing is not None:
-        if existing.archived_at is not None:
-            raise HTTPException(409, "相同附件已归档，请联系管理员")
-        return existing
-    STORAGE.mkdir(parents=True, exist_ok=True)
-    path = STORAGE / f"{identity}.zip"
-    # Content-addressed file names never contain client-supplied path components.
-    with path.open("wb") as target:
-        target.write(content)
-    name = Path((file.filename or "asset.zip").replace("\\", "/")).name[:290]
-    item = AssetAttachment(
-        id=identity,
-        asset_id=asset_id,
-        file_name=name,
-        file_path=path.name,
-        content_type="application/zip",
-        size_bytes=len(content),
-    )
-    db.add(item)
-    asset.version += 1
-    asset.review_status = "pending_review"
-    asset.confirmed_at = None
-    asset.confirmed_by_person_id = None
+    from app.services.registrar_details import invalidate
+
+    if asset.created_by_person_id == access.person_id:
+        invalidate(asset)
+    else:
+        asset.version += 1
+        asset.review_status = "pending_review"
+        asset.confirmed_at = None
+        asset.confirmed_by_person_id = None
     db.add(
         AuditLog(
             actor_user_id=access.user.id,
@@ -175,6 +165,6 @@ def download_attachment(
     return FileResponse(
         path,
         filename=item.file_name,
-        media_type="application/zip",
-        headers={"X-Content-Type-Options": "nosniff"},
+        media_type=item.content_type,
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"},
     )

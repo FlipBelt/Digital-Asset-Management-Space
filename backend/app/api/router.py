@@ -5,6 +5,7 @@ from app.api.v1 import (
     agent_connector,
     asset_activity,
     asset_attachments,
+    asset_reviews,
     asset_space,
     assets,
     catalog,
@@ -37,6 +38,7 @@ api_router.include_router(asset_space.router, dependencies=authenticated)
 api_router.include_router(asset_activity.router, dependencies=authenticated)
 api_router.include_router(asset_attachments.router, dependencies=authenticated)
 api_router.include_router(assets.router, dependencies=authenticated)
+api_router.include_router(asset_reviews.router, dependencies=authenticated)
 api_router.include_router(inventory.router, dependencies=authenticated)
 api_router.include_router(usage.router, dependencies=authenticated)
 api_router.include_router(usage_monitoring.router, dependencies=authenticated)

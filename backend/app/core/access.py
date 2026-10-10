@@ -185,15 +185,13 @@ def can_manage_asset(db: Session, context: AccessContext, asset: Asset) -> bool:
         return True
     if "auditor" in context.roles:
         return False
-    if asset.sharing_scope == "private" and asset.created_by_person_id != context.person_id:
-        return False
     if (
         context.person_id is not None
         and asset.created_by_person_id == context.person_id
         and (asset.status == "draft" or asset.sharing_scope is not None)
     ):
         return True
-    if asset.owner_department_id in context.department_scopes:
+    if asset.sharing_scope != "private" and asset.owner_department_id in context.department_scopes:
         return True
     if not context.person_id:
         return False

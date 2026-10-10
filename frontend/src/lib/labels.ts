@@ -9,6 +9,7 @@ export const statusLabel: Record<string, string> = {
   paused: "停用",
   disabled: "停用",
   archived: "已归档",
+  deleted: "已删除",
   approved: "已标准化",
   returned: "已退回",
   merged: "已合并",
@@ -26,4 +27,9 @@ export function displayStatus(value: string | null | undefined) {
 
 export function displayCriticality(value: string | null | undefined) {
   return value ? (criticalityLabel[value] ?? value) : "普通";
+}
+
+export function displayReviewStatus(value: string | null | undefined) {
+  const labels: Record<string, string> = { pending_review: '待审核', approved: '已通过', rejected: '已退回' };
+  return value ? (labels[value] ?? displayStatus(value)) : '待审核';
 }

@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import ColumnElement, exists, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Asset, AssetIdentifier, AssetRelation, AssetResponsibility
+from app.models import Asset, AssetIdentifier, AssetRelation, AssetResponsibility, AssetType
 
 
 class AssetRepository:
@@ -24,13 +24,21 @@ class AssetRepository:
         legal_entity_id: UUID | None = None,
         department_id: UUID | None = None,
         asset_type_id: UUID | None = None,
+        category_id: UUID | None = None,
         status: str | None = None,
         criticality: str | None = None,
         include_archived: bool = False,
+        deleted_only: bool = False,
         keyword: str | None = None,
         visibility_filter: ColumnElement[bool] | None = None,
     ) -> tuple[list[Asset], int]:
-        filters = [] if include_archived else [Asset.archived_at.is_(None)]
+        filters = (
+            [Asset.status == "deleted", Asset.archived_at.is_not(None)]
+            if deleted_only
+            else [Asset.status != "deleted"]
+        )
+        if not include_archived and not deleted_only:
+            filters.append(Asset.archived_at.is_(None))
         if visibility_filter is not None:
             filters.append(visibility_filter)
         if legal_entity_id:
@@ -39,6 +47,12 @@ class AssetRepository:
             filters.append(Asset.owner_department_id == department_id)
         if asset_type_id:
             filters.append(Asset.asset_type_id == asset_type_id)
+        if category_id:
+            filters.append(
+                Asset.asset_type_id.in_(
+                    select(AssetType.id).where(AssetType.category_id == category_id)
+                )
+            )
         if status:
             filters.append(Asset.status == status)
         if criticality:

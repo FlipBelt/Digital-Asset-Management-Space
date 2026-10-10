@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   BarChart3,
@@ -14,14 +14,20 @@ import {
 } from "lucide-vue-next";
 
 import ModalPanel from "../components/ModalPanel.vue";
+import AssetStructureGuide from "../components/AssetStructureGuide.vue";
+import { assetStructureCategories } from "../lib/assetStructure";
 import PageHeader from "../components/PageHeader.vue";
 import SimpleBarChart from "../components/SimpleBarChart.vue";
 import StatusBadge from "../components/StatusBadge.vue";
+import WorkspaceTabs from "../components/WorkspaceTabs.vue";
+import { canRegisterBasics } from "../lib/managementWorkspace";
 import {
   api,
   apiPath,
   type Asset,
+  type CurrentUser,
   type AssetType,
+  type AssetCategory,
   type Department,
   type ImportPreview,
   type ImportBatch,
@@ -33,6 +39,7 @@ import {
 import { displayStatus } from "../lib/labels";
 
 const loading = ref(true);
+let loadSequence = 0;
 const saving = ref(false);
 const error = ref("");
 const message = ref("");
@@ -40,6 +47,59 @@ const records = ref<LayerRecord[]>([]);
 const total = ref(0);
 const businessAssets = ref<Asset[]>([]);
 const businessTypes = ref<AssetType[]>([]);
+const businessCategories = ref<AssetCategory[]>([]);
+const currentUser = ref<CurrentUser | null>(null);
+const trashOpen = ref(false);
+const businessPage = ref(1);
+const pageSize = 50;
+const mutationTarget = ref<Asset | null>(null);
+const mutationKind = ref<"delete" | "restore">("delete");
+const mutationBusy = ref(false);
+const mutationError = ref("");
+const canDelete = computed(() => {
+  const user = currentUser.value;
+  return !!user && (user.roles.includes("system_admin") ||
+    (user.roles.includes("asset_manager") && user.permissions.includes("asset.write")));
+});
+function openMutation(asset: Asset, kind: "delete" | "restore") {
+  mutationTarget.value = asset;
+  mutationKind.value = kind;
+  mutationError.value = "";
+}
+function closeMutation() {
+  if (!mutationBusy.value) mutationTarget.value = null;
+}
+async function mutateAsset() {
+  const asset = mutationTarget.value;
+  if (!asset || mutationBusy.value) return;
+  mutationBusy.value = true;
+  mutationError.value = "";
+  try {
+    if (mutationKind.value === "delete") await api.deleteAsset(asset.id, asset.version);
+    else await api.restoreAsset(asset.id, asset.version);
+    message.value = mutationKind.value === "delete"
+      ? `已删除“${asset.name}”，可在回收站恢复。`
+      : `已恢复“${asset.name}”${asset.sharing_scope ? "，请重新核对、确认并审核当前版本。" : "。"}`;
+    mutationTarget.value = null;
+    await loadActiveView();
+  } catch (cause) {
+    mutationError.value = cause instanceof Error ? cause.message : "操作失败，请重试";
+  } finally { mutationBusy.value = false; }
+}
+async function refreshBusiness() {
+  businessPage.value = 1;
+  await loadActiveView();
+}
+async function switchTrash() {
+  trashOpen.value = !trashOpen.value;
+  await router.replace({ query: { ...route.query, trash: trashOpen.value ? "1" : undefined } });
+  businessFilters.status = "";
+  await refreshBusiness();
+}
+async function changeBusinessPage(delta: number) {
+  businessPage.value += delta;
+  await loadActiveView();
+}
 const importBatches = ref<ImportBatch[]>([]);
 const sourcePlans = ref<ImportPlan[]>([]);
 const types = ref<AssetType[]>([]);
@@ -65,31 +125,54 @@ const form = reactive({
 const categoryChart = ref<{ label: string; value: number }[]>([]);
 const layerCounts = ref<Record<number, number>>({});
 const route = useRoute();
+trashOpen.value = route.query.trash === "1";
 const router = useRouter();
 type DisplayMode = "business" | "governance" | "source";
 function normalizeDisplayMode(value: unknown): DisplayMode {
   return value === "governance" || value === "source" ? value : "business";
 }
 const displayMode = ref<DisplayMode>(normalizeDisplayMode(route.query.view));
-const businessFilters = reactive({ keyword: "", status: "", include_archived: false });
-const layerOptions = [
-  { value: 1, label: "公司主体", hint: "先看有哪些公司" },
-  { value: 2, label: "注册身份", hint: "手机号、邮箱等身份" },
-  { value: 3, label: "平台", hint: "服务平台目录" },
-  { value: 4, label: "公司平台账号", hint: "公司在平台上的账号" },
-  { value: 5, label: "人员授权", hint: "谁可使用什么" },
-  { value: 6, label: "实体服务 / 资源", hint: "日常最常查看" },
-];
+function queryText(value: unknown) { return typeof value === "string" ? value : ""; }
+const businessCategory = ref(queryText(route.query.category) || "all");
+const businessFilters = reactive({ keyword: "", status: "", department_id: "", asset_type_id: queryText(route.query.type), include_archived: false });
+const hasBusinessFilters = computed(() => !!(businessFilters.keyword || businessFilters.status || businessFilters.department_id || businessFilters.asset_type_id || businessFilters.include_archived));
+const businessCategoryTabs = computed(() => [{ value: "all", label: "全部资产" }, ...[...businessCategories.value]
+  .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, "zh-CN"))
+  .map(item => ({ value: item.id, label: item.name }))]);
+const availableBusinessTypes = computed(() => businessTypes.value.filter(item => businessCategory.value === "all" || item.category_id === businessCategory.value));
+const selectedCategoryName = computed(() => businessCategoryTabs.value.find(item => item.value === businessCategory.value)?.label || "所选分类");
+async function selectBusinessCategory(value: string) {
+  if (businessCategory.value === value) return;
+  businessCategory.value = value; businessFilters.asset_type_id = ""; businessPage.value = 1;
+  await router.replace({ query: { ...route.query, category: value === "all" ? undefined : value, type: undefined } });
+  await loadActiveView();
+}
+async function selectBusinessType() {
+  businessPage.value = 1;
+  await router.replace({ query: { ...route.query, type: businessFilters.asset_type_id || undefined } });
+  await loadActiveView();
+}
+async function clearBusinessFilters() {
+  Object.assign(businessFilters, { keyword: "", status: "", department_id: "", asset_type_id: "", include_archived: false });
+  await selectBusinessType();
+}
+function departmentLabel(asset: Asset) {
+  return departments.value.find(item => item.id === asset.owner_department_id)?.name || ownershipScopeLabel(asset.ownership_scope);
+}
+const layerOptions = assetStructureCategories;
 const currentLayer = computed(
   () =>
     layerOptions.find((item) => item.value === layer.value) ?? layerOptions[5],
 );
 const displayModeMeta: Record<DisplayMode, { label: string; description: string }> = {
-  business: { label: "业务台账", description: "按资产名称、类型、归属和状态查看日常需要管理的真实实例。" },
-  governance: { label: "六层治理", description: "面向管理员查看 L1-L6 对象、关系和缺失项；不会因缺层自动补造对象。" },
-  source: { label: "原始台账", description: "保留来源文件和原始记录，并查看它们与正式资产的映射及确认状态。" },
+  business: { label: "资产清单", description: "按分类查看公司资产，搜索名称、编号，或筛选类型、部门和状态。" },
+  governance: { label: "账号与资源结构", description: "按公司、登录身份、平台、企业账号、人员授权和具体资源查看；各类资料独立登记，关联按实际情况补充。" },
+  source: { label: "来源资料", description: "查看资料来源，以及它们与正式资产的关联和确认状态。" },
 };
 const currentDisplayMode = computed(() => displayModeMeta[displayMode.value]);
+function ownershipScopeLabel(value: string | null | undefined) {
+  return ({ company: "公司统一管理", department: "部门管理", pending: "待确认" } as Record<string,string>)[value ?? ""] ?? value ?? "待确认";
+}
 function ownershipLabel(value: string | null) {
   return ({ company_owned: "公司所有", personal_for_company: "个人注册、公司使用", unknown: "归属待确认" } as Record<string, string>)[value ?? ""] ?? "未填写";
 }
@@ -117,13 +200,7 @@ const filteredRecords = computed(() => {
   });
 });
 
-const filteredBusinessAssets = computed(() => {
-  const keyword = businessFilters.keyword.trim().toLowerCase();
-  return businessAssets.value.filter((item) => {
-    const matchesKeyword = !keyword || `${item.name} ${item.asset_code} ${assetTypeLabel(item.asset_type_id)}`.toLowerCase().includes(keyword);
-    return matchesKeyword && (!businessFilters.status || item.status === businessFilters.status);
-  });
-});
+const filteredBusinessAssets = computed(() => businessAssets.value);
 
 const sourceRows = computed(() =>
   sourcePlans.value.flatMap((plan) => plan.objects.map((item) => ({ ...item, batchId: plan.batch_id }))),
@@ -211,27 +288,44 @@ async function selectDisplayMode(mode: DisplayMode) {
   await loadActiveView();
 }
 
-async function loadBusiness() {
-  const [assetsResponse, typeResponse] = await Promise.all([
-    api.assets({ include_archived: businessFilters.include_archived, keyword: businessFilters.keyword }),
+async function loadBusiness(sequence = loadSequence) {
+  const [assetsResponse, typeResponse, user, departmentRows, categoryRows] = await Promise.all([
+    api.assets({ include_archived: !trashOpen.value && businessFilters.include_archived,
+      deleted_only: trashOpen.value, keyword: businessFilters.keyword,
+      status: businessFilters.status, department_id: businessFilters.department_id || undefined,
+      category_id: businessCategory.value === "all" ? undefined : businessCategory.value,
+      asset_type_id: businessFilters.asset_type_id || undefined, page: businessPage.value, page_size: pageSize }),
     api.assetTypes(),
+    api.currentSession(),
+    api.departments(),
+    api.assetCategories(),
   ]);
+  if (sequence !== loadSequence) return;
+  currentUser.value = user;
+  departments.value = departmentRows;
+  businessCategories.value = categoryRows;
+  if (businessPage.value > 1 && !assetsResponse.data.length) {
+    businessPage.value = Math.max(1, Math.ceil(assetsResponse.pagination.total / pageSize));
+    return loadBusiness(sequence);
+  }
   businessAssets.value = assetsResponse.data;
   businessTypes.value = typeResponse;
   total.value = assetsResponse.pagination.total;
 }
 
-async function loadSource() {
-  importBatches.value = await api.importBatches();
-  const plans = await Promise.all(importBatches.value.map(async (batch) => {
+async function loadSource(sequence = loadSequence) {
+  const batches = await api.importBatches();
+  const plans = await Promise.all(batches.map(async (batch) => {
     try { return await api.importPlan(batch.id); }
     catch { return null; }
   }));
+  if (sequence !== loadSequence) return;
+  importBatches.value = batches;
   sourcePlans.value = plans.filter((item): item is ImportPlan => item !== null);
   total.value = sourceRows.value.length;
 }
 
-async function loadGovernance() {
+async function loadGovernance(sequence = loadSequence) {
   loading.value = true;
   error.value = "";
   try {
@@ -242,6 +336,7 @@ async function loadGovernance() {
       api.departments(),
       api.analytics(),
     ]);
+    if (sequence !== loadSequence) return;
     layerCounts.value = Object.fromEntries(
       layerOptions.map((item, index) => [item.value, layerResponses[index].length]),
     );
@@ -256,23 +351,24 @@ async function loadGovernance() {
     if (!form.legal_entity_id && entities.value[0])
       form.legal_entity_id = entities.value[0].id;
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : "加载失败";
+    if (sequence === loadSequence) error.value = reason instanceof Error ? reason.message : "加载失败";
   } finally {
-    loading.value = false;
+    if (sequence === loadSequence) loading.value = false;
   }
 }
 
 async function loadActiveView() {
+  const sequence = ++loadSequence;
   loading.value = true;
   error.value = "";
   try {
-    if (displayMode.value === "business") await loadBusiness();
-    else if (displayMode.value === "source") await loadSource();
-    else await loadGovernance();
+    if (displayMode.value === "business") await loadBusiness(sequence);
+    else if (displayMode.value === "source") await loadSource(sequence);
+    else await loadGovernance(sequence);
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : "加载失败";
+    if (sequence === loadSequence) error.value = reason instanceof Error ? reason.message : "加载失败";
   } finally {
-    loading.value = false;
+    if (sequence === loadSequence) loading.value = false;
   }
 }
 
@@ -337,94 +433,88 @@ async function commitImport() {
     saving.value = false;
   }
 }
+watch(() => [route.query.trash, route.query.view, route.query.category, route.query.type], async ([trash, view, category, type]) => {
+  const nextTrash = trash === "1"; const nextMode = normalizeDisplayMode(view);
+  const nextCategory = queryText(category) || "all"; const nextType = queryText(type);
+  if (nextTrash === trashOpen.value && nextMode === displayMode.value && nextCategory === businessCategory.value && nextType === businessFilters.asset_type_id) return;
+  trashOpen.value = nextTrash; displayMode.value = nextMode; businessPage.value = 1; tableView.value = "list";
+  businessCategory.value = nextCategory; businessFilters.asset_type_id = nextType;
+  await loadActiveView();
+});
 onMounted(loadActiveView);
 </script>
 
 <template>
   <div class="page-stack">
-    <PageHeader
-      eyebrow="资产中心"
-      title="资产底库"
-      :description="currentDisplayMode.description"
-    >
-      <RouterLink class="secondary-button" to="/discover">资产发现</RouterLink
-      ><a class="secondary-button" :href="apiPath('/api/v1/exports/assets.xlsx')"
-        ><Download :size="16" />导出</a
-      ><RouterLink class="secondary-button" to="/imports"
-        ><FileUp :size="16" />资料接入</RouterLink
-      ><RouterLink class="primary-button" to="/intake"
-        ><Plus :size="17" />登记 / 发现资产</RouterLink
-      >
+    <PageHeader eyebrow="管理区" :title="trashOpen && displayMode === 'business' ? '资产回收站' : '资产库'" :description="currentDisplayMode.description">
+      <a class="secondary-button" :href="apiPath('/api/v1/exports/assets.xlsx')"><Download :size="16" />导出</a>
+      <RouterLink v-if="canRegisterBasics(currentUser)" class="primary-button" to="/intake"><Plus :size="17" />登记资产</RouterLink>
     </PageHeader>
-    <div v-if="message" class="message-panel success-message">
-      {{ message }}
+    <div v-if="message" role="status" class="message-panel success-message">{{ message }}</div>
+    <div v-if="error" role="alert" class="message-panel error-message">{{ error }}<button class="secondary-button" :disabled="loading" @click="loadActiveView">重试</button></div>
+    <div class="asset-library-tools">
+      <label><span>查看</span><select :value="displayMode" aria-label="资产视图" @change="selectDisplayMode(($event.target as HTMLSelectElement).value as DisplayMode)"><option value="business">资产清单</option><option value="governance">账号与关联</option><option value="source">来源资料</option></select></label>
+      <div><RouterLink to="/discover">浏览 AI 成果</RouterLink><RouterLink v-if="canRegisterBasics(currentUser)" to="/imports">批量导入资料</RouterLink></div>
     </div>
-    <div v-if="error" class="message-panel error-message">{{ error }}</div>
-    <section class="asset-view-tabs" aria-label="资产底库视图">
-      <button :class="{ active: displayMode === 'business' }" @click="selectDisplayMode('business')">
-        <strong>业务台账</strong><span>日常查看资产、归属和状态</span>
-      </button>
-      <button :class="{ active: displayMode === 'governance' }" @click="selectDisplayMode('governance')">
-        <strong>六层治理</strong><span>管理员查看层级、关系和缺失项</span>
-      </button>
-      <button :class="{ active: displayMode === 'source' }" @click="selectDisplayMode('source')">
-        <strong>原始台账</strong><span>核对来源记录和资产映射</span>
-      </button>
-    </section>
 
-    <section v-if="displayMode === 'business'" class="ledger-view-identity business-view-identity">
-      <div><span class="section-kicker">业务台账回答什么</span><strong>现在有哪些正式资产可以直接管理？</strong></div>
-      <span>只看已建立的资产实例，不混入来源文件、候选对象和六层治理字段。</span>
-    </section>
-
-    <section v-else-if="displayMode === 'source'" class="ledger-view-identity source-view-identity">
-      <div><span class="section-kicker">原始台账回答什么</span><strong>这条数据从哪里来，是否已经映射确认？</strong></div>
-      <span>这里保留来源批次、原始记录和候选映射；它不是正式资产清单，也不参与业务资产数量统计。</span>
-    </section>
-
-    <section v-if="displayMode === 'business'" class="list-surface business-ledger-surface">
-      <div class="section-heading business-ledger-heading">
-        <div><span class="section-kicker">默认工作视图</span><h2>真实资产台账</h2><p>不要求先理解六层；需要治理信息时再切换到“六层治理”。</p></div>
-        <span class="record-count">{{ filteredBusinessAssets.length }} / {{ total }} 项</span>
-      </div>
-      <div class="filter-grid business-filter-grid">
-        <label class="table-search"><Search :size="17" /><input v-model="businessFilters.keyword" placeholder="搜索资产名称、编号或类型" @keyup.enter="loadActiveView" /></label>
-        <label><span>状态</span><select v-model="businessFilters.status"><option value="">全部状态</option><option value="draft">草稿</option><option value="active">在用</option><option value="pending_handover">待接管</option><option value="paused">暂停</option><option value="archived">归档</option></select></label>
-        <button class="secondary-button" @click="loadActiveView"><Filter :size="16" />刷新台账</button>
-      </div>
-      <div class="list-toolbar"><label class="check-label"><input v-model="businessFilters.include_archived" type="checkbox" @change="loadActiveView" />包含已归档</label><div class="toolbar-spacer" /><span class="ledger-note">同一资产在不同视图中使用同一个详情页</span></div>
-      <div class="asset-table-wrap">
-        <table class="asset-table business-ledger-table"><thead><tr><th>资产名称</th><th>资产类型</th><th>资产编号</th><th>归属范围</th><th>状态</th><th>到期时间</th><th>最后更新</th></tr></thead>
-          <tbody><tr v-for="asset in filteredBusinessAssets" :key="asset.id"><td><RouterLink :to="`/assets/${asset.id}`"><strong>{{ asset.name }}</strong><span>查看资产详情</span></RouterLink></td><td><span class="type-tag">{{ assetTypeLabel(asset.asset_type_id) }}</span></td><td>{{ asset.asset_code }}</td><td>{{ asset.ownership_scope || "待确认" }}</td><td><StatusBadge :tone="asset.status === 'active' ? 'success' : 'warning'">{{ displayStatus(asset.status) }}</StatusBadge></td><td>{{ asset.expires_at ? new Date(asset.expires_at).toLocaleDateString('zh-CN') : '未设置' }}</td><td>{{ new Date(asset.updated_at).toLocaleString("zh-CN") }}</td></tr></tbody>
-        </table>
-        <div v-if="!loading && !filteredBusinessAssets.length" class="empty-state"><span class="empty-icon"><List :size="26" /></span><strong>暂无符合条件的资产</strong><p>可以调整搜索条件，或从“登记 / 发现资产”新增一条真实实例。</p></div>
-        <div v-if="loading" class="loading-state">正在读取业务台账…</div>
+    <section v-if="displayMode === 'business'" class="list-surface asset-library-surface">
+      <WorkspaceTabs :model-value="businessCategory" :tabs="businessCategoryTabs" label="资产分类" id-prefix="asset-category" @update:model-value="selectBusinessCategory" />
+      <div id="asset-category-panel" role="tabpanel" :aria-labelledby="`asset-category-${businessCategory}`" :aria-busy="loading">
+        <form class="asset-library-filters" role="search" aria-label="筛选资产" @submit.prevent="refreshBusiness">
+          <label class="asset-library-search"><span class="sr-only">搜索资产</span><Search :size="17" aria-hidden="true" /><input v-model="businessFilters.keyword" type="search" placeholder="搜索名称、编号或平台标识" /></label>
+          <label><span class="sr-only">资产类型</span><select v-model="businessFilters.asset_type_id" aria-label="筛选资产类型" @change="selectBusinessType"><option value="">全部类型</option><option v-for="item in availableBusinessTypes" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
+          <label><span class="sr-only">归属部门</span><select v-model="businessFilters.department_id" aria-label="筛选归属部门" @change="refreshBusiness"><option value="">全部部门</option><option v-for="item in departments" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
+          <label v-if="!trashOpen"><span class="sr-only">资产状态</span><select v-model="businessFilters.status" aria-label="筛选资产状态" @change="refreshBusiness"><option value="">全部状态</option><option value="draft">草稿</option><option value="active">在用</option><option value="pending_handover">待接管</option><option value="paused">暂停</option><option value="archived">归档</option></select></label>
+          <button class="secondary-button" :disabled="loading"><Search :size="16" />搜索</button>
+        </form>
+        <div class="asset-library-summary">
+          <span role="status">{{ selectedCategoryName }} · {{ loading ? '读取中…' : `共 ${total} 项` }}</span>
+          <div><label v-if="!trashOpen" class="check-label"><input v-model="businessFilters.include_archived" type="checkbox" @change="refreshBusiness" />包含已归档</label><button v-if="hasBusinessFilters" class="fusion-clear-button" @click="clearBusinessFilters">清除筛选</button><button v-if="canDelete" class="secondary-button" :disabled="loading" @click="switchTrash">{{ trashOpen ? '返回资产库' : '回收站' }}</button></div>
+        </div>
+        <p v-if="trashOpen" class="ledger-note">删除的资产保留资料、附件和审计，可恢复。恢复 AI 成果后需重新确认和审核。</p>
+        <div v-if="loading" role="status" class="loading-state">正在读取资产…</div>
+        <div v-else-if="!error && !filteredBusinessAssets.length" class="empty-state"><List :size="26" aria-hidden="true" /><strong>{{ trashOpen ? '回收站暂无符合条件的资产' : '暂无符合条件的资产' }}</strong><p>{{ hasBusinessFilters ? '可以调整或清除筛选条件。' : '可以切换分类查看其他资产。' }}</p><button v-if="hasBusinessFilters" class="secondary-button" @click="clearBusinessFilters">清除筛选</button><button v-else-if="businessCategory !== 'all'" class="secondary-button" @click="selectBusinessCategory('all')">查看全部资产</button><RouterLink v-else-if="canRegisterBasics(currentUser) && !trashOpen" to="/intake" class="secondary-button">登记资产</RouterLink></div>
+        <div v-else-if="!error" class="asset-table-wrap">
+          <table class="asset-table asset-library-table"><caption class="sr-only">{{ selectedCategoryName }}，共 {{ total }} 项资产，第 {{ businessPage }} 页</caption>
+            <thead><tr><th scope="col">资产</th><th scope="col">类型</th><th scope="col">归属</th><th scope="col">状态</th><th scope="col">到期</th><th v-if="canDelete" scope="col">操作</th></tr></thead>
+            <tbody><tr v-for="asset in filteredBusinessAssets" :key="asset.id">
+              <td><strong v-if="asset.archived_at">{{ asset.name }}</strong><RouterLink v-else :to="`/assets/${asset.id}`" class="asset-name-link">{{ asset.name }}</RouterLink><small class="asset-code">{{ asset.asset_code }}</small></td>
+              <td>{{ assetTypeLabel(asset.asset_type_id) }}</td>
+              <td><span>{{ departmentLabel(asset) }}</span><small v-if="asset.owner_department_id" class="asset-code">{{ ownershipScopeLabel(asset.ownership_scope) }}</small></td>
+              <td><StatusBadge :tone="asset.status === 'active' ? 'success' : 'warning'">{{ displayStatus(asset.status) }}</StatusBadge></td>
+              <td>{{ asset.expires_at ? new Date(asset.expires_at).toLocaleDateString('zh-CN') : '—' }}</td>
+              <td v-if="canDelete"><button v-if="asset.archived_at" class="asset-row-action" :disabled="loading" :aria-label="`恢复资产 ${asset.name}`" @click="openMutation(asset, 'restore')">恢复</button><button v-if="!trashOpen" class="asset-row-action deletion-button" :disabled="loading" :aria-label="`删除资产 ${asset.name}`" @click="openMutation(asset, 'delete')">删除</button></td>
+            </tr></tbody>
+          </table>
+        </div>
+        <div v-if="!error" class="asset-library-pagination" aria-label="资产分页"><span>第 {{ businessPage }} / {{ Math.max(1, Math.ceil(total / pageSize)) }} 页</span><div><button class="secondary-button" :disabled="loading || businessPage <= 1" @click="changeBusinessPage(-1)">上一页</button><button class="secondary-button" :disabled="loading || businessPage * pageSize >= total" @click="changeBusinessPage(1)">下一页</button></div></div>
       </div>
     </section>
 
-    <section v-if="displayMode === 'governance'" class="layer-browser-guide" aria-label="六层浏览器">
+    <section v-if="displayMode === 'governance'" class="layer-browser-guide" aria-label="账号与资源分类">
       <div class="layer-browser-heading">
-        <span class="section-kicker">第一步：选择查看层级</span>
-        <h2>你想看什么，就只看什么。</h2>
+        <span class="section-kicker">选择要查看的资料</span>
+        <h2>按业务名称查看，不用记层级编号。</h2>
         <p>
-          默认展示第六层实体服务/资源。只有来源中真实存在的对象才会出现在相应层级，空层级不自动补造。
+          默认查看系统、订阅与资源。公司、登录身份和账号独立维护，不需要为一项资产补齐所有类别。
         </p>
       </div>
-      <div class="layer-tabs" role="tablist" aria-label="六层数据筛选">
+      <div class="layer-tabs" role="group" aria-label="按资料类别筛选">
         <button
           v-for="item in layerOptions"
           :key="item.value"
           :class="{ active: layer === item.value }"
-          role="tab"
-          :aria-selected="layer === item.value"
+          :aria-pressed="layer === item.value"
           @click="changeLayer(item.value)"
         >
-          <b>L{{ item.value }}</b
-          ><span>{{ item.label }}</span
+          <span>{{ item.label }}</span
           ><small>{{ item.hint }} · {{ layerCounts[item.value] ?? "—" }} 项</small>
         </button>
       </div>
     </section>
+
+    <section v-if="displayMode === 'governance'" class="governance-context content-panel"><div><h3>{{ currentLayer.label }}：{{ currentLayer.hint }}</h3><p>例如：{{ currentLayer.example }}。{{ currentLayer.when }}</p></div><RouterLink :to="{path:'/intake',query:{mode:currentLayer.mode}}" class="secondary-button">{{ layer === 5 ? '分配使用权' : '登记这类资料' }}</RouterLink></section>
+    <AssetStructureGuide v-if="displayMode === 'governance'" />
 
     <section v-if="displayMode === 'governance'" class="list-surface">
       <div class="filter-grid">
@@ -567,9 +657,9 @@ onMounted(loadActiveView);
     <section v-if="displayMode === 'source'" class="source-ledger-shell">
       <div class="source-ledger-heading">
         <div>
-          <span class="section-kicker">老板材料 · AI 资产主台账</span>
-          <h2>所有订阅、API、服务和系统统一放在这里看</h2>
-          <p>沿用原账号分发系统的业务字段；按材料中的实际类型分组，展开后查看这一组资产的完整台账。</p>
+          <span class="section-kicker">来源资料</span>
+          <h2>核对来源与资产关联</h2>
+          <p>按资料中的实际类型分组，查看原始记录、确认状态与关联的资产。</p>
         </div>
         <div class="source-ledger-actions">
           <button class="secondary-button" @click="setSourceGroupsOpen(true)">全部展开</button>
@@ -578,8 +668,8 @@ onMounted(loadActiveView);
       </div>
 
       <div class="source-ledger-kpis">
-        <article><span>材料批次</span><strong>{{ importBatches.length }}</strong><small>老板材料来源</small></article>
-        <article><span>台账记录</span><strong>{{ sourceRows.length }}</strong><small>按实际类型分组</small></article>
+        <article><span>材料批次</span><strong>{{ importBatches.length }}</strong><small>保留资料来源</small></article>
+        <article><span>资产记录</span><strong>{{ sourceRows.length }}</strong><small>按实际类型分组</small></article>
         <article><span>已确认</span><strong>{{ sourceLedgerConfirmedCount }}</strong><small>已完成映射确认</small></article>
         <article><span>待确认</span><strong>{{ sourceRows.length - sourceLedgerConfirmedCount }}</strong><small>保留原始事实</small></article>
       </div>
@@ -588,7 +678,7 @@ onMounted(loadActiveView);
         <FileUp :size="18" />
         <div>
           <strong>来源材料</strong>
-          <span>{{ importBatches.map((batch) => batch.file_name).join("、") || "暂未接入老板材料" }}</span>
+          <span>{{ importBatches.map((batch) => batch.file_name).join("、") || "暂未接入资料" }}</span>
         </div>
         <RouterLink v-if="importBatches[0]" class="secondary-button" :to="`/imports?batch=${importBatches[0].id}`">打开资料接入</RouterLink>
       </div>
@@ -607,7 +697,7 @@ onMounted(loadActiveView);
               <thead><tr><th>资产ID</th><th>类型</th><th>工具 / 服务</th><th>套餐 / 用途</th><th>使用人</th><th>部门</th><th>账号引用</th><th>付款方式</th><th>预算 / 费用</th><th>状态</th><th>续费 / 到期</th><th>备注</th><th>来源 / 映射</th></tr></thead>
               <tbody>
                 <tr v-for="item in group.rows" :key="item.id">
-                  <td><strong>{{ item.source_reference || item.proposal_key }}</strong><small>{{ item.layer_code }} · {{ item.suggested_name }}</small></td>
+                  <td><strong>{{ item.source_reference || item.proposal_key }}</strong><small>{{ item.suggested_name }}</small></td>
                   <td><span class="type-tag">{{ item.object_type }}</span></td>
                   <td>{{ sourceField(item, ["service_name", "service", "platform_name", "product_name", "工具服务", "平台服务"], item.suggested_name) }}</td>
                   <td>{{ sourceField(item, ["usage", "purpose", "subscription_name", "套餐用途", "用途" ]) }}</td>
@@ -626,8 +716,8 @@ onMounted(loadActiveView);
           </div>
         </article>
       </div>
-      <div v-else-if="!loading" class="empty-state source-ledger-empty"><span class="empty-icon"><List :size="26" /></span><strong>暂无老板材料台账</strong><p>资料接入并建立规划后，会按照实际类型在这里形成可折叠的业务台账。</p></div>
-      <div v-if="loading" class="loading-state">正在读取老板材料台账…</div>
+      <div v-else-if="!loading" class="empty-state source-ledger-empty"><span class="empty-icon"><List :size="26" /></span><strong>暂无来源资料</strong><p>接入资料后，按实际类型在这里查看原始记录和资产关联。</p></div>
+      <div v-if="loading" class="loading-state">正在读取来源资料…</div>
     </section>
 
     <ModalPanel
@@ -764,5 +854,74 @@ onMounted(loadActiveView);
         </div>
       </div>
     </ModalPanel>
+    <ModalPanel v-if="mutationTarget" :title="mutationKind === 'delete' ? '删除资产' : '恢复资产'" description="请核对本次操作的资产" trap-focus @close="closeMutation">
+      <div class="asset-mutation-body" :aria-busy="mutationBusy" @keydown.esc="closeMutation">
+        <strong>{{ mutationTarget.name }}</strong>
+        <p>资产编号：{{ mutationTarget.asset_code }} · 资料修订 {{ mutationTarget.version }}</p>
+        <p v-if="mutationKind === 'delete'">删除后移入回收站，可由资产管理员恢复。保留资料、附件与审计记录；不删除仓库，也不注销外部账号或资源。</p>
+        <p v-else>{{ mutationTarget.sharing_scope ? "恢复为待核验草稿，需重新确认和审核；不会沿用旧版的通过状态。" : "恢复后重新显示在资产。" }}</p>
+        <p v-if="mutationError" role="alert" class="error-banner">{{ mutationError }}；可取消后刷新资产列表，重新核对再操作。</p>
+      </div>
+      <template #footer><button class="secondary-button" :disabled="mutationBusy" @click="closeMutation">取消</button><button :class="['primary-button', { 'deletion-confirm': mutationKind === 'delete' }]" :disabled="mutationBusy" @click="mutateAsset">{{ mutationBusy ? "正在处理…" : mutationKind === 'delete' ? "确认删除" : "确认恢复" }}</button></template>
+    </ModalPanel>
   </div>
 </template>
+
+<style scoped>
+.asset-library-tools { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; color:var(--muted); }
+.asset-library-tools label, .asset-library-tools > div { display:flex; align-items:center; gap:16px; }
+.asset-library-tools select { min-width:140px; }
+.asset-library-tools a { font-size:13px; text-decoration:underline; text-underline-offset:4px; }
+.asset-library-surface { overflow:hidden; }
+.asset-library-surface :deep(.workspace-tabs) { padding:0 20px; gap:24px; background:var(--surface); }
+.asset-library-surface :deep(.workspace-tabs button) { min-height:52px; padding:15px 0; }
+.asset-library-surface :deep(.workspace-tabs button.active) { border-bottom:3px solid var(--accent); }
+.asset-library-filters { display:grid; grid-template-columns:minmax(210px,2fr) repeat(3,minmax(120px,1fr)) auto; align-items:center; gap:12px; padding:20px 20px 12px; }
+.asset-library-filters > label { min-width:0; }
+.asset-library-filters select { width:100%; }
+.asset-library-search { display:flex; align-items:center; gap:10px; min-width:0; padding:0 12px; border:1px solid var(--border); border-radius:8px; color:var(--muted); }
+.asset-library-search input { width:100%; min-width:0; padding:10px 0; border:0; background:transparent; box-shadow:none; }
+.asset-library-search:focus-within { outline:2px solid var(--focus); outline-offset:2px; }
+.asset-library-search input:focus-visible { outline:none; }
+.asset-library-summary { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:0 20px 16px; color:var(--muted); font-size:13px; }
+.asset-library-summary > div { display:flex; align-items:center; flex-wrap:wrap; gap:16px; }
+.asset-library-summary .secondary-button { min-height:36px; padding:7px 12px; }
+.asset-library-table { min-width:720px; }
+.asset-library-table th, .asset-library-table td { padding:16px 20px; font-size:14px; white-space:normal; }
+.asset-library-table th { color:var(--muted); background:var(--surface-soft); font-size:12px; }
+.asset-library-table th:first-child { width:34%; }
+.asset-library-table td:first-child { min-width:240px; max-width:360px; }
+.asset-library-table td { vertical-align:middle; }
+.asset-library-table td:nth-child(5), .asset-library-table td:last-child { white-space:nowrap; }
+.asset-name-link { font-weight:650; line-height:1.5; overflow-wrap:anywhere; }
+.asset-name-link:hover { text-decoration:underline; text-underline-offset:3px; }
+.asset-code { display:block; margin-top:5px; color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+.asset-row-action { border:0; padding:8px 2px; background:transparent; font:inherit; cursor:pointer; }
+.asset-row-action:hover { text-decoration:underline; text-underline-offset:4px; }
+.asset-library-pagination { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 20px; border-top:1px solid var(--border); color:var(--muted); font-size:13px; }
+.asset-library-pagination > div { display:flex; gap:10px; }
+.deletion-button { color:#a92a22; }
+.page-stack :deep(.modal-panel) .deletion-confirm { background:#a92a22; color:#fff; }
+.asset-mutation-body { overflow-wrap:anywhere; line-height:1.7; }
+.asset-mutation-body p { margin:12px 0; }
+
+.governance-context { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; }
+.governance-context > div { flex:1 1 300px; min-width:0; }
+.governance-context h3, .governance-context p { margin:0; }
+.governance-context p { margin-top:8px; color:var(--muted); line-height:1.7; }
+.layer-browser-guide { grid-template-columns:1fr; }
+.layer-tabs { grid-template-columns:repeat(3,minmax(0,1fr)); }
+@media(max-width:1150px) {
+  .asset-library-filters { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .asset-library-search { grid-column:span 2; }
+}
+@media(max-width:650px) {
+  .layer-tabs { grid-template-columns:1fr 1fr; }
+  .asset-library-filters { grid-template-columns:1fr 1fr; padding:16px; }
+  .asset-library-search { grid-column:span 2; }
+  .asset-library-summary, .asset-library-pagination { padding:12px 16px; }
+  .asset-library-summary > div { gap:10px; }
+  .asset-library-tools { gap:16px; }
+  .page-stack :deep(.page-actions) { width:100%; flex-wrap:wrap; }
+}
+</style>

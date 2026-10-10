@@ -97,6 +97,12 @@ def _asset_item(asset: Asset, categories, types, departments, entities, people):
         "last_verified_at": _iso(asset.last_verified_at),
         "description": asset.description,
         "version": asset.version,
+        "outcome_version": asset.outcome_version,
+        "created_by_person_id": str(asset.created_by_person_id) if asset.created_by_person_id else None,
+        "created_by_person_name": (
+            people[asset.created_by_person_id].display_name
+            if asset.created_by_person_id in people else None
+        ),
         "updated_at": _iso(asset.updated_at),
         "created_at": _iso(asset.created_at),
         "archived_at": _iso(asset.archived_at),

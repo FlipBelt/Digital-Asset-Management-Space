@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowRight, QrCode } from "lucide-vue-next";
+import { ArrowRight, Check, QrCode, ShieldCheck } from "lucide-vue-next";
 
 import { api, resetPmSessionCache } from "../lib/api";
 import { dingTalkWebLoginError, safeLoginRedirect } from "../lib/loginNavigation";
@@ -9,6 +9,8 @@ import { dingTalkWebLoginError, safeLoginRedirect } from "../lib/loginNavigation
 const router = useRouter();
 const route = useRoute();
 const logoUrl = import.meta.env.BASE_URL + "logo.svg";
+const iconUrl = import.meta.env.BASE_URL + "favicon.svg";
+const environmentLabel = import.meta.env.BASE_URL.startsWith("/test") ? "测试环境" : "资产中心";
 const username = ref("");
 const password = ref("");
 const error = ref("");
@@ -68,31 +70,49 @@ onMounted(() => {
 
 <template>
   <main class="login-page">
-    <section class="login-card" aria-labelledby="login-title" :aria-busy="finishing">
-      <div class="login-brand"><img :src="logoUrl" alt="FlipBelt" /><small>飞比特 · 资产中心</small></div>
-      <div><h1 id="login-title">登录资产中心</h1><p class="login-intro">使用企业钉钉身份，继续你的工作。</p></div>
-      <p v-if="finishing" class="login-status" role="status">正在确认登录身份…</p>
-      <template v-else>
-        <button class="primary-button login-qr-button" type="button" :disabled="checking || !webConfigured || submitting" @click="startWebLogin">
-          <QrCode :size="20" aria-hidden="true" /><span>{{ checking ? "正在检查登录服务…" : "钉钉扫码登录" }}</span><ArrowRight :size="18" aria-hidden="true" />
-        </button>
-        <p class="login-help">在钉钉官方页面扫码并确认，完成后自动返回。普通浏览器也可使用。</p>
-        <p v-if="webMessage" class="form-error" role="alert">{{ webMessage }}</p>
-        <div v-if="configurationFailed" class="login-status" role="status">
-          暂时无法连接登录服务。<button class="login-retry" type="button" @click="checkWebLogin">重试</button>
-        </div>
-        <p v-else-if="!checking && !webConfigured" class="login-status" role="status">扫码登录尚未配置，请联系管理员，或使用已授权的系统账号。</p>
-        <details class="login-account" :open="Boolean(error)">
-          <summary>使用系统账号登录</summary>
-          <form @submit.prevent="submit">
-            <p class="login-help">适用于管理员已为你开通的系统账号。</p>
-            <label>用户名<input v-model="username" autocomplete="username" required /></label>
-            <label>密码<input v-model="password" type="password" autocomplete="current-password" minlength="12" required /></label>
-            <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-            <button class="secondary-button" type="submit" :disabled="submitting">{{ submitting ? "正在登录…" : "账号登录" }}</button>
-          </form>
-        </details>
-      </template>
-    </section>
+    <header class="login-header">
+      <div class="login-brand"><img :src="logoUrl" alt="FlipBelt" /><span>飞比特 · 资产中心</span></div>
+      <span class="login-environment">{{ environmentLabel }}</span>
+    </header>
+    <div class="login-layout">
+      <section class="login-overview" aria-labelledby="login-overview-title">
+        <img class="login-mark" :src="iconUrl" alt="" />
+        <p class="login-eyebrow">你的工作，值得积累</p>
+        <h1 id="login-overview-title">让每一份成果<br />成为可用的资产。</h1>
+        <p class="login-description">登记成果、明确责任，让团队的经验持续复用。</p>
+        <ul class="login-benefits">
+          <li><Check :size="17" aria-hidden="true" />管理自己创建和负责的资产</li>
+          <li><Check :size="17" aria-hidden="true" />发现可用于工作的 AI 成果</li>
+          <li><Check :size="17" aria-hidden="true" />记录实践，让经验有据可查</li>
+        </ul>
+      </section>
+      <section class="login-card" aria-labelledby="login-title" :aria-busy="finishing || submitting">
+        <div class="login-card-heading"><h2 id="login-title">登录资产中心</h2><p class="login-intro">使用企业钉钉身份，继续你的工作。</p></div>
+        <p v-if="finishing" class="login-status" role="status">正在确认登录身份…</p>
+        <template v-else>
+          <button class="primary-button login-qr-button" type="button" :disabled="checking || !webConfigured || submitting" @click="startWebLogin">
+            <QrCode :size="21" aria-hidden="true" /><span>{{ checking ? "正在检查登录服务…" : "钉钉扫码登录" }}</span><ArrowRight :size="18" aria-hidden="true" />
+          </button>
+          <ol class="login-steps"><li><span aria-hidden="true">1</span>前往钉钉官方页面扫码</li><li><span aria-hidden="true">2</span>在手机上确认，自动返回</li></ol>
+          <p v-if="webMessage" class="form-error" role="alert">{{ webMessage }}</p>
+          <div v-if="configurationFailed" class="login-status" role="status">
+            暂时无法连接登录服务。<button class="login-retry" type="button" @click="checkWebLogin">重试</button>
+          </div>
+          <p v-else-if="!checking && !webConfigured" class="login-status" role="status">扫码登录尚未配置，请联系管理员，或使用已授权的系统账号。</p>
+          <details class="login-account" :open="Boolean(error)">
+            <summary>使用系统账号登录</summary>
+            <form @submit.prevent="submit">
+              <p class="login-help">适用于管理员已为你开通的系统账号。</p>
+              <label>用户名<input v-model="username" autocomplete="username" autocapitalize="none" spellcheck="false" :disabled="submitting" required /></label>
+              <label>密码<input v-model="password" type="password" autocomplete="current-password" minlength="12" :disabled="submitting" required /></label>
+              <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+              <button class="secondary-button" type="submit" :disabled="submitting">{{ submitting ? "正在登录…" : "账号登录" }}</button>
+            </form>
+          </details>
+        </template>
+        <p class="login-identity-note"><ShieldCheck :size="17" aria-hidden="true" /><span>仅限已获授权的企业成员访问</span></p>
+      </section>
+    </div>
+    <footer class="login-footer">FlipBelt 资产中心<span>在钉钉内打开时支持自动识别身份</span></footer>
   </main>
 </template>

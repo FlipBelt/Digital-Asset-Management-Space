@@ -1,57 +1,45 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
-import { ArrowRight, Boxes, Building2, ChartNoAxesCombined, ClipboardCheck, FileInput, KeyRound, Layers3, Truck, Users } from "lucide-vue-next";
+import { useRoute } from "vue-router";
+import { ArrowRight, Plus, ArchiveRestore } from "lucide-vue-next";
 import PageHeader from "../components/PageHeader.vue";
-import WorkspaceTabs from "../components/WorkspaceTabs.vue";
 import AdminPage from "./AdminPage.vue";
 import { api, type CurrentUser } from "../lib/api";
-import { legacyWorkspaceEnabled } from "../lib/workspaceNavigation";
-const route = useRoute(); const router = useRouter();
+import { canManageWorkspace, canRegisterBasics, managementItems, registrationKinds } from "../lib/managementWorkspace";
+const route = useRoute();
 const user = ref<CurrentUser | null>(null); const error = ref(""); const loading = ref(true);
-const allowed = computed(() => Boolean(user.value?.roles.some(role => ["system_admin", "asset_manager", "department_manager", "group_leader", "auditor"].includes(role))));
-const isAdmin = computed(() => Boolean(user.value?.roles.includes("system_admin")));
-const globalManager = computed(() => Boolean(user.value?.roles.some(role => ["system_admin", "asset_manager"].includes(role))));
-const groupOnly = computed(() => Boolean(user.value?.roles.includes("group_leader") && !user.value?.roles.some(role => ["system_admin", "asset_manager", "department_manager", "auditor"].includes(role))));
-const active = computed(() => route.query.tab === "settings" && isAdmin.value ? "settings" : "operations");
-const tabs = computed(() => [{ value: "operations", label: "资产管理" }, ...(isAdmin.value ? [{ value: "settings", label: "系统设置" }] : [])]);
-const registrations = [
-  { to: "/intake?mode=platform", title: "登记平台", text: "补充平台目录", icon: Layers3 },
-  { to: "/intake?mode=entity", title: "登记公司主体", text: "新建法人主体档案", icon: Building2 },
-  { to: "/intake?mode=provider", title: "登记供应商", text: "维护服务提供方", icon: Truck },
-  { to: "/intake?mode=identity", title: "登记注册身份", text: "手机号、邮箱等标识", icon: KeyRound },
-  { to: "/intake?mode=platform-account", title: "登记平台账号", text: "公司账号或租户", icon: Users },
-  { to: "/intake?mode=resource", title: "登记服务与资源", text: "服务、系统与云资源", icon: Boxes },
-];
-const records = computed(() => [
-  { to: "/assets", title: "公司资产台账", description: "维护 AI 成果与公司资源的分类、责任和归档记录。", icon: Boxes },
-  { to: "/accounts", title: "平台与账号", description: "维护公司平台、账号及安全引用。", icon: KeyRound },
-  { to: "/organization", title: "组织与授权", description: "核对公司、部门、成员与有效使用授权。", icon: Users },
-  { to: "/services", title: "订阅与用量", description: "核对服务订阅、费用及调用记录。", icon: ChartNoAxesCombined },
-  { to: "/governance", title: "申请处理与风险", description: "处理员工申请，核对到期和风险事项。", icon: ClipboardCheck },
-  ...(globalManager.value ? [{ to: "/imports", title: "批量导入", description: "预览、校验并确认已有资料清单。", icon: FileInput }] : []),
-  ...(legacyWorkspaceEnabled(import.meta.env.BASE_URL, window.location.hostname) ? [{ to: "/hudu", title: "原资产工作区", description: "查看历史资产工作区。", icon: Boxes }] : []),
-].filter(item => !groupOnly.value || ["/assets", "/organization"].includes(item.to)));
-function selectTab(value: string) { void router.replace({ query: value === "settings" ? { tab: "settings" } : {} }); }
-async function load() { loading.value = true; error.value = ""; try { user.value = await api.currentSession(); } catch (reason) { error.value = reason instanceof Error ? reason.message : "读取失败"; } finally { loading.value = false; } }
+const allowed = computed(() => canManageWorkspace(user.value));
+const isAdmin = computed(() => !!user.value?.roles.includes("system_admin"));
+const settings = computed(() => route.query.tab === "settings" && isAdmin.value);
+const records = computed(() => managementItems(user.value).filter(item => item.group === "records"));
+const actions = computed(() => managementItems(user.value).filter(item => item.group === "actions"));
+const canDelete = computed(() => !!user.value && (isAdmin.value || (user.value.roles.includes("asset_manager") && user.value.permissions.includes("asset.write"))));
+async function load() {
+  loading.value = true; error.value = "";
+  try { user.value = await api.currentSession(); }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : "管理权限读取失败"; }
+  finally { loading.value = false; }
+}
 onMounted(load);
 </script>
 <template>
-  <div class="page-stack fusion-space management-space">
-    <PageHeader eyebrow="管理区" title="公司资产管理" description="维护平台、账号、供应商与基础设施，处理员工申请。AI 成果的查找与复用请进入 AI 资产。"><RouterLink to="/discover" class="secondary-button">浏览 AI 成果<ArrowRight :size="16" /></RouterLink></PageHeader>
+  <div class="page-stack management-home">
+    <PageHeader eyebrow="管理区" :title="settings ? '系统设置' : '公司资产管理'" :description="settings ? '统一维护分类、组织同步、连接器和审计配置。' : '从资产开始维护资料，按需登记新对象、审核成果或处理待办。'">
+      <RouterLink v-if="!settings && canRegisterBasics(user)" to="/intake" class="primary-button"><Plus :size="16" />登记基础资料</RouterLink>
+    </PageHeader>
     <section v-if="loading" class="fusion-empty" role="status">正在核对管理权限…</section>
-    <section v-else-if="error" class="fusion-empty" role="alert"><p>{{ error }}</p><button class="secondary-button" @click="load">重试</button></section>
+    <section v-else-if="error" class="fusion-empty" role="alert"><h2>暂时无法读取管理事项</h2><p>{{ error }}</p><button class="secondary-button" @click="load">重试</button></section>
     <section v-else-if="!allowed" class="fusion-empty"><h2>当前身份没有管理权限</h2><p>需要申请席位、平台或账号时，请进入我的申请。</p><RouterLink to="/my/requests" class="primary-button">我的申请</RouterLink><RouterLink to="/my" class="secondary-button">返回我的空间</RouterLink></section>
+    <AdminPage v-else-if="settings" embedded />
     <template v-else>
-      <WorkspaceTabs :model-value="active" :tabs="tabs" id-prefix="manage-tab" label="管理事项" @update:model-value="selectTab" />
-      <div id="manage-tab-panel" role="tabpanel" :aria-labelledby="`manage-tab-${active}`">
-        <AdminPage v-if="active === 'settings' && isAdmin" embedded />
-        <div v-else class="management-operations">
-          <section v-if="globalManager" class="management-registration"><header><div><h2>登记基础资料</h2><p>选择对象后直接填写，已有资料先查重再补充。</p></div><RouterLink to="/assets" class="text-button">查询公司资产台账<ArrowRight :size="16" /></RouterLink></header><div class="registration-shortcuts"><RouterLink v-for="item in registrations" :key="item.to" :to="item.to"><component :is="item.icon" :size="22" /><div><strong>{{ item.title }}</strong><small>{{ item.text }}</small></div><ArrowRight :size="16" /></RouterLink></div></section>
-          <section class="content-panel management-records"><header><h2>维护与处理</h2><span>按当前角色展示可用事项</span></header><RouterLink v-for="item in records" :key="item.to" :to="item.to" class="management-record-link"><component :is="item.icon" :size="21" /><div><strong>{{ item.title }}</strong><p>{{ item.description }}</p></div><ArrowRight :size="18" /></RouterLink></section>
-          <section v-if="isAdmin" class="content-panel fusion-policy-draft"><h2>贡献激励 · 规则草案</h2><p>当前收集实践与贡献证据；价值、贡献归属和奖励规则由人工核对，尚未向员工发布。</p></section>
-        </div>
-      </div>
+      <section class="management-section"><header><h2>资产与资料</h2><p>查询、维护和核对公司已有记录。</p></header><div class="management-entry-grid">
+        <RouterLink v-for="item in records" :key="item.key" :to="item.to" class="management-entry"><div><strong>{{ item.label }}</strong><p>{{ item.description }}</p></div><ArrowRight :size="18" aria-hidden="true" /></RouterLink>
+      </div></section>
+      <section v-if="actions.length" class="management-section"><header><h2>审核与跟进</h2><p>进入对应队列，按当前权限处理事项。</p></header><div class="management-entry-grid">
+        <RouterLink v-for="item in actions" :key="item.key" :to="item.to" class="management-entry"><div><strong>{{ item.label }}</strong><p>{{ item.description }}</p></div><ArrowRight :size="18" aria-hidden="true" /></RouterLink>
+      </div></section>
+      <details v-if="canRegisterBasics(user)" class="management-registration-guide"><summary>登记新资料 · 按业务对象直接进入</summary><p>已有对象先查询，缺少的关系或资料可以稍后补充。</p><div class="management-registration-links"><RouterLink v-for="item in registrationKinds" :key="item.mode" :to="{ path:'/intake', query:{mode:item.mode} }">{{ item.label }}<ArrowRight :size="15" aria-hidden="true" /></RouterLink></div></details>
+      <footer class="management-home-footer"><p>此处维护公司资源。查找和复用 AI 成果，请进入<RouterLink to="/discover">AI 资产</RouterLink>。</p><RouterLink v-if="canDelete" to="/assets?trash=1" class="secondary-button"><ArchiveRestore :size="16" />资产回收站</RouterLink></footer>
     </template>
   </div>
 </template>

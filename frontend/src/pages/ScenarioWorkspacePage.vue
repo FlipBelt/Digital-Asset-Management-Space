@@ -67,14 +67,14 @@ onMounted(load);
 
 <template>
   <div class="page-stack scenario-page">
-    <PageHeader eyebrow="用户工作视图" title="业务场景工作区" description="按业务找到平台、账号、资源和负责人；资产入库与六层治理保持不变。">
-      <RouterLink to="/intake" class="secondary-button"><BriefcaseBusiness :size="16" />资产入库</RouterLink>
-      <RouterLink to="/assets" class="secondary-button"><Boxes :size="16" />资产底库</RouterLink>
+    <PageHeader eyebrow="管理区" title="业务场景" description="按业务场景查看已关联的平台、账号、资源与负责人。">
+      <RouterLink to="/intake" class="secondary-button"><BriefcaseBusiness :size="16" />登记基础资料</RouterLink>
+      <RouterLink to="/assets" class="secondary-button"><Boxes :size="16" />公司资产</RouterLink>
       <button class="primary-button" @click="load"><RefreshCw :size="16" />刷新</button>
     </PageHeader>
 
     <div v-if="error" class="message-panel error-message">{{ error }}</div>
-    <section class="scenario-notice"><CircleAlert :size="18" /><div><strong>这是业务导航，不是另一套台账。</strong><p>场景只是把已有资产按使用方式重新组织；任何新增、修改、归档仍回到资产底库留痕。</p></div></section>
+    <section class="scenario-notice"><CircleAlert :size="18" /><div><strong>按业务场景查找已有资产</strong><p>在此查看平台、账号、资源和责任关系；资料维护请进入公司资产。</p></div></section>
 
     <section class="scenario-card-grid" aria-label="业务场景">
       <button v-for="item in scenarios" :key="item.code" class="scenario-card" :class="{ active: item.code === selectedCode }" @click="selectScenario(item.code)">
@@ -82,11 +82,11 @@ onMounted(load);
         <div><strong>{{ item.name }}</strong><p>{{ item.description }}</p></div>
         <div class="scenario-card-counts"><span><b>{{ item.asset_count }}</b>资产</span><span><b>{{ item.platform_count }}</b>平台</span><span><b>{{ item.account_count }}</b>账号</span></div>
       </button>
-      <div v-if="!scenarios.length && !loading" class="large-empty-panel"><BriefcaseBusiness :size="28" /><strong>尚未建立业务场景</strong><p>请先运行基础种子数据。</p></div>
+      <div v-if="!scenarios.length && !loading" class="large-empty-panel"><BriefcaseBusiness :size="28" /><strong>尚未建立业务场景</strong><p>可先在公司资产查看已有资产，或联系管理员核对场景配置。</p></div>
     </section>
 
     <section v-if="overview" class="scenario-toolbar">
-      <div><span class="hero-kicker">{{ overview.scenario.name }}</span><h2>从平台进入，逐层找到可执行资源</h2><p>{{ overview.scenario.description }}</p></div>
+      <div><span class="hero-kicker">{{ overview.scenario.name }}</span><h2>查看平台关联的账号与资源</h2><p>{{ overview.scenario.description }}</p></div>
       <label class="map-search"><Search :size="16" /><input v-model="keyword" placeholder="搜索平台、账号、资源或负责人" /></label>
     </section>
 
@@ -104,9 +104,9 @@ onMounted(load);
           <div v-if="!childrenOf(platform.id).length" class="scenario-empty-inline">该平台暂未关联可用资产。</div>
         </div>
       </article>
-      <div v-if="!platformNodes.length" class="large-empty-panel"><Search :size="28" /><strong>没有找到匹配的场景对象</strong><p>可以清空搜索词，或回到资产底库查看未归类数据。</p><button class="secondary-button" @click="keyword = ''">清空筛选</button></div>
+      <div v-if="!platformNodes.length" class="large-empty-panel"><Search :size="28" /><strong>没有找到匹配的场景对象</strong><p>可以清空搜索词，或在公司资产查看其他资产。</p><button class="secondary-button" @click="keyword = ''">清空筛选</button></div>
     </section>
 
-    <section class="scenario-footer"><div><strong>还有 {{ overview?.unclassified_count ?? 0 }} 项资产未归入业务场景</strong><p>未归类不影响资产底库使用，后续可在治理流程中补充场景归属。</p></div><RouterLink to="/assets?view=business" class="secondary-button">去资产底库补充 <ArrowRight :size="15" /></RouterLink><RouterLink to="/services" class="primary-button"><Server :size="15" />打开 AI / API 工作台</RouterLink></section>
+    <section class="scenario-footer"><div><strong>还有 {{ overview?.unclassified_count ?? 0 }} 项资产未归入业务场景</strong><p>可在公司资产继续查看和维护未归类资产。</p></div><RouterLink to="/assets?view=business" class="secondary-button">查看公司资产 <ArrowRight :size="15" /></RouterLink><RouterLink to="/services" class="primary-button"><Server :size="15" />订阅与用量</RouterLink></section>
   </div>
 </template>

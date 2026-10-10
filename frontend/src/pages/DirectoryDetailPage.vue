@@ -25,8 +25,8 @@ const platformForm = reactive({ name: "", code: "", category: "other", website: 
 
 const kind = computed(() => String(route.params.kind) as DirectoryKind);
 const objectId = computed(() => String(route.params.id));
-const kindLabel = computed(() => ({ entity: "L1 公司主体", platform: "L3 平台目录", grant: "L5 人员授权" })[kind.value] ?? "目录对象");
-const description = computed(() => ({ entity: "公司主体目录对象。先看主体事实和已建立的关联，补充资料按需展开。", platform: "平台目录对象。先看平台事实和已建立的关联，补充资料按需展开。", grant: "人员授权记录。先看授权对象和关联关系，不再误跳到被授权资产。" })[kind.value] ?? "目录对象详情");
+const kindLabel = computed(() => ({ entity: "公司主体", platform: "平台目录", grant: "人员使用授权" })[kind.value] ?? "目录对象");
+const description = computed(() => ({ entity: "查看公司主体资料与已建立的关联，补充资料按需展开。", platform: "查看服务平台资料与已建立的关联，补充资料按需展开。", grant: "查看授权人员、目标资产及已建立的使用关系。" })[kind.value] ?? "目录对象详情");
 
 function emptyLayerRecord(layer: number, name: string, objectType: string, status: string, id: string): LayerRecord {
   return { id, layer, name, object_type: objectType, legal_entity_name: null, platform_name: null, category: null, ownership_nature: null, account_count: 0, status, asset_id: null, updated_at: new Date().toISOString() };
@@ -145,7 +145,7 @@ const profileFields = computed(() => {
 const upstreamRecords = computed(() => [] as LayerRecord[]);
 const downstreamRecords = computed(() => relatedRecords.value);
 const grantPerson = computed(() => record.value?.name.split(" → ")[0] ?? "待确认人员");
-const relationDescription = computed(() => kind.value === "grant" ? "授权本身是人与对象之间的关系；当前先展示授权对象，授权类型和期限下一轮按 L5 字段补齐。" : "已建立的关系优先展示；没有关系时不生成补位对象。" );
+const relationDescription = computed(() => kind.value === "grant" ? "查看授权人员与目标资产的使用关系；详细权限与有效期请核对原始授权记录。" : "展示已建立的关联；未确认的关系保持待核对。" );
 
 function categoryLabel(value: string | null | undefined) {
   return ({ cloud: "云平台", ai: "大模型 / AI", saas: "SaaS / 协作", marketing: "营销 / 电商", payment: "支付", other: "其他" } as Record<string, string>)[value ?? ""] ?? value ?? "未分类";
@@ -158,7 +158,7 @@ watch(() => route.fullPath, load);
 <template>
   <div class="page-stack directory-detail-page">
     <PageHeader eyebrow="对象详情" :title="record?.name ?? kindLabel" :description="description">
-      <RouterLink class="secondary-button" to="/assets"><ArrowLeft :size="16" />返回资产底库</RouterLink>
+      <RouterLink class="secondary-button" to="/assets"><ArrowLeft :size="16" />返回公司资产</RouterLink>
     </PageHeader>
 
     <div v-if="error" class="message-panel error-message">{{ error }}</div>
@@ -173,7 +173,7 @@ watch(() => route.fullPath, load);
       </section>
 
       <section class="detail-surface directory-info-surface">
-        <header><div><span class="section-kicker">核心信息</span><h2>当前对象的最小事实</h2><p>本轮不把不同层级的字段混在一起。</p></div><CheckCircle2 :size="26" /></header>
+        <header><div><span class="section-kicker">核心信息</span><h2>基本资料</h2><p>查看当前对象的类型、状态、归属与更新时间。</p></div><CheckCircle2 :size="26" /></header>
         <form v-if="kind === 'platform' && editingPlatform" class="directory-edit-form" @submit.prevent="savePlatformEdit">
           <label><span>平台名称</span><input v-model="platformForm.name" required /></label>
           <label><span>平台编码</span><input v-model="platformForm.code" required /></label>
@@ -183,7 +183,7 @@ watch(() => route.fullPath, load);
           <div class="directory-edit-actions"><button class="primary-button" type="submit"><Save :size="16" />保存平台</button><button class="secondary-button" type="button" @click="cancelPlatformEdit"><X :size="16" />取消</button></div>
         </form>
         <div class="directory-field-grid">
-          <div><span>对象层级</span><strong>L{{ record.layer }} · {{ record.object_type }}</strong></div>
+          <div><span>资料类型</span><strong>{{ kindLabel }}</strong></div>
           <div><span>状态</span><strong>{{ displayStatus(record.status) }}</strong></div>
           <div><span>最后更新</span><strong>{{ new Date(record.updated_at).toLocaleString('zh-CN') }}</strong></div>
           <div v-if="record.legal_entity_name"><span>归属公司</span><strong>{{ record.legal_entity_name }}</strong></div>
@@ -196,7 +196,7 @@ watch(() => route.fullPath, load);
       </section>
 
       <section class="detail-surface directory-relation-surface">
-        <header><div><span class="section-kicker">关联关系</span><h2>按真实数据模型展示关系</h2><p>{{ kind === 'platform' ? '平台本身是目录对象，下面的关系来自企业平台账号、直接平台关联和实际购买记录。' : relationDescription }}</p></div><GitBranch :size="26" /></header>
+        <header><div><span class="section-kicker">关联关系</span><h2>已建立的关联</h2><p>{{ kind === 'platform' ? '查看该平台关联的公司账号及实际购买的服务。' : relationDescription }}</p></div><GitBranch :size="26" /></header>
         <div v-if="relationshipGraph" class="directory-relation-sections">
           <section v-for="section in relationSections" :key="section" class="directory-relation-section">
             <header><div><h3>{{ relationSectionLabel(section) }}</h3><p>{{ relationSectionDescription(section) }}</p></div></header>
@@ -213,7 +213,7 @@ watch(() => route.fullPath, load);
       </section>
 
       <section class="detail-surface directory-responsibility-surface">
-        <header><div><span class="section-kicker">责任与使用</span><h2>保留责任位置，但不阻塞建档</h2><p>当前目录对象暂以已有事实展示；负责人和使用人员可以后续补充。</p></div><ShieldCheck :size="26" /></header>
+        <header><div><span class="section-kicker">责任与使用</span><h2>归属与使用情况</h2><p>此页展示公司归属与授权人员；资产负责人在对应资产详情中维护。</p></div><ShieldCheck :size="26" /></header>
         <div class="directory-field-grid"><div><span>归属</span><strong>{{ record.legal_entity_name ?? (kind === 'entity' ? '主体自身' : '待确认') }}</strong></div><div><span>{{ kind === 'grant' ? '授权人员' : '负责人' }}</span><strong>{{ kind === 'grant' ? grantPerson : '待配置' }}</strong></div><div><span>使用关系</span><strong>{{ kind === 'grant' ? '已形成授权关系' : relatedRecords.length ? `已关联 ${relatedRecords.length} 个对象` : '暂未关联' }}</strong></div></div>
       </section>
 
@@ -221,7 +221,7 @@ watch(() => route.fullPath, load);
         <div class="directory-more-content">
           <template v-if="kind === 'entity'"><div v-if="profileFields.length" class="directory-field-grid"><div v-for="item in profileFields" :key="item[0]"><span>{{ item[0] }}</span><strong>{{ item[1] }}</strong></div></div><div v-else class="directory-relation-empty">暂未补充主体档案。</div><div v-if="entityIdentifiers.length" class="directory-identifiers"><span>主体标识</span><div v-for="item in entityIdentifiers" :key="item.id"><strong>{{ item.identifier_value }}</strong><small>{{ item.identifier_type }} · {{ displayStatus(item.verification_status) }}</small></div></div></template>
           <template v-else-if="kind === 'platform'"><div class="directory-field-grid"><div><span>平台编码</span><strong>{{ platform?.code ?? '未填写' }}</strong></div><div><span>官网</span><a v-if="platform?.website" :href="platform.website" target="_blank">打开官网 <ExternalLink :size="15" /></a><strong v-else>未填写</strong></div></div><p>{{ platform?.description || '暂未填写平台说明。' }}</p></template>
-          <template v-else><div class="directory-relation-empty">授权类型、权限角色、有效期和备注将在下一轮按 L5 专属字段补齐；当前先保留授权对象和目标资产。</div></template>
+          <template v-else><div class="directory-relation-empty">本页展示授权人员与目标资产；详细权限、有效期和备注请核对原始授权记录。</div></template>
         </div>
       </details>
     </template>

@@ -30,7 +30,7 @@
 | 未知结果查询 | operation_status | actor + 操作 + UUID 请求编号、内容摘要；变更携带当前版本 |
 | 最终确认 | 本人网页 | 现有 AssetConfirmation 内容摘要与确切版本，不提供机器确认工具 |
 
-当前未开放机器附件和关系写入；capabilities 明确返回 false。
+原生产基线8ab801e未开放机器附件和关系写入；能力以实时capabilities为准。补充资料/截图/审核候选见 [实现与验证记录](REGISTRAR-COMPLETION-20261008.md)，候选未部署。
 类型来自正式字典，不硬映射不存在的 Prompt、Template、MCP 或 Composite。
 列表每次最多50项，定位已有孵化记录时保留 id 并使用 get_incubation；不以空列表证明组织内无重复。
 仅存用户授权的必要成果摘要；不上传完整聊天、隐藏推理、整个仓库或秘密。

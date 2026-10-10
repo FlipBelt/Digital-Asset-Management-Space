@@ -91,6 +91,6 @@ export async function loadAIDiscoveryAssets(
 }
 
 export function isManagementSearchRoute(path: string): boolean {
-  return ["/manage", "/assets", "/accounts", "/organization", "/services", "/governance", "/imports", "/intake", "/scenarios", "/admin", "/hudu"]
+  return ["/manage", "/assets", "/accounts", "/organization", "/services", "/governance", "/imports", "/intake", "/scenarios", "/directory"]
     .some(base => path === base || path.startsWith(base + "/"));
 }

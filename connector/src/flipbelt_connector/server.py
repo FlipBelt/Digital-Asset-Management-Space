@@ -159,8 +159,14 @@ def save_snapshot(
 
 @server.tool(annotations=READ)
 def operation_status(operation: str, request_id: UUID) -> dict:
-    """查询原编号写入结果。operation: draft.create / draft.update / incubation.save。"""
-    if operation not in {"draft.create", "draft.update", "incubation.save"}:
+    """查询原编号写入结果。operation: draft.create / draft.update / incubation.save / details.save / attachment.upload。"""
+    if operation not in {
+        "draft.create",
+        "draft.update",
+        "incubation.save",
+        "details.save",
+        "attachment.upload",
+    }:
         raise ValueError("不支持的操作")
     return safe("GET", f"/operations/{operation}/{request_id}")
 
@@ -175,6 +181,85 @@ def disconnect() -> dict:
     result = safe("POST", "/disconnect")
     connector.vault.clear()
     return result
+
+
+@server.tool(annotations=READ)
+def get_asset_details(asset_id: UUID) -> dict:
+    """读取本人成果的接管资料、真实类型字段、外部标识、负责人候选及附件清单。"""
+    return safe("GET", f"/assets/{asset_id}/details")
+
+
+@server.tool(annotations=READ)
+def search_people(query: str) -> dict:
+    """按用户提供的姓名查本公司在职成员，仅返回姓名、部门与ID；不得猜测负责人。"""
+    from urllib.parse import urlencode
+
+    if not query.strip() or len(query) > 100:
+        raise ValueError("请提供1至100字的人员姓名线索")
+    return safe("GET", "/people?" + urlencode({"q": query.strip()}))
+
+
+@server.tool(annotations=WRITE)
+def save_asset_details(
+    asset_id: UUID, request_id: UUID, version: int, details: dict
+) -> dict:
+    """补充本人成果资料。先get_asset_details取类型字段；details仅允许profile、fields、
+    identifiers、proposed_responsible_person_id、proposed_user_person_ids。负责人仅提议，管理员网页确认。
+    已登记成果修改后会回到私有草稿，需本人重新网页预览确认。未知结果用原request_id查details.save。
+    """
+    allowed = {
+        "profile",
+        "fields",
+        "identifiers",
+        "proposed_responsible_person_id",
+        "proposed_user_person_ids",
+    }
+    if not details or set(details) - allowed:
+        raise ValueError("仅允许填写明确支持的补充资料")
+    return safe(
+        "PUT",
+        f"/assets/{asset_id}/details",
+        {**details, "request_id": str(request_id), "version": version},
+    )
+
+
+@server.tool(annotations=WRITE)
+def upload_asset_attachment(
+    asset_id: UUID, request_id: UUID, version: int, file_path: str
+) -> dict:
+    """上传用户明确指定的本地PNG/JPG/WebP截图或ZIP成果包，最大20MB。不读取目录或整个仓库。
+    已登记成果新增附件后回到私有草稿，需本人重新网页预览确认。
+    先保存request_id；未知结果查attachment.upload。返回附件元数据，不回显文件内容。
+    """
+    import base64
+    from pathlib import Path
+
+    path = Path(file_path)
+    if not path.is_absolute() or path.suffix.lower() not in {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".zip",
+    }:
+        raise ValueError("请提供受支持成果附件的绝对文件路径")
+    try:
+        with path.open("rb") as stream:
+            content = stream.read(20 * 1024 * 1024 + 1)
+    except OSError:
+        raise ValueError("无法读取指定成果附件") from None
+    if not content or len(content) > 20 * 1024 * 1024:
+        raise ValueError("成果附件必须在20MB以内")
+    return safe(
+        "POST",
+        f"/assets/{asset_id}/attachments",
+        {
+            "request_id": str(request_id),
+            "version": version,
+            "file_name": path.name,
+            "content_base64": base64.b64encode(content).decode("ascii"),
+        },
+    )
 
 
 def main():

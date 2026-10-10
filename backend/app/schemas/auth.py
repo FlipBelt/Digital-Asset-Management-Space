@@ -16,6 +16,7 @@ class CurrentUserRead(BaseModel):
     display_name: str | None = None
     department_id: UUID | None = None
     job_title: str | None = None
+    avatar_url: str | None = None
     roles: list[str]
     permissions: list[str] = []
     csrf_token: str

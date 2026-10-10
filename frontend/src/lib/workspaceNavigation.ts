@@ -3,11 +3,6 @@ export function workflowView(value: unknown): WorkflowView {
   return value === "created" || value === "bookmarks" ? value : "all";
 }
 
-// Historical workspaces remain available in production, but are absent from the test experience.
-export function legacyWorkspaceEnabled(baseUrl: string, hostname: string): boolean {
-  return !baseUrl.startsWith("/test") && !["localhost", "127.0.0.1"].includes(hostname);
-}
-
 const categoryLabels: Record<string, string> = {
   platform_account: "账号与身份", internal_system: "系统与 AI 成果",
   saas_software: "软件与订阅", api_service: "API 服务", cloud_network: "云资源与网络",

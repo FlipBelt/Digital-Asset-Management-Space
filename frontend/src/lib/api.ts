@@ -35,12 +35,18 @@ export interface AssetFieldValue { id: string; asset_id: string; field_definitio
 export interface SpaceSummary { created: number; responsible: number; using: number; subscriptions: number; ai: number; drafts: number; bookmarks: number; evidence: number }
 export interface Membership { id: string; asset_id: string; service_product_id: string; subscription_name: string | null; funding_source: string | null; payer_person_id: string | null; starts_at: string | null; expires_at: string | null; usage_frequency: string | null; primary_purpose: string | null }
 export interface AssetEvidence { id: string; asset_id: string | null; subscription_id: string | null; kind: string; title: string; problem: string; method: string; output: string; observed_effect: string | null; review_status: string; created_at: string }
+export interface OutcomeAttachment { id: string; file_name: string; size_bytes: number; content_type: string }
 export interface AssetConfirmation {
-  id: string; asset_version: number; content_digest: string; sharing_scope: string; expires_at: string;
+  id: string; asset_version: number; outcome_version: number; content_digest: string; sharing_scope: string; expires_at: string;
   preview: {
-    asset: { name: string; description: string | null; source_system: string | null; source_agent: string | null };
+    asset: { name: string; description: string | null; source_system: string | null; source_agent: string | null; created_by_person_name?: string | null };
     attachments: { id: string; file_name: string; size_bytes: number }[];
     subscriptions: Membership[];
+    profile: Record<string, string | null> | null;
+    identifiers: { namespace: string; identifier_type: string; identifier_value: string }[];
+    fields: [string, {value: unknown}, string][];
+    responsibilities: string[][];
+
   };
 }
 export interface Asset {
@@ -48,7 +54,7 @@ export interface Asset {
   owner_department_id: string | null; ownership_scope: string; status: string; criticality: string; confidentiality: string;
   sharing_scope?: string | null; source_system?: string | null; source_agent?: string | null; source_reference?: string | null; development_method?: string | null;
   source_type: string; started_at: string | null; expires_at: string | null; last_verified_at: string | null;
-  description: string | null; version: number; created_at: string; updated_at: string; archived_at: string | null;
+  description: string | null; version: number; outcome_version?: number; created_at: string; updated_at: string; archived_at: string | null;
   created_by_person_id?: string | null; confirmed_by_person_id?: string | null; confirmed_at?: string | null; review_status?: string;
 }
 export interface AssetListResponse { data: Asset[]; pagination: { page: number; page_size: number; total: number } }
@@ -61,7 +67,7 @@ export interface HuduAssetItem {
   owner_department_id: string | null; owner_department_name: string | null;
   expires_at: string | null; started_at: string | null; last_verified_at: string | null;
   description: string | null; version: number; updated_at: string | null; created_at: string | null;
-  archived_at: string | null; has_owner: boolean;
+  archived_at: string | null; has_owner: boolean; outcome_version?: number; created_by_person_id?: string | null; created_by_person_name?: string | null;
 }
 export interface HuduOverview {
   total_assets: number; active_assets: number; draft_assets: number; expiring_soon: number; missing_owner: number;
@@ -113,7 +119,7 @@ export interface AuditLog { id: string; action: string; object_type: string; obj
 export interface WorkflowRequest { id: string; request_no: string; request_type: string; title: string; requester_person_id: string | null; asset_id: string | null; status: string; detail: Record<string, unknown>; version: number; created_at: string }
 export interface RiskFinding { id: string; rule_key: string; asset_id: string | null; person_id: string | null; severity: string; status: string; title: string; detail: Record<string, unknown>; version: number; detected_at: string }
 export interface ImportPreview { file_name: string; rows: Record<string, unknown>[]; valid_count: number; error_count: number }
-export interface CurrentUser { id: string; username: string; person_id: string | null; display_name: string | null; department_id: string | null; job_title: string | null; roles: string[]; permissions: string[]; csrf_token: string }
+export interface CurrentUser { id: string; username: string; person_id: string | null; display_name: string | null; department_id: string | null; job_title: string | null; avatar_url?: string | null; roles: string[]; permissions: string[]; csrf_token: string }
 export interface Session { user: CurrentUser; expires_at: string; session_token?: string | null }
 export interface DingTalkStatus { enabled: boolean; configured: boolean; corp_id: string | null }
 export interface DingTalkConfig { corpId: string | null; agentId: string | null; configured: boolean }
@@ -222,7 +228,7 @@ export async function request<T>(path: string, init: RequestInit = {}, timeoutMs
     throw new ApiError(response.status, message);
   }
   if (response.status === 204) return undefined as T;
-  if (response.headers.get("content-type")?.startsWith("application/zip")) return await response.blob() as T;
+  if (response.headers.get("content-type")?.startsWith("application/zip") || response.headers.get("content-type")?.startsWith("image/")) return await response.blob() as T;
   return await response.json() as T;
 }
 
@@ -276,7 +282,10 @@ export const api = {
   dingtalkProfiles: () => request<DingTalkProfile[]>("/api/v1/dingtalk/profiles"),
   syncDingtalkDirectory: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/sync", json("POST", { legal_entity_id: legalEntityId }), 120000),
   refreshCompanyAffiliations: (legalEntityId: string) => request<Record<string, number | string>>("/api/v1/dingtalk/organization/companies/refresh", json("POST", { legal_entity_id: legalEntityId }), 120000),
-  assetAttachments: (id: string) => request<{id: string; file_name: string; size_bytes: number}[]>(`/api/v1/assets/${id}/attachments`),
+  assetReviews: (status: string, page = 1, asset?: string) => request<AssetListResponse>("/api/v1/asset-reviews?" + new URLSearchParams({status, page: String(page), ...(asset ? {asset_id: asset} : {})})),
+  reviewAsset: (id: string, version: number, decision: string, reason: string) => request<Asset>("/api/v1/asset-reviews/" + id, json("POST", {version, decision, reason})),
+  assetResponsibilities: (id: string) => request<Responsibility[]>("/api/v1/assets/" + id + "/responsibilities"),
+  assetAttachments: (id: string) => request<OutcomeAttachment[]>(`/api/v1/assets/${id}/attachments`),
   uploadAssetZip: (id: string, file: File) => { const body = new FormData(); body.append("file", file); return request(`/api/v1/assets/${id}/attachments`, {method: "POST", body}); },
   downloadAssetZip: (id: string, attachment: string) => request<Blob>(`/api/v1/assets/${id}/attachments/${attachment}/download`),
   registerMembership: (body: Record<string, unknown>) => request<Asset>("/api/v1/space/memberships", json("POST", body)),
@@ -334,6 +343,7 @@ export const api = {
   updateAsset: (id: string, body: Record<string, unknown>) => request<Asset>(`/api/v1/assets/${id}`, json("PATCH", body)),
   archiveAsset: (id: string, version: number) => request<Asset>(`/api/v1/assets/${id}/archive?version=${version}`, json("POST")),
   restoreAsset: (id: string, version: number) => request<Asset>(`/api/v1/assets/${id}/restore?version=${version}`, json("POST")),
+  deleteAsset: (id: string, version: number) => request<Asset>(`/api/v1/assets/${id}?version=${version}`, json("DELETE")),
   responsibilities: (id: string) => request<Responsibility[]>(`/api/v1/assets/${id}/responsibilities`),
   assetAssignment: (id: string) => request<AssetAssignment>(`/api/v1/assets/${id}/assignment`),
   saveAssetAssignment: (id: string, body: { version: number; owner_department_id: string | null; ownership_scope: string; responsible_person_id: string; user_person_ids: string[] }) => request<AssetAssignment>(`/api/v1/assets/${id}/assignment`, json("PUT", body)),

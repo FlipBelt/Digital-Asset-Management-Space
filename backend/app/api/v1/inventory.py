@@ -547,6 +547,11 @@ def upsert_internal_profile(
     access: AccessContext = Depends(get_access_context),
 ) -> InternalSystemProfile:
     require_manageable_asset(db, access, asset_id)
+    from app.services.asset_confirmation import lock_asset
+    from app.services.registrar_details import touch_web_details
+    asset = lock_asset(db, asset_id)
+    require_manageable_asset(db, access, asset_id)
+    touch_web_details(asset, access)
     item = db.scalar(
         select(InternalSystemProfile).where(InternalSystemProfile.asset_id == asset_id)
     )
