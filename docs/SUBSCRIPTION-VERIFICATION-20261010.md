@@ -1,6 +1,6 @@
 # 个人订阅登记与公司账号核验
 
-日期：2026-10-10。状态：本地实现及验证完成，候选待推送发布。基线为 `0175501a4e7b17f1768ffaab88050a44743c942b`，包含已发布的管理页布局补修；本次不新增数据库迁移。
+日期：2026-10-10。状态：应用提交 `acf10fbba0e0e3f6e01a92cfb8dd0fc11ef9a4ba` 已推送并先测试、再正式上线。基线为 `0175501a4e7b17f1768ffaab88050a44743c942b`，包含已发布的管理页布局补修；本次不新增数据库迁移。后续文档提交不改变已部署的应用包。
 
 ## 最终行为
 
@@ -30,7 +30,7 @@
 - 最终 `npm run build`（Vue 类型检查 + Vite）通过。
 - 内部浏览器本地合成预览通过：卡片和资产库标识、订阅详情、核验入口、未勾选反馈、成功读回、深链接、保存失败保留内容、员工无核验按钮、空列表、读取失败及重试入口。
 - 桌面 1280px/1920px 与 390px 窄屏无整页横向溢出，核验复选框为 16px，Tab 循环回到关闭按钮；临时视口已重置。
-- 证据位于 `.local/subscription-verification/ea69015ddb`，合成预览截图 `.local/subscription-library-preview-20261010.jpg`、`.local/account-verification-preview-20261010.jpg`。合成保存与实际隔离数据库持久化检查分别完成；尚未执行新版本上线或真实业务人工验收。
+- 本地证据位于 `.local/subscription-verification/ea69015ddb`，合成预览截图 `.local/subscription-library-preview-20261010.jpg`、`.local/account-verification-preview-20261010.jpg`。合成保存、实际隔离数据库持久化、线上页面回读分别报告；真实业务人工验收仍由用户或指定验收人确认。
 
 复现命令（在本工作区运行；脚本拒绝复用已占用的隔离端口）：
 
@@ -42,8 +42,17 @@ npm run build
 
 ## 发布与回退边界
 
-候选需同时发布前后端，schema 保持 `f13f20261010`。当前公开线上元数据仍为前端 `bd1f342`、后端 `cbef316`；本次尚未对线上账号或资产写入。
+沿用同一任务中此前明确的推送发布授权，通过内部浏览器云助手先测试、再正式发布相同冻结包。发布前确认前端 `bd1f342`、后端 `cbef316` 与 `f13f20261010`，冻结增量为 115679 字节 / 5 块 / 27 运行文件，SHA-256 为 `1f638f584cff2f49f00f35c19f38a5b0fb7c975ce0414f31d688063a9cc5a072`。现在测试与正式公开元数据的前后端均为 `acf10fb`，schema 保持 `f13f20261010`。
 
-授权后先在测试入口备份并发布，验证新 API、静态文件、会话隔离、已有记录标识和核验入口；测试保留数据库的代码回退再应用通过后，再备份并发布正式入口。保留旧前后端包、业务表指纹和服务状态。新状态都是既有字符串字段，代码回退不需撤销 schema，但旧界面可能不认识“无需审核”展示；不得用旧快照覆盖上线后的新登记或核验事实。
+- 测试发布 `t-hz06zld5catt0qo` 成功（2026-10-10 14:17:58，UTC+8）：75 张业务表全行指纹一致，旧代码和静态回退、再应用成功；正式服务 PID 与元数据在测试切换期间保持不变。测试数据库备份与旧代码保留在 `/opt/account-center-test/backups/acf10fbba0e0-subscription-verification-test-20261010`。
+- 正式发布 `t-hz06zldxfbksyyo` 成功（14:26:34）：75 张业务表全行指纹一致，服务 active，数据库 ready/ok；备份位于 `/opt/account-center/backups/acf10fbba0e0-subscription-verification-production-20261010`。正式未执行回退或数据库恢复演练，未运行 schema 迁移。
+- 独立公网回读在 14:27:12 完成：两环境各 8 个冻结静态文件逐字节匹配、7 个 SPA 路由可达、3 个匿名受保护 GET 与核验 POST 均为 401，ready/database 正常。
+- 实际已认证管理员页面：测试显示 2 个公司账号及核验入口，表单必填缺项反馈与 390px 窄屏检查通过；测试没有个人订阅记录。正式已有 1 条 ChatGPT Plus 显示“个人订阅 / 个人登记·无需审核 / 已登记”，资产库及详情一致，详情仍为“仅自己”；正式 2 个公司账号的核验按钮、核验说明和表单均已读回，浏览器 warn/error 日志为空。
+- 没有为页面检查创建登记或提交实际公司账号核验。DeepSeek/MiniMax 仍为待核验，须根据真实资料完成核对。核验写入、负向权限和持久化以隔离 PostgreSQL 检查为证据，不用合成页面或只读回读代替真实业务操作。
+- 初次上传准备发现 Windows 写盘换行导致部署脚本哈希与字符串哈希不同，已改为对实际文件字节计算；首次测试预检的 FastAPI 内部路由探针不兼容，在服务停止前失败，改用公开 `app.openapi()` 后重试通过，应用包没有变化。失败暂存和私有诊断保留；最终部署脚本 SHA-256 为 `054e67eabb72a8f7d619895a6c29c9e21501025695e121c6c85ea715ecc90cf2`。公开 OpenAPI 方法依据：[FastAPI 官方文档](https://fastapi.tiangolo.com/how-to/extending-openapi/)。
+
+证据目录 `.deploy-artifacts/subscription-verification/acf10fbba0e0` 包含 `test-server-PASS.json`、`test-public-PASS.json`、`test-ui-PASS.json`、`production-server-PASS.json`、`final-public-PASS.json`、`production-ui-PASS.json` 和正式页面截图。分支已推送；[PR #5](https://github.com/FlipBelt/Digital-Asset-Management-Space/pull/5) 保持 Draft，未合并；仓库未配置 CI 检查，不报告 CI 通过。
+
+保留旧前后端包、数据库 dump、业务表指纹和服务状态。代码回退需保留当前数据及 `f13f20261010` schema；旧界面可能不认识“无需审核”展示，不得用旧快照覆盖上线后的新登记或核验事实。实际测试静态入口为 `/var/www/test`，正式为 `/var/www/account-center`。
 
 技术发布与管理员页面回读不替代用户或指定验收人的真实登记/核验业务验收。
