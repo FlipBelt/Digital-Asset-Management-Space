@@ -81,7 +81,9 @@ class AssetService:
             if asset.sharing_scope is not None:
                 asset.confirmed_at = None
                 asset.confirmed_by_person_id = None
-                asset.review_status = "pending_review"
+                asset.review_status = (
+                    "not_required" if asset.is_personal_subscription else "pending_review"
+                )
         db.flush()
         self._audit(db, "asset.update", asset.id, before, self._snapshot(asset))
         db.commit()
@@ -148,11 +150,16 @@ class AssetService:
             raise HTTPException(409, "资产未归档或删除，无需恢复")
         before = self._snapshot(asset)
         asset.archived_at = None
-        asset.status = "draft" if asset.sharing_scope is not None else "active"
+        asset.status = (
+            "draft" if asset.sharing_scope is not None and not asset.is_personal_subscription
+            else "active"
+        )
         if asset.sharing_scope is not None:
             asset.confirmed_at = None
             asset.confirmed_by_person_id = None
-            asset.review_status = "pending_review"
+            asset.review_status = (
+                "not_required" if asset.is_personal_subscription else "pending_review"
+            )
         asset.version += 1
         db.flush()
         self._audit(db, "asset.restore", asset.id, before, self._snapshot(asset))

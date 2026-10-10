@@ -3,6 +3,7 @@ export const statusLabel: Record<string, string> = {
   draft: "待核验",
   pending: "待核验",
   pending_review: "待审核",
+  not_required: "无需审核",
   pending_verification: "待核验",
   pending_handover: "待接管",
   verified: "已核验",
@@ -30,6 +31,6 @@ export function displayCriticality(value: string | null | undefined) {
 }
 
 export function displayReviewStatus(value: string | null | undefined) {
-  const labels: Record<string, string> = { pending_review: '待审核', approved: '已通过', rejected: '已退回' };
+  const labels: Record<string, string> = { pending_review: '待审核', approved: '已通过', rejected: '已退回', not_required: '无需审核' };
   return value ? (labels[value] ?? displayStatus(value)) : '待审核';
 }

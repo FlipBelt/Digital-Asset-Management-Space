@@ -18,7 +18,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, object_session
 
 from app.db.base import (
     ArchiveMixin,
@@ -324,6 +324,15 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, ArchiveMixin, VersionMixin, Bas
         DateTime(timezone=True), nullable=True
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    @property
+    def is_personal_subscription(self) -> bool:
+        # Source labels on AI drafts are user supplied; they cannot exempt AI reviews.
+        if self.source_system != "membership-registration":
+            return False
+        session = object_session(self)
+        asset_type = session.get(AssetType, self.asset_type_id) if session else None
+        return bool(asset_type and asset_type.code == "saas_subscription")
 
 
 class AssetScenarioLink(UUIDPrimaryKeyMixin, TimestampMixin, Base):

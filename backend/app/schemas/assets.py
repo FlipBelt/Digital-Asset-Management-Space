@@ -68,6 +68,7 @@ class AssetRead(ORMModel):
     source_type: str
     sharing_scope: str | None = None
     source_system: str | None = None
+    is_personal_subscription: bool = False
     source_agent: str | None = None
     source_reference: str | None = None
     development_method: str | None = None
@@ -80,6 +81,13 @@ class AssetRead(ORMModel):
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None
+
+    @model_validator(mode="after")
+    def personal_subscription_review_policy(self):
+        # Apply the same rule to subscriptions registered before this policy change.
+        if self.is_personal_subscription:
+            self.review_status = "not_required"
+        return self
 
 
 class AssetResponsibilityCreate(BaseModel):

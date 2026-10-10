@@ -32,7 +32,7 @@ async function submit() {
 </script>
 <template>
   <div class="page-stack fusion-space"><PageHeader eyebrow="我的订阅" title="登记订阅" description="选择实际使用的服务和套餐，个人自费投入不直接换算奖励。" />
-    <section v-if="result" class="fusion-empty"><h2>会员登记已保存</h2><p>记录默认为本人和资产管理员可见，尚未确认为公司资产。</p><RouterLink to="/my/subscriptions" class="primary-button">查看我的订阅</RouterLink></section>
+    <section v-if="result" class="fusion-empty"><h2>个人订阅已登记，无需审核</h2><p>记录默认为本人和资产管理员可见，资金来源单独记录。</p><RouterLink to="/my/subscriptions" class="primary-button">查看我的订阅</RouterLink></section>
     <form v-else class="fusion-register" :aria-busy="loading || saving" @submit.prevent="submit">
       <p v-if="loading" role="status">正在读取已审核的服务与套餐…</p>
       <label>服务（平台/供应商）<select v-model="form.service_product_id" required :disabled="loading || saving"><option value="" disabled>请选择服务</option><option v-for="item in products" :key="item.id" :value="item.id">{{ item.name }} · {{ item.platform_name }}</option></select></label>
@@ -45,7 +45,7 @@ async function submit() {
       <label>使用频率<select v-model="form.usage_frequency" :disabled="saving"><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option><option value="rarely">偶尔</option></select></label>
       <label>主要用途<textarea v-model="form.primary_purpose" required maxlength="500" :disabled="saving" /></label>
       <p>登记不代表公司采购获批、工具准入或报销批准。</p><p v-if="error" class="form-error" role="alert">{{ error }}</p>
-      <button type="button" class="secondary-button" :disabled="loading || saving" @click="initialize">重新读取目录</button><button class="primary-button" :disabled="loading || saving || !products.length || !plan">{{ saving ? '正在保存…' : '保存会员登记' }}</button>
+      <button type="button" class="secondary-button" :disabled="loading || saving" @click="initialize">重新读取目录</button><button class="primary-button" :disabled="loading || saving || !products.length || !plan">{{ saving ? '正在保存…' : '保存订阅登记' }}</button>
     </form>
   </div>
 </template>

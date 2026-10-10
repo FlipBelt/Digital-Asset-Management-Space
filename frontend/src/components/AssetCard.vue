@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { AppWindow, ArrowRight, Bookmark, Bot, CreditCard, FileBox, Hexagon, Puzzle, Terminal, Users, Workflow } from "lucide-vue-next";
 import { type Asset } from "../lib/api";
-import { displayStatus } from "../lib/labels";
+import { isPersonalSubscription, subscriptionStatus } from "../lib/personalSubscriptions";
 import { displayOutcomeVersion } from "../lib/assetVersions";
 
 const props = defineProps<{ asset: Asset; typeName?: string; typeCode?: string; teamName?: string; bookmarked: boolean; busy?: boolean; returnTo?: string; aiFocus?: boolean; groupLabel?: string }>();
@@ -20,18 +20,18 @@ const bookmarkLabel = computed(() => `${props.bookmarked ? '取消收藏' : '收
     <div class="fusion-card-meta">
       <div class="fusion-type">
         <span class="fusion-asset-symbol" :class="typeCode"><component :is="typeIcon" :size="22" aria-hidden="true" /></span>
-        <span><strong>{{ typeName || '资产' }}</strong><small>{{ displayOutcomeVersion(asset) }}</small></span>
+        <span><strong>{{ isPersonalSubscription(asset) ? '个人订阅' : typeName || '资产' }}</strong><small>{{ isPersonalSubscription(asset) ? '个人登记 · 无需审核' : displayOutcomeVersion(asset) }}</small></span>
       </div>
       <button class="icon-button fusion-bookmark" :class="{ saved: bookmarked }" :aria-label="bookmarkLabel" :title="bookmarkLabel" :aria-pressed="bookmarked" :disabled="busy" @click="$emit('bookmark', asset)"><Bookmark :size="19" aria-hidden="true" /></button>
     </div>
     <span v-if="aiFocus && groupLabel" class="ai-capability-label">{{ groupLabel }}</span>
     <h2><RouterLink :to="detailLink">{{ asset.name }}</RouterLink></h2>
-    <span v-if="asset.review_status === 'pending_review'" class="fusion-review-state">待审核</span>
+    <span v-if="!isPersonalSubscription(asset) && asset.review_status === 'pending_review'" class="fusion-review-state">待审核</span>
     <small v-if="aiFocus" class="ai-outcome-caption">成果说明</small>
     <p>{{ asset.description || '暂无说明，待负责人补充。' }}</p>
     <div class="fusion-card-footer">
       <span class="fusion-owner"><Users :size="14" aria-hidden="true" />{{ teamName || '归属待确认' }}</span>
-      <span class="fusion-status" :class="{ 'is-draft': asset.status === 'draft' }">{{ displayStatus(asset.status) }}</span>
+      <span class="fusion-status" :class="{ 'is-draft': asset.status === 'draft' && !isPersonalSubscription(asset) }">{{ subscriptionStatus(asset) }}</span>
     </div>
     <RouterLink :to="detailLink" class="fusion-detail">{{ aiFocus ? '查看成果与用法' : '查看详情' }}<ArrowRight :size="17" aria-hidden="true" /></RouterLink>
   </article>

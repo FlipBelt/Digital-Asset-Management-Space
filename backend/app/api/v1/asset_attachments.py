@@ -126,7 +126,9 @@ async def upload_attachment(
         invalidate(asset)
     else:
         asset.version += 1
-        asset.review_status = "pending_review"
+        asset.review_status = (
+            "not_required" if asset.is_personal_subscription else "pending_review"
+        )
         asset.confirmed_at = None
         asset.confirmed_by_person_id = None
     db.add(

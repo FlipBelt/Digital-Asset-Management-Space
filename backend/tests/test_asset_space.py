@@ -267,7 +267,8 @@ def test_membership_uses_unified_asset_and_private_visibility(monkeypatch):
     monkeypatch.setattr(module, "allocate_asset_code", lambda *args: "SUB-001")
     monkeypatch.setattr(module, "ensure_internal_identifier", lambda *args: None)
     result = module.create_membership(payload, db, access)
-    assert result.confidentiality == "personal" and result.status == "draft"
+    assert result.confidentiality == "personal" and result.status == "active"
+    assert result.review_status == "not_required" and result.ownership_scope == "personal"
     subscriptions = [
         c.args[0] for c in db.add.call_args_list if isinstance(c.args[0], ServiceInstance)
     ]
