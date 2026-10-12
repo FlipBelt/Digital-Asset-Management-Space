@@ -10,7 +10,7 @@ const router = useRouter();
 const route = useRoute();
 const logoUrl = import.meta.env.BASE_URL + "logo.svg";
 const iconUrl = import.meta.env.BASE_URL + "favicon.svg";
-const environmentLabel = import.meta.env.BASE_URL.startsWith("/test") ? "测试环境" : "资产中心";
+const environmentLabel = import.meta.env.BASE_URL.startsWith("/test") ? "测试环境" : "数字中心";
 const username = ref("");
 const password = ref("");
 const error = ref("");
@@ -71,7 +71,7 @@ onMounted(() => {
 <template>
   <main class="login-page">
     <header class="login-header">
-      <div class="login-brand"><img :src="logoUrl" alt="FlipBelt" /><span>飞比特 · 资产中心</span></div>
+      <div class="login-brand"><img :src="logoUrl" alt="FlipBelt" /><span>飞比特 · 数字中心</span></div>
       <span class="login-environment">{{ environmentLabel }}</span>
     </header>
     <div class="login-layout">
@@ -87,7 +87,7 @@ onMounted(() => {
         </ul>
       </section>
       <section class="login-card" aria-labelledby="login-title" :aria-busy="finishing || submitting">
-        <div class="login-card-heading"><h2 id="login-title">登录资产中心</h2><p class="login-intro">使用企业钉钉身份，继续你的工作。</p></div>
+        <div class="login-card-heading"><h2 id="login-title">登录数字中心</h2><p class="login-intro">使用企业钉钉身份，继续你的工作。</p></div>
         <p v-if="finishing" class="login-status" role="status">正在确认登录身份…</p>
         <template v-else>
           <button class="primary-button login-qr-button" type="button" :disabled="checking || !webConfigured || submitting" @click="startWebLogin">
@@ -113,6 +113,6 @@ onMounted(() => {
         <p class="login-identity-note"><ShieldCheck :size="17" aria-hidden="true" /><span>仅限已获授权的企业成员访问</span></p>
       </section>
     </div>
-    <footer class="login-footer">FlipBelt 资产中心<span>在钉钉内打开时支持自动识别身份</span></footer>
+    <footer class="login-footer">FlipBelt 数字中心<span>在钉钉内打开时支持自动识别身份</span></footer>
   </main>
 </template>

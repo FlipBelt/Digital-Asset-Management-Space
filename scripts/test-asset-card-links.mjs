@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { assetLinks, safeAssetUrl, assetCardSummary } from "../frontend/src/lib/assetLinks.ts";
 
 const card = {
+  repository_visibility: 'public',
   card_links: [
     { label: "代码仓库", url: "https://github.com/example/project" },
     { label: "打开应用", url: "https://app.example.test" },
@@ -21,4 +22,8 @@ assert.equal(assetLinks({ card_links: [{label: "生产链接", url: "https://app
 assert.equal(assetLinks({ card_links: [{label: "bad", url: "javascript:alert(1)"}] }).length, 0);
 assert.equal(assetCardSummary("说明：[GitHub](https://github.com/example/project)。"), "说明：GitHub。");
 assert.equal(assetCardSummary(null), "暂无说明，待负责人补充。");
-console.log("Asset card links: 17 assertions passed for filled links, deduplication, labels and URL safety.");
+assert.equal(assetLinks({ repository_visibility: "public", card_links: [{ label: "恢复说明", url: "https://github.com/example/project/blob/main/recovery.md" }] })[0].label, "恢复说明");
+assert.equal(assetLinks({ ...card, repository_visibility: "private" }).some(link => link.url.includes("github.com")), false);
+assert.equal(assetLinks({ ...card, repository_visibility: "unknown" }).some(link => link.url.includes("github.com")), false);
+assert.equal(assetLinks({ ...card, repository_visibility: undefined }).some(link => link.url.includes("github.com")), false);
+console.log("Asset card links: 21 assertions passed for filled links, labels, deduplication, privacy and URL safety.");

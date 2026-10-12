@@ -1,19 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ArrowRight, CheckCircle2, Clock3, CreditCard, KeyRound, Layers3, Plus, Send } from "lucide-vue-next";
 import PageHeader from "../components/PageHeader.vue";
 import StatusBadge from "../components/StatusBadge.vue";
-import { api, type CurrentUser, type Platform, type WorkflowRequest } from "../lib/api";
+import { api, type CurrentUser, type WorkflowRequest } from "../lib/api";
 const route = useRoute(); const router = useRouter();
-const rows = ref<WorkflowRequest[]>([]); const platforms = ref<Platform[]>([]); const user = ref<CurrentUser | null>(null);
+const rows = ref<WorkflowRequest[]>([]); const targets = ref<Awaited<ReturnType<typeof api.requestTargets>>>({ platforms: [], accounts: [] }); const user = ref<CurrentUser | null>(null);
+const targetLoading = ref(false);
 const loading = ref(true); const saving = ref(false); const busy = ref(""); const error = ref(""); const formError = ref(""); const feedback = ref(""); const formOpen = ref(false);
 const kinds = [{ value: "seat", label: "工具席位", description: "申请已有工具的使用席位", icon: CreditCard },
-  { value: "platform", label: "平台使用", description: "申请使用或引入一个平台", icon: Layers3 },
+  { value: "platform", label: "平台使用", description: "申请使用已登记的公共或企业平台", icon: Layers3 },
   { value: "account", label: "业务账号", description: "申请开通业务账号或子账号", icon: KeyRound }];
 const labels: Record<string, string> = { seat: "席位", platform: "平台", account: "账号", permission: "权限", purchase: "采购", quota: "额度" };
 const statuses: Record<string, string> = { draft: "草稿", pending: "待处理", approved: "已批准", rejected: "已驳回", executing: "执行中", completed: "已完成", failed: "执行失败", cancelled: "已撤回" };
-const form = reactive({ request_type: "seat", resource_name: "", platform_id: "", purpose: "" });
+const form = reactive({ request_type: "seat", platform_id: "", asset_id: "", purpose: "" });
+const accounts = computed(() => targets.value.accounts.filter(row => row.platform_id === form.platform_id));
+watch(() => form.platform_id, () => { form.asset_id = ""; });
 const requestId = ref(crypto.randomUUID()); let previous = "";
 const pending = computed(() => rows.value.filter(item => ["draft", "pending", "approved", "executing"].includes(item.status)).length);
 async function load() {
@@ -26,18 +29,20 @@ async function load() {
 }
 async function openForm() {
   formOpen.value = true; formError.value = "";
-  try { platforms.value = await api.platforms(); }
-  catch (reason) { formError.value = reason instanceof Error ? reason.message : "平台目录读取失败，仍可填写名称申请"; }
+  targetLoading.value = true;
+  try { targets.value = await api.requestTargets(); }
+  catch (reason) { formError.value = reason instanceof Error ? reason.message : "平台与账号读取失败，请重试"; }
+  finally { targetLoading.value = false; }
 }
 async function submit() {
   if (saving.value) return;
   saving.value = true; formError.value = ""; feedback.value = "";
-  const body = { ...form, resource_name: form.resource_name.trim(), purpose: form.purpose.trim(), platform_id: form.platform_id || null };
+  const body = { ...form, purpose: form.purpose.trim(), platform_id: form.platform_id || null, asset_id: form.asset_id || null };
   const serialized = JSON.stringify(body); if (previous && previous !== serialized) requestId.value = crypto.randomUUID(); previous = serialized;
   try {
     const result = await api.createMyRequest({ ...body, request_id: requestId.value });
     feedback.value = `申请已提交 · ${result.request_no}。可在下方查看处理进度。`;
-    formOpen.value = false; form.resource_name = ""; form.purpose = ""; form.platform_id = ""; previous = ""; requestId.value = crypto.randomUUID();
+    formOpen.value = false; form.purpose = ""; form.platform_id = ""; form.asset_id = ""; previous = ""; requestId.value = crypto.randomUUID();
     await router.replace({ query: {} }); await load();
   } catch (reason) { formError.value = reason instanceof Error ? reason.message : "提交失败，请重试"; }
   finally { saving.value = false; }
@@ -65,10 +70,10 @@ onMounted(async () => { await load(); if (route.query.new && user.value?.person_
         <header><div><h2>发起使用申请</h2><p>申请仅进入处理流程；批准后由负责人完成开通。</p></div><button class="quiet-button" type="button" :disabled="saving" @click="formOpen = false">收起</button></header>
         <fieldset class="request-kind-options"><legend>申请类型</legend><label v-for="kind in kinds" :key="kind.value" :class="{ active: form.request_type === kind.value }"><input v-model="form.request_type" type="radio" name="request-type" :value="kind.value" :disabled="saving" /><component :is="kind.icon" :size="22" /><strong>{{ kind.label }}</strong><small>{{ kind.description }}</small></label></fieldset>
         <div class="form-grid">
-          <label><span>工具、平台或账号名称 *</span><input v-model="form.resource_name" required maxlength="160" :disabled="saving" placeholder="填写需要申请使用的资源名称" /></label>
-          <label><span>关联已有平台（选填）</span><select v-model="form.platform_id" :disabled="saving"><option value="">暂无对应平台 / 暂不关联</option><option v-for="item in platforms" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
+          <label><span>已有公共 / 企业平台 *</span><select v-model="form.platform_id" required :disabled="saving || targetLoading"><option value="" disabled>{{ targetLoading ? '正在读取平台…' : '选择已登记的平台' }}</option><option v-for="item in targets.platforms" :key="item.id" :value="item.id">{{ item.name }}</option></select><small>名称直接引用目录，不需要手填。</small></label>
+          <label><span>已有企业账号（选填）</span><select v-model="form.asset_id" :disabled="saving || !form.platform_id || targetLoading"><option value="">申请平台使用 / 由负责人安排账号</option><option v-for="item in accounts" :key="item.asset_id" :value="item.asset_id">{{ item.name }} · {{ item.asset_code }}</option></select><small>{{ form.platform_id && !accounts.length ? '暂无可见的企业账号，可直接向该平台申请。' : '仅列出所选平台下有权查看的企业账号。' }}</small></label>
           <label class="span-2"><span>用途与需求 *</span><textarea v-model="form.purpose" required maxlength="2000" rows="4" :disabled="saving" placeholder="说明用于什么工作、需要哪些能力及预计使用时间；不要填写密码或密钥。" /></label>
-          <div class="form-actions span-2"><button class="secondary-button" type="button" :disabled="saving" @click="formOpen = false">取消</button><button class="primary-button" :disabled="saving"><Send :size="17" />{{ saving ? '正在提交…' : '提交申请' }}</button></div>
+          <div class="form-actions span-2"><button class="secondary-button" type="button" :disabled="saving" @click="formOpen = false">取消</button><button class="primary-button" :disabled="saving || targetLoading || !form.platform_id"><Send :size="17" />{{ saving ? '正在提交…' : '提交申请' }}</button></div>
         </div>
       </form>
       <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>

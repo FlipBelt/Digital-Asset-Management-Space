@@ -63,7 +63,9 @@ from app.schemas.assets import (
     RelationshipLinkUpdate,
 )
 from app.schemas.common import ListResponse, Pagination
+from app.services.asset_presentation import asset_list_reads
 from app.services.assets import asset_service
+from app.services.contact_resources import require_identity_reference
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -105,7 +107,7 @@ def list_assets(
         visibility_filter=asset_visibility_clause(access),
     )
     return ListResponse[AssetRead](
-        data=[AssetRead.model_validate(item) for item in items],
+        data=asset_list_reads(db, items),
         pagination=Pagination(page=page, page_size=page_size, total=total),
     )
 
@@ -339,7 +341,15 @@ def patch_asset(
         access, asset
     ):
         raise HTTPException(status_code=403, detail="归属与状态只能由部门负责人或资产管理员修改")
-    return asset_service.update(db, asset_id, payload)
+    from app.services.asset_presentation import asset_detail_read
+    from app.services.repository_visibility import GITHUB_URL, repository_visibility
+
+    if payload.description and "[仓库地址未公开]" in payload.description and repository_visibility(db, asset_id) != "public":
+        hidden_urls = iter(match.group(0) for match in GITHUB_URL.finditer(asset.description or ""))
+        import re
+        payload.description = re.sub(r"\[仓库地址未公开\]", lambda _: next(hidden_urls, ""), payload.description)
+    item = asset_service.update(db, asset_id, payload)
+    return asset_detail_read(db, item, access)
 
 
 @router.post("/{asset_id}/archive", response_model=AssetRead)
@@ -820,15 +830,15 @@ def get_relationship_view(
         if platform_key:
             add_edge(
                 edge_id=f"asset-platform:{link.id}",
-                source=platform_key,
-                target=current_key,
+                source=current_key if link.relation_type.lower() == "registered_on" else platform_key,
+                target=platform_key if link.relation_type.lower() == "registered_on" else current_key,
                 label={
-                    "registered_on": "登记于平台",
+                    "registered_on": "历史平台注册用途（账号待关联）",
                     "uses": "关联平台",
                     "provided_by": "由平台提供",
                 }.get(link.relation_type.lower(), link.relation_type),
                 section="structure",
-                direction="upstream",
+                direction="downstream" if link.relation_type.lower() == "registered_on" else "upstream",
                 source_model="AssetPlatformLink",
                 dedupe_key=("platform", current.id, link.platform_id, link.relation_type.lower()),
             )
@@ -1067,9 +1077,7 @@ def update_relationship_link(
             or identity.asset_type_id != identity_type.id
         ):
             raise HTTPException(status_code=422, detail="所选对象不是有效的注册身份")
-        require_asset_visible(db, access, identity)
-        if identity.legal_entity_id != asset.legal_entity_id:
-            raise HTTPException(status_code=422, detail="注册身份与平台账号必须属于同一公司")
+        require_identity_reference(db, access, identity, asset.legal_entity_id)
         active_link = db.scalar(
             select(PlatformAccountRegistrationIdentity).where(
                 PlatformAccountRegistrationIdentity.platform_tenant_id == tenant.id,
@@ -1166,6 +1174,8 @@ def list_relation_options(
             if direction in {"upstream", "peer"}
             else definition.inverse_label
         )
+        if definition.relation_type.lower() == "registered_by":
+            label = "注册时使用的手机号 / 邮箱" if direction == "upstream" else "使用此资源注册的平台账号"
         target_code = (
             definition.target_type_code
             if direction in {"upstream", "peer"}
@@ -1320,7 +1330,13 @@ def list_field_values(
 ) -> list[AssetFieldValue]:
     asset = asset_service.require(db, asset_id)
     require_asset_visible(db, access, asset)
-    return list(db.scalars(select(AssetFieldValue).where(AssetFieldValue.asset_id == asset_id)))
+    from app.services.repository_visibility import hide_repository_urls, repository_visibility
+
+    rows = db.scalars(select(AssetFieldValue).where(AssetFieldValue.asset_id == asset_id))
+    return [AssetFieldValueRead.model_validate(row).model_copy(update={
+        "value": row.value if repository_visibility(db, asset_id) == "public"
+        else hide_repository_urls(row.value)
+    }) for row in rows]
 
 
 @router.put("/{asset_id}/field-values", response_model=list[AssetFieldValueRead])

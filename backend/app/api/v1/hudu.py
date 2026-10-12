@@ -74,7 +74,9 @@ def _maps(db: Session):
     return categories, types, departments, entities, people, responsibility_map(db)
 
 
-def _asset_item(asset: Asset, categories, types, departments, entities, people, owners):
+def _asset_item(asset: Asset, categories, types, departments, entities, people, owners, db):
+    from app.services.repository_visibility import hide_repository_urls, repository_visibility
+    description = asset.description if repository_visibility(db, asset.id) == "public" else hide_repository_urls(asset.description)
     asset_type = types.get(asset.asset_type_id)
     category = categories.get(asset_type.category_id) if asset_type else None
     department = departments.get(asset.owner_department_id) if asset.owner_department_id else None
@@ -103,7 +105,7 @@ def _asset_item(asset: Asset, categories, types, departments, entities, people, 
         "expires_at": _iso(asset.expires_at),
         "started_at": _iso(asset.started_at),
         "last_verified_at": _iso(asset.last_verified_at),
-        "description": asset.description,
+        "description": description,
         "version": asset.version,
         "outcome_version": asset.outcome_version,
         "created_by_person_id": str(asset.created_by_person_id) if asset.created_by_person_id else None,
@@ -143,7 +145,7 @@ def overview(db: Session = Depends(get_db), access: AccessContext = Depends(get_
     ).order_by(Asset.updated_at.desc(), Asset.id)))
     today = date.today()
     soon = today + timedelta(days=30)
-    items = [_asset_item(item, categories, types, departments, entities, people, owners) for item in assets]
+    items = [_asset_item(item, categories, types, departments, entities, people, owners, db) for item in assets]
     due = [item for item in items if item["expires_at"] and item["expires_at"][:10] <= soon.isoformat()]
     missing_owner = [item for item in items if not item["has_owner"]]
     category_counts: dict[str, int] = {}
@@ -179,7 +181,7 @@ def list_hudu_assets(
 ):
     categories, types, departments, entities, people, owners = _maps(db)
     excluded = set(db.scalars(select(Asset.id).where(asset_library_exclusion_clause()))) if library_only else set()
-    items = [_asset_item(item, categories, types, departments, entities, people, owners) for item in _active_assets(db, access, include_archived=include_archived, keyword=keyword) if item.id not in excluded]
+    items = [_asset_item(item, categories, types, departments, entities, people, owners, db) for item in _active_assets(db, access, include_archived=include_archived, keyword=keyword) if item.id not in excluded]
     today = date.today()
     soon = today + timedelta(days=30)
     if category_id:
@@ -228,7 +230,7 @@ def expirations(db: Session = Depends(get_db), access: AccessContext = Depends(g
     for row in visible:
         if row.id in details or row.is_personal_subscription:
             continue
-        item = _asset_item(row, categories, types, departments, entities, people, owners)
+        item = _asset_item(row, categories, types, departments, entities, people, owners, db)
         tenant = tenants.get(row.id)
         if tenant:
             pending = sum(1 for child in children if child.platform_tenant_id == tenant.id
@@ -255,7 +257,7 @@ def get_hudu_asset(asset_id: UUID, db: Session = Depends(get_db), access: Access
     original = asset_detail_read(db, asset, access)
     asset = governance_origin(db, asset, access)
     asset_id = asset.id
-    base = _asset_item(asset, categories, types, departments, entities, people, owners)
+    base = _asset_item(asset, categories, types, departments, entities, people, owners, db)
     if original.is_child_account:
         base.update(id=str(original.id), is_child_account=True, review_status="not_required",
                     parent_asset_id=str(asset.id), management_href=original.management_href)
@@ -273,14 +275,16 @@ def get_hudu_asset(asset_id: UUID, db: Session = Depends(get_db), access: Access
         related = related_assets.get(related_id)
         if not related:
             continue
-        related_item = _asset_item(related, categories, types, departments, entities, people, owners)
+        related_item = _asset_item(related, categories, types, departments, entities, people, owners, db)
         relations.append({"id": str(row.id), "relation_type": row.relation_type, "note": row.note, "direction": "outbound" if row.source_asset_id == asset_id else "inbound", "related_asset_id": str(related.id), "related_name": related.name, "related_asset_code": related.asset_code, "related_type_name": related_item["asset_type_name"], "related_category_name": related_item["category_name"]})
     identifiers = [{"id": str(row.id), "namespace": row.namespace, "identifier_type": row.identifier_type, "identifier_value": row.identifier_value, "is_primary": row.is_primary, "verification_status": row.verification_status} for row in db.scalars(select(AssetIdentifier).where(AssetIdentifier.asset_id == asset_id, AssetIdentifier.archived_at.is_(None)).order_by(AssetIdentifier.is_primary.desc(), AssetIdentifier.created_at))]
     profile = None
     if types.get(asset.asset_type_id) and types[asset.asset_type_id].profile_kind == "internal_system":
         row = db.scalar(select(InternalSystemProfile).where(InternalSystemProfile.asset_id == asset_id))
         if row:
-            profile = {"kind": "internal_system", "data": {"repository_url": row.repository_url, "production_url": row.production_url, "tech_stack": row.tech_stack, "deployment_guide_url": row.deployment_guide_url, "recovery_guide_url": row.recovery_guide_url, "backup_description": row.backup_description}}
+            from app.services.repository_visibility import project_profile
+
+            profile = {"kind": "internal_system", "data": project_profile(db, row)}
     if profile is None:
         row = db.scalar(select(ResourceProfile).where(ResourceProfile.asset_id == asset_id))
         if row:
@@ -296,4 +300,7 @@ def get_hudu_asset(asset_id: UUID, db: Session = Depends(get_db), access: Access
         platform = db.get(Platform, tenant.platform_id) if tenant else None
         account_context = {"login_identifier": account.login_identifier, "account_type": account.account_type, "mfa_status": account.mfa_status, "privilege_level": account.privilege_level, "platform_name": platform.name if platform else None, "tenant_identifier": tenant.tenant_identifier if tenant else None}
     history = [{"id": str(row.id), "action": row.action, "created_at": _iso(row.created_at), "after_data": row.after_data} for row in db.scalars(select(AuditLog).where(AuditLog.object_type == "asset", AuditLog.object_id == asset_id).order_by(AuditLog.created_at.desc()).limit(12))]
-    return {"asset": base, "responsibilities": responsibilities, "relations": relations, "identifiers": identifiers, "profile": profile, "account_context": account_context, "history": history}
+    result = {"asset": base, "responsibilities": responsibilities, "relations": relations, "identifiers": identifiers, "profile": profile, "account_context": account_context, "history": history}
+    from app.services.repository_visibility import hide_repository_urls, repository_visibility
+
+    return result if repository_visibility(db, asset_id) == "public" else hide_repository_urls(result)

@@ -79,6 +79,7 @@ class AssetRead(ORMModel):
     management_href: str | None = None
     verification_status: str | None = None
     card_links: list[AssetCardLink] = Field(default_factory=list)
+    repository_visibility: Literal["public", "private", "unknown"] = "unknown"
     source_agent: str | None = None
     source_reference: str | None = None
     development_method: str | None = None

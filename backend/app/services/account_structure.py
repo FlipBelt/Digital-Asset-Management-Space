@@ -13,7 +13,7 @@ from app.models import (
     AssetType,
     Person,
     PlatformTenant,
-    RegistrationIdentityProfile,
+    ResourceProfile,
 )
 
 
@@ -40,10 +40,11 @@ def account_asset_clause():
         .join(AssetCategory)
         .where(
             or_(
-                AssetCategory.code == "platform_account",
-                AssetType.code.in_(
-                    ["platform_tenant", "platform_account", "registration_identity"]
+                and_(
+                    AssetCategory.code == "platform_account",
+                    AssetType.code != "registration_identity",
                 ),
+                AssetType.code.in_(["platform_tenant", "platform_account"]),
             )
         )
     )
@@ -51,7 +52,7 @@ def account_asset_clause():
         classified,
         *[
             exists(select(model.id).where(model.asset_id == Asset.id))
-            for model in (Account, PlatformTenant, RegistrationIdentityProfile)
+            for model in (Account, PlatformTenant)
         ],
     )
 
@@ -62,7 +63,14 @@ def asset_library_exclusion_clause():
         Asset.source_system == "membership-registration",
         Asset.asset_type_id.in_(select(AssetType.id).where(AssetType.code == "saas_subscription")),
     )
-    return or_(account_asset_clause(), personal_subscription)
+    platform_reference = exists(
+        select(ResourceProfile.id).where(
+            ResourceProfile.asset_id == Asset.id,
+            ResourceProfile.resource_family == "platform_catalog",
+            ResourceProfile.archived_at.is_(None),
+        )
+    )
+    return or_(account_asset_clause(), personal_subscription, platform_reference)
 
 
 def responsibility_map(db: Session):

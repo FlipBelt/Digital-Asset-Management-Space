@@ -306,7 +306,7 @@ async function loadBusiness(sequence = loadSequence) {
   departments.value = departmentRows;
   businessCategories.value = categoryRows.filter(item => item.code !== "platform_account");
   const accountCategoryIds = new Set(categoryRows.filter(item => item.code === "platform_account").map(item => item.id));
-  const accountTypeIds = new Set(typeResponse.filter(item => accountCategoryIds.has(item.category_id) || ["platform_account", "platform_tenant", "registration_identity"].includes(item.code)).map(item => item.id));
+  const accountTypeIds = new Set(typeResponse.filter(item => item.code !== "registration_identity" && (accountCategoryIds.has(item.category_id) || ["platform_account", "platform_tenant"].includes(item.code))).map(item => item.id));
   if (accountCategoryIds.has(businessCategory.value) || accountTypeIds.has(businessFilters.asset_type_id)) {
     await router.replace("/accounts"); return;
   }

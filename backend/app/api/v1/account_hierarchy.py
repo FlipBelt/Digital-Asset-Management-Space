@@ -16,6 +16,7 @@ from app.models import (
     PlatformAccountRegistrationIdentity,
     PlatformTenant,
     RegistrationIdentityProfile,
+    ResourceProfile,
     ServiceInstance,
     ServiceProduct,
 )
@@ -54,6 +55,7 @@ def account_hierarchy(
             "personal_accounts": [],
             "pending_identities": [],
             "registration_identities": [],
+            "service_references": [],
         }
         for row in db.scalars(
             select(Platform).where(Platform.archived_at.is_(None)).order_by(Platform.name)
@@ -118,10 +120,7 @@ def account_hierarchy(
                 }
             )
     identity_platforms = {}
-    for link in db.scalars(
-        select(AssetPlatformLink).where(AssetPlatformLink.archived_at.is_(None))
-    ):
-        identity_platforms.setdefault(link.asset_id, set()).add(link.platform_id)
+    # Old identity-to-platform links are historical hints, not account registrations.
     for link in db.scalars(
         select(PlatformAccountRegistrationIdentity).where(
             PlatformAccountRegistrationIdentity.status == "active"
@@ -152,6 +151,28 @@ def account_hierarchy(
             unlinked.append(row)
         for key in matched:
             platforms[key]["registration_identities"].append(row)
-            if profile.verification_status != "verified":
+            if profile.verification_status not in {"verified", "documented"}:
                 platforms[key]["pending_identities"].append(row)
-    return {"platforms": list(platforms.values()), "unlinked_identities": unlinked}
+    references = []
+    links = list(
+        db.scalars(select(AssetPlatformLink).where(AssetPlatformLink.archived_at.is_(None)))
+    )
+    for profile in db.scalars(
+        select(ResourceProfile).where(
+            ResourceProfile.resource_family == "platform_catalog",
+            ResourceProfile.archived_at.is_(None),
+        )
+    ):
+        asset = visible.get(profile.asset_id)
+        if not asset:
+            continue
+        row = {"asset_id": str(asset.id), "name": asset.name, "asset_code": asset.asset_code}
+        references.append(row)
+        for link in links:
+            if link.asset_id == asset.id and link.platform_id in platforms:
+                platforms[link.platform_id]["service_references"].append(row)
+    return {
+        "platforms": list(platforms.values()),
+        "unlinked_identities": unlinked,
+        "service_references": references,
+    }

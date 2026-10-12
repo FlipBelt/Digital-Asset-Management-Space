@@ -166,6 +166,8 @@ def export_assets(library_only: bool = False, db: Session = Depends(get_db), acc
     sheet = workbook.active
     sheet.title = "资产底库"
     sheet.append(["资产编号", *HEADERS, "最后更新"])
+    from app.services.repository_visibility import hide_repository_urls, visibility_map
+    visibility = visibility_map(db, [asset.id for asset in assets])
     for asset in assets:
         sheet.append(
             [
@@ -176,7 +178,7 @@ def export_assets(library_only: bool = False, db: Session = Depends(get_db), acc
                 departments.get(asset.owner_department_id, ""),
                 asset.status,
                 asset.criticality,
-                asset.description or "",
+                (asset.description or "") if visibility[asset.id] == "public" else hide_repository_urls(asset.description or ""),
                 asset.updated_at.isoformat(),
             ]
         )

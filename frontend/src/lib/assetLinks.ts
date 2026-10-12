@@ -18,17 +18,18 @@ function trimUrl(value: string): string {
   return url;
 }
 
-export function assetLinks(asset: Pick<Asset, "card_links" | "description" | "source_reference">): AssetLink[] {
+export function assetLinks(asset: Pick<Asset, "card_links" | "description" | "source_reference" | "repository_visibility">): AssetLink[] {
   const result: AssetLink[] = [], seen = new Set<string>();
   function add(value: string, label = "") {
     const url = safeAssetUrl(trimUrl(value));
     if (!url || seen.has(url)) return;
-    seen.add(url);
     const hostname = new URL(url).hostname.replace(/^www\./, "");
     const repository = hostname === "github.com";
+    if (repository && asset.repository_visibility !== "public") return;
+    seen.add(url);
     const title = label.replace(/\u751f\u4ea7(?:环境|链接|地址|站点)?/g, "访问地址").trim();
-    result.push({ url, label: repository ? "GitHub" : title || hostname,
-      kind: repository ? "repository" : ["打开应用", "访问地址"].includes(title) ? "application" : "link" });
+    result.push({ url, label: repository && (!title || /^(代码仓库|GitHub(?:\s*仓库)?)$/i.test(title)) ? "GitHub" : title || hostname,
+      kind: repository && (!title || /^(代码仓库|GitHub(?:\s*仓库)?)$/i.test(title)) ? "repository" : ["打开应用", "访问地址"].includes(title) ? "application" : "link" });
   }
   for (const link of asset.card_links || []) add(link.url, link.label);
   for (const text of [asset.description, asset.source_reference]) {

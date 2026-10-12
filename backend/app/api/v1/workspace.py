@@ -61,6 +61,7 @@ from app.schemas.workspace import (
     BossPilotImportResult,
     BossPilotRollbackResult,
     CompanyPlatformAccountCreate,
+    ContactReconcileRequest,
     FlexibleImportPreview,
     FlexibleImportStage,
     FlexibleImportStageResult,
@@ -97,6 +98,13 @@ from app.services.aliyun_colleague_import import (
 from app.services.asset_confirmation import lock_asset
 from app.services.assets import allocate_asset_code, ensure_internal_identifier
 from app.services.audited_requests import audited_retry
+from app.services.contact_resources import (
+    contact_read,
+    normalize_contact_catalog,
+    normalize_identifier,
+    require_identity_reference,
+    save_contact,
+)
 from app.services.import_commit import commit_reviewed_import_batch
 from app.services.import_planning import (
     AI_ANALYZER_VERSION,
@@ -211,20 +219,32 @@ def list_registration_identities(
         .order_by(Asset.name)
     ).all()
     return [
-        RegistrationIdentityRead(
-            id=profile.id,
-            asset_id=asset.id,
-            asset_code=asset.asset_code,
-            legal_entity_id=asset.legal_entity_id,
-            name=asset.name,
-            identity_type=profile.identity_type,
-            identifier=profile.identifier_value,
-            source_nature=profile.source_nature,
-            custodian_person_id=profile.custodian_person_id,
-            verification_status=profile.verification_status,
-        )
+        contact_read(db, profile, asset)
         for profile, asset in rows
     ]
+
+
+@router.post("/workspace/registration-identities/reconcile", response_model=list[RegistrationIdentityRead])
+def reconcile_contacts(
+    payload: ContactReconcileRequest,
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(require_asset_write),
+):
+    if not access.is_global_manager:
+        raise HTTPException(403, "通讯资源资料核对需要资产管理员权限")
+    previous, fingerprint = audited_retry(db, access, "contact.reconcile", payload, "contacts")
+    if previous:
+        return previous.after_data["result"]
+    values = [normalize_identifier(row.identifier)[0] for row in payload.rows]
+    if len(set(values)) != len(values):
+        raise HTTPException(422, "同一批次不能重复登记同一个手机号或邮箱")
+    asset_type = normalize_contact_catalog(db)
+    result = [save_contact(db, access, row, asset_type, payload.source_note) for row in payload.rows]
+    db.add(AuditLog(actor_user_id=access.user.id, action="contact.reconcile", object_type="contacts",
+        request_id=str(payload.request_id), after_data={"request_digest": fingerprint,
+            "result": [row.model_dump(mode="json") for row in result]}))
+    db.commit()
+    return result
 
 
 @router.get("/workspace/my-assets", response_model=list[AssetRead])
@@ -247,7 +267,9 @@ def list_my_assets(
         .distinct()
         .order_by(Asset.updated_at.desc(), Asset.id)
     )
-    return [AssetRead.model_validate(item) for item in rows]
+    from app.services.asset_presentation import asset_list_reads
+
+    return asset_list_reads(db, rows)
 
 
 @router.get("/workspace/layer-records", response_model=list[LayerRecordRead])
@@ -807,12 +829,31 @@ def create_platform_account_child(
 def create_company_platform_account(
     payload: CompanyPlatformAccountCreate,
     db: Session = Depends(get_db),
-    access: AccessContext = Depends(get_access_context),
+    access: AccessContext = Depends(require_asset_write),
 ) -> IntakeResultRead:
+    previous, fingerprint = (audited_retry(db, access, "platform_account.create", payload, payload.platform_id)
+        if payload.request_id else (None, None))
+    if previous:
+        return previous.after_data["result"]
     require_legal_entity(db, payload.legal_entity_id)
     platform = db.get(Platform, payload.platform_id)
-    if platform is None:
+    if platform is None or platform.archived_at:
         raise HTTPException(status_code=422, detail="所选平台不存在")
+    native_id = (payload.external_identifier_value or "").strip() or None
+    if not native_id and not (payload.evidence_note or "").strip():
+        raise HTTPException(422, "填写平台账号 ID，或在未提供 ID 时说明账号来源")
+    duplicate_key = f"{payload.platform_id}:{payload.legal_entity_id}"
+    if db.bind.dialect.name == "postgresql":
+        db.execute(select(func.pg_advisory_xact_lock(int(hashlib.sha256(duplicate_key.encode()).hexdigest()[:15], 16))))
+    duplicate = db.scalar(select(Asset).join(PlatformTenant, PlatformTenant.asset_id == Asset.id).where(
+        PlatformTenant.platform_id == payload.platform_id,
+        PlatformTenant.legal_entity_id == payload.legal_entity_id,
+        PlatformTenant.archived_at.is_(None), Asset.archived_at.is_(None),
+        (PlatformTenant.tenant_identifier == native_id) if native_id else
+        (func.lower(Asset.name) == payload.internal_name.strip().lower()),
+    ))
+    if duplicate:
+        raise HTTPException(409, f"此账号已经登记：{duplicate.name}（{duplicate.asset_code}），请到平台与账号查看已有记录")
     if payload.ownership_scope not in {"company", "department", "pending"}:
         raise HTTPException(status_code=422, detail="归属范围无效")
     if payload.ownership_scope == "department" and not payload.owner_department_id:
@@ -830,7 +871,7 @@ def create_company_platform_account(
     asset_type = require_asset_type(db, "platform_tenant")
     asset = create_asset(
         db,
-        name=payload.internal_name,
+        name=payload.internal_name.strip(),
         asset_type_id=asset_type.id,
         legal_entity_id=payload.legal_entity_id,
         owner_department_id=payload.owner_department_id,
@@ -842,7 +883,7 @@ def create_company_platform_account(
         asset_id=asset.id,
         platform_id=payload.platform_id,
         legal_entity_id=payload.legal_entity_id,
-        tenant_identifier=payload.external_identifier_value,
+        tenant_identifier=native_id,
         external_identifier_type=payload.external_identifier_type,
         ownership_nature=payload.ownership_nature,
         account_scope=payload.account_scope,
@@ -852,20 +893,11 @@ def create_company_platform_account(
     db.add(tenant)
     db.flush()
     identity_asset: Asset | None = None
-    identity_profile: RegistrationIdentityProfile | None = None
     if payload.registration_identity_asset_id:
         identity_asset = db.get(Asset, payload.registration_identity_asset_id)
         if identity_asset is None:
             raise HTTPException(status_code=422, detail="所选注册身份不存在")
-        require_asset_visible(db, access, identity_asset)
-        if identity_asset.legal_entity_id != payload.legal_entity_id:
-            raise HTTPException(status_code=422, detail="注册身份与平台账号必须属于同一公司")
-        identity_profile = db.scalar(
-            select(RegistrationIdentityProfile).where(
-                RegistrationIdentityProfile.asset_id == identity_asset.id,
-                RegistrationIdentityProfile.archived_at.is_(None),
-            )
-        )
+        require_identity_reference(db, access, identity_asset, payload.legal_entity_id)
         db.add(
             PlatformAccountRegistrationIdentity(
                 platform_tenant_id=tenant.id,
@@ -884,10 +916,6 @@ def create_company_platform_account(
         )
 
     responsible_person_id = payload.responsible_person_id
-    if responsible_person_id is None and identity_profile is not None:
-        responsible_person_id = identity_profile.custodian_person_id
-    if responsible_person_id is None:
-        responsible_person_id = access.person_id
     proposed_person_ids = {
         person_id
         for person_id in [responsible_person_id, *payload.user_person_ids]
@@ -899,9 +927,11 @@ def create_company_platform_account(
         )
     )
     if len({person.id for person in people}) != len(proposed_person_ids) or any(
-        person.legal_entity_id != payload.legal_entity_id for person in people
+        person.employment_status != "active" or person.person_type != "employee"
+        or (person.legal_entity_id != payload.legal_entity_id and not access.is_global_manager)
+        for person in people
     ):
-        raise HTTPException(status_code=422, detail="负责人和使用人员必须属于所选公司")
+        raise HTTPException(status_code=422, detail="请选择在职员工；跨公司协同资料由资产管理员登记")
     if responsible_person_id:
         db.add(
             AssetResponsibility(
@@ -923,7 +953,6 @@ def create_company_platform_account(
             )
     asset.ownership_scope = payload.ownership_scope
     add_discovery_audit(db, access, asset, "platform_account")
-    db.commit()
     links = [
         IntakeLinkRead(kind="platform", label=platform.name, relation="所属平台"),
     ]
@@ -947,7 +976,7 @@ def create_company_platform_account(
     completion = 55 + 15 + (15 if identity_asset else 0) + (10 if responsible_person_id else 0)
     if tenant.tenant_identifier:
         completion += 5
-    return IntakeResultRead(
+    result = IntakeResultRead(
         id=tenant.id,
         asset_id=asset.id,
         asset_code=asset.asset_code,
@@ -977,6 +1006,12 @@ def create_company_platform_account(
             ),
         ],
     )
+    if payload.request_id:
+        db.add(AuditLog(actor_user_id=access.user.id, action="platform_account.create",
+            object_type="asset", object_id=asset.id, request_id=str(payload.request_id),
+            after_data={"request_digest": fingerprint, "result": result.model_dump(mode="json")}))
+    db.commit()
+    return result
 
 
 @router.post(

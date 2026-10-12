@@ -56,6 +56,7 @@ export interface Asset {
   is_personal_subscription?: boolean;
   is_child_account?: boolean; parent_asset_id?: string | null; management_href?: string | null;
   verification_status?: string | null; card_links?: { label: string; url: string }[];
+  repository_visibility?: "public" | "private" | "unknown";
   source_type: string; started_at: string | null; expires_at: string | null; last_verified_at: string | null;
   description: string | null; version: number; outcome_version?: number; created_at: string; updated_at: string; archived_at: string | null;
   created_by_person_id?: string | null; confirmed_by_person_id?: string | null; confirmed_at?: string | null; review_status?: string;
@@ -103,8 +104,9 @@ export interface Account { id: string; asset_id: string; platform_tenant_id: str
 export interface HierarchyAccount extends Account { version: number; person_name: string | null; employment_status: string | null }
 export interface HierarchyTenant extends Partial<PlatformTenant> { asset_id: string; name: string; asset_code: string; version?: number; company_name?: string | null; has_owner?: boolean; responsible_person_name?: string | null; children: HierarchyAccount[]; is_subscription?: boolean; plan_name?: string | null; person_name?: string | null }
 export interface PendingIdentity { asset_id: string; name: string; asset_code: string; verification_status: string }
-export interface PlatformHierarchy { id: string; name: string; category: string; website: string | null; review_status: string; company_accounts: HierarchyTenant[]; personal_accounts: HierarchyTenant[]; pending_identities: PendingIdentity[]; registration_identities: PendingIdentity[] }
-export interface AccountHierarchy { platforms: PlatformHierarchy[]; unlinked_identities: PendingIdentity[] }
+export interface ServiceReference { asset_id: string; name: string; asset_code: string }
+export interface PlatformHierarchy { id: string; name: string; category: string; website: string | null; review_status: string; company_accounts: HierarchyTenant[]; personal_accounts: HierarchyTenant[]; pending_identities: PendingIdentity[]; registration_identities: PendingIdentity[]; service_references: ServiceReference[] }
+export interface AccountHierarchy { platforms: PlatformHierarchy[]; unlinked_identities: PendingIdentity[]; service_references: ServiceReference[] }
 export interface HandoverReference { asset_id: string; name: string; href: string; account_id?: string; login_identifier?: string; grant_id?: string; grant_role?: string }
 export interface EmployeeLifecycle extends Person { updated_at: string; last_event: { evidence_note: string; departed_on: string | null; recorded_at: string } | null; handover: { accounts: HandoverReference[]; responsibilities: HandoverReference[]; grants: HandoverReference[]; local_login_enabled: boolean } }
 export interface CredentialReference { id: string; account_id: string | null; asset_id: string | null; provider: string; item_id: string; secure_url: string | null; last_rotated_at: string | null; last_verified_at: string | null }
@@ -163,7 +165,7 @@ export interface AssetAssignment { owner_department_id: string | null; ownership
 export interface AssetIdentifier { id: string; asset_id: string; namespace: string; identifier_type: string; identifier_value: string; is_primary: boolean; verification_status: string; confidentiality: string; source_import_record_id: string | null; archived_at: string | null }
 export interface RelationDefinition { id: string; relation_type: string; source_type_code: string; target_type_code: string; forward_label: string; inverse_label: string; category: string; source_max_count: number | null; target_max_count: number | null; is_system: boolean }
 export interface RelationOption { relation_type: string; label: string; target_type_codes: string[]; direction: "upstream" | "downstream" | "peer" }
-export interface RegistrationIdentity { id: string; asset_id: string; asset_code: string; legal_entity_id: string | null; name: string; identity_type: string; identifier: string; source_nature: string; custodian_person_id: string | null; verification_status: string }
+export interface RegistrationIdentity { id: string; asset_id: string; asset_code: string; legal_entity_id: string | null; name: string; identity_type: string; identifier: string; source_nature: string; custodian_person_id: string | null; verification_status: string; version: number; owner_department_id: string | null; note: string | null; registration_blocked: boolean }
 export interface LayerRecord { id: string; layer: number; name: string; object_type: string; legal_entity_name: string | null; platform_name: string | null; category: string | null; ownership_nature: string | null; account_count: number; status: string; asset_id: string | null; updated_at: string }
 export interface IntakeLink { kind: string; label: string; relation: string; asset_id: string | null }
 export interface IntakeNextAction { key: string; label: string; description: string; target: string; required: boolean }
@@ -307,6 +309,8 @@ export const api = {
   spaceGroups: (params: Record<string, string>) => request<SpaceGroups>(`/api/v1/space/groups?${new URLSearchParams(params)}`),
   myRequests: () => request<WorkflowRequest[]>("/api/v1/space/requests"),
   createMyRequest: (body: Record<string, unknown>) => request<WorkflowRequest>("/api/v1/space/requests", json("POST", body)),
+  requestTargets: () => request<{ platforms: { id: string; name: string }[]; accounts: { asset_id: string; platform_id: string; name: string; asset_code: string }[] }>("/api/v1/space/request-targets"),
+  saveRepositoryVisibility: (id: string, body: Record<string, unknown>) => request<{ version: number; repository_visibility: "public" | "private" | "unknown" }>(`/api/v1/assets/${id}/repository-visibility`, json("PUT", body)),
   cancelMyRequest: (id: string, version: number) => request<WorkflowRequest>(`/api/v1/space/requests/${id}/cancel`, json("POST", { version })),
   spaceAssets: (params: Record<string, string>) => request<{data: Asset[]; pagination: {page: number; page_size: number; total: number}}>(`/api/v1/space/assets?${new URLSearchParams(params)}`),
   aiRegistrationTypes: () => request<AIRegistrationType[]>("/api/v1/space/registration-types"),
@@ -437,6 +441,7 @@ export const api = {
   previewImport: (file: File) => { const form = new FormData(); form.append("file", file); return request<ImportPreview>("/api/v1/imports/preview", { method: "POST", body: form }) },
   commitImport: (body: ImportPreview) => request("/api/v1/imports/commit", json("POST", body)),
   registrationIdentities: () => request<RegistrationIdentity[]>("/api/v1/workspace/registration-identities"),
+  reconcileContacts: (body: Record<string, unknown>) => request<RegistrationIdentity[]>("/api/v1/workspace/registration-identities/reconcile", json("POST", body)),
   layerRecords: (layer: number) => request<LayerRecord[]>(`/api/v1/workspace/layer-records?layer=${layer}`),
   createRegistrationIdentity: (body: Record<string, unknown>) => request<RegistrationIdentity>("/api/v1/workspace/registration-identities", json("POST", body)),
   assetPlatformLinks: (assetId: string) => request<AssetPlatformLink[]>(`/api/v1/assets/${assetId}/platform-links`),

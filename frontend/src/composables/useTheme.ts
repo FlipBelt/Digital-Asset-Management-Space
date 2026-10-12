@@ -9,5 +9,5 @@ function applyTheme(value: ThemeId) {
 }
 applyTheme("asset-center");
 export function useTheme() {
-  return { theme, label: computed(() => "资产中心统一设计"), applyTheme };
+  return { theme, label: computed(() => "数字中心统一设计"), applyTheme };
 }

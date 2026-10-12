@@ -57,8 +57,10 @@ def queue(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
+    from app.services.asset_presentation import asset_list_reads
+
     return {
-        "data": [AssetRead.model_validate(a) for a in items],
+        "data": asset_list_reads(db, items),
         "pagination": {"page": page, "page_size": page_size, "total": total},
     }
 

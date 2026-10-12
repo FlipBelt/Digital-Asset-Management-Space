@@ -67,6 +67,7 @@ ROLE_PERMISSION_CODES = {
 
 CATEGORIES = [
     ("platform_account", "平台与账号", 10),
+    ("communication_resources", "手机号与邮箱", 15),
     ("internal_system", "公司自研系统", 20),
     ("saas_software", "外购软件与SaaS", 30),
     ("api_service", "API及按量服务", 40),
@@ -78,10 +79,10 @@ CATEGORIES = [
 
 TYPES = {
     "platform_account": [
-        ("registration_identity", "注册身份", "generic"),
         ("platform_tenant", "平台企业租户", "platform_tenant"),
         ("platform_account", "平台账号", "account"),
     ],
+    "communication_resources": [("registration_identity", "手机号 / 邮箱", "generic")],
     "internal_system": [
         ("internal_system", "公司自研系统", "internal_system"),
         ("automation_script", "自动化脚本", "internal_system"),
@@ -281,7 +282,6 @@ def seed() -> None:
             for code, name, profile_kind in type_rows:
                 exists = db.scalar(
                     select(AssetType).where(
-                        AssetType.category_id == category.id,
                         AssetType.code == code,
                     )
                 )
@@ -296,6 +296,9 @@ def seed() -> None:
                             completeness_rules={},
                         )
                     )
+                elif code == "registration_identity":
+                    exists.category_id = category.id
+                    exists.name = name
 
         for key, name, unit, aggregation in METRICS:
             if (

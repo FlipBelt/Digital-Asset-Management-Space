@@ -6,6 +6,7 @@ from app.core.access import require_asset_visible
 from app.models import AssetFieldDefinition, AssetFieldValue, InternalSystemProfile, ResourceProfile
 from app.schemas.assets import AssetCardLink, AssetRead
 from app.services.account_structure import account_parent
+from app.services.repository_visibility import GITHUB_URL, hide_repository_urls, visibility_map
 
 PROFILE_LINKS = {
     "repository_url": "代码仓库",
@@ -14,15 +15,31 @@ PROFILE_LINKS = {
     "recovery_guide_url": "恢复说明",
 }
 INHERITED_FIELDS = (
-    "legal_entity_id", "owner_department_id", "ownership_scope", "status", "criticality",
-    "confidentiality", "sharing_scope", "started_at", "expires_at", "last_verified_at",
-    "description", "source_type", "source_system", "source_agent", "source_reference",
-    "development_method", "created_by_person_id", "confirmed_by_person_id", "confirmed_at",
+    "legal_entity_id",
+    "owner_department_id",
+    "ownership_scope",
+    "status",
+    "criticality",
+    "confidentiality",
+    "sharing_scope",
+    "started_at",
+    "expires_at",
+    "last_verified_at",
+    "description",
+    "source_type",
+    "source_system",
+    "source_agent",
+    "source_reference",
+    "development_method",
+    "created_by_person_id",
+    "confirmed_by_person_id",
+    "confirmed_at",
 )
 
 
 def card_link_map(db, asset_ids):
     result = {identity: [] for identity in asset_ids}
+    visibility = visibility_map(db, asset_ids)
     if not result:
         return result
     for profile in db.scalars(
@@ -38,7 +55,9 @@ def card_link_map(db, asset_ids):
         )
     ):
         if profile.management_url:
-            result[profile.asset_id].append(AssetCardLink(label="管理入口", url=profile.management_url))
+            result[profile.asset_id].append(
+                AssetCardLink(label="管理入口", url=profile.management_url)
+            )
     fields = db.execute(
         select(AssetFieldValue, AssetFieldDefinition)
         .join(AssetFieldDefinition)
@@ -54,14 +73,33 @@ def card_link_map(db, asset_ids):
         value = (field.value or {}).get("value")
         if isinstance(value, str) and value:
             result[field.asset_id].append(AssetCardLink(label=definition.label, url=value))
+    for identity, links in result.items():
+        if visibility[identity] != "public":
+            result[identity] = [
+                link
+                for link in links
+                if link.label != "代码仓库" and not GITHUB_URL.search(link.url)
+            ]
     return result
 
 
 def asset_list_reads(db, assets):
     rows = list(assets)
     links = card_link_map(db, [asset.id for asset in rows])
+    visibility = visibility_map(db, [asset.id for asset in rows])
     return [
-        AssetRead.model_validate(asset).model_copy(update={"card_links": links[asset.id]})
+        AssetRead.model_validate(asset).model_copy(
+            update={
+                "card_links": links[asset.id],
+                "repository_visibility": visibility[asset.id],
+                "description": asset.description
+                if visibility[asset.id] == "public"
+                else hide_repository_urls(asset.description),
+                "source_reference": asset.source_reference
+                if visibility[asset.id] == "public"
+                else hide_repository_urls(asset.source_reference),
+            }
+        )
         for asset in rows
     ]
 
@@ -83,6 +121,10 @@ def asset_detail_read(db, asset, access):
         item.management_href = f"/accounts?platform={tenant.platform_id}&tenant={parent.id}"
         item.verification_status = tenant.verification_status
     item.card_links = card_link_map(db, [origin.id])[origin.id]
+    item.repository_visibility = visibility_map(db, [origin.id])[origin.id]
+    if item.repository_visibility != "public":
+        item.description = hide_repository_urls(item.description)
+        item.source_reference = hide_repository_urls(item.source_reference)
     return item
 
 

@@ -114,12 +114,11 @@ def test_library_filters_before_count_pages_export_and_preserves_uuid(actors, co
         )
         db.add_all([regular, identity])
         db.commit()
-        regular_id = str(regular.id)
     result = actors.admin.get(
         "/api/v1/assets", params={"keyword": marker, "library_only": True, "page_size": 1}
     ).json()
-    assert result["pagination"]["total"] == 1
-    assert [item["id"] for item in result["data"]] == [regular_id]
+    assert result["pagination"]["total"] == 2
+    assert result["data"][0]["name"] in {marker + " resource", marker + " identity"}
     assert actors.admin.get(f"/api/v1/assets/{row['asset_id']}").status_code == 200
     assert (
         actors.admin.get("/api/v1/assets", params={"keyword": marker}).json()["pagination"]["total"]
@@ -546,6 +545,19 @@ def test_verified_identity_retains_platform_and_custodian_handover(actors, compa
     platform = next(
         item for item in result["platforms"] if item["id"] == str(company_account["platform"])
     )
+    # A historical platform purpose does not bind a communication resource to a platform.
+    assert identity_id in {item["asset_id"] for item in result["unlinked_identities"]}
+    assert not any(item["asset_id"] == identity_id for item in platform["registration_identities"])
+    with SessionLocal() as db:
+        from app.models import PlatformAccountRegistrationIdentity
+
+        db.add(PlatformAccountRegistrationIdentity(
+            platform_tenant_id=UUID(company_account["id"]),
+            registration_identity_asset_id=UUID(identity_id), role="primary", status="active"
+        ))
+        db.commit()
+    result = actors.admin.get("/api/v1/account-hierarchy").json()
+    platform = next(item for item in result["platforms"] if item["id"] == str(company_account["platform"]))
     assert any(
         item["asset_id"] == identity_id and item["name"] == "v***@example.test"
         for item in platform["registration_identities"]

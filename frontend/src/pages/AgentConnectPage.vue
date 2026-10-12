@@ -7,7 +7,7 @@ const busy = ref(false); const message = ref(""); const error = ref("");
 function fail(reason: unknown) {
   client.value = "";
   error.value = reason instanceof ApiError && reason.status === 401
-    ? "请先登录资产中心，再返回此页授权。" : reason instanceof Error ? reason.message : "请求失败，请重试";
+    ? "请先登录数字中心，再返回此页授权。" : reason instanceof Error ? reason.message : "请求失败，请重试";
 }
 async function load() {
   try { grants.value = await request<Grant[]>("/api/v1/agent/grants"); }

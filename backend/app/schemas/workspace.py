@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -45,6 +46,9 @@ class RegistrationIdentityCreate(BaseModel):
     custodian_person_id: UUID | None = None
     verification_status: str = "pending"
     note: str | None = None
+    owner_department_id: UUID | None = None
+    registration_blocked: bool = False
+    request_id: UUID | None = None
 
 
 class RegistrationIdentityRead(BaseModel):
@@ -58,6 +62,21 @@ class RegistrationIdentityRead(BaseModel):
     source_nature: str
     custodian_person_id: UUID | None
     verification_status: str
+    version: int = 1
+    owner_department_id: UUID | None = None
+    note: str | None = None
+    registration_blocked: bool = False
+
+
+class ContactReconcileRow(RegistrationIdentityCreate):
+    expected_version: int | None = Field(default=None, ge=1)
+    verification_status: Literal["pending", "documented"] = "documented"
+
+
+class ContactReconcileRequest(BaseModel):
+    request_id: UUID
+    source_note: str = Field(min_length=1, max_length=2000)
+    rows: list[ContactReconcileRow] = Field(min_length=1, max_length=100)
 
 
 class CompanyPlatformAccountCreate(BaseModel):
@@ -76,6 +95,7 @@ class CompanyPlatformAccountCreate(BaseModel):
     owner_department_id: UUID | None = None
     responsible_person_id: UUID | None = None
     user_person_ids: list[UUID] = Field(default_factory=list)
+    request_id: UUID | None = None
 
 
 class IntakeLinkRead(BaseModel):

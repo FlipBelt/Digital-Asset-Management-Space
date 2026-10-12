@@ -79,6 +79,10 @@ const platforms = ref<Platform[]>([]);
 const serviceInstances = ref<ServiceInstance[]>([]);
 const childAccounts = ref<Account[]>([]);
 const confirmedResponsible = ref<string | null>(null);
+const canSetRepositoryVisibility = ref(false);
+const repositoryVisibility = ref<"public" | "private" | "unknown">("unknown");
+const visibilityRequestId = ref(crypto.randomUUID());
+let visibilityPayload = "";
 const canReview = ref(false);
 const canUploadOutcome = ref(false);
 const proposals = ref<{person_id: string | null; role_type: string}[]>([]);
@@ -451,6 +455,7 @@ async function load() {
       api.serviceInstances(),
     ]);
     asset.value = item;
+    repositoryVisibility.value = item.repository_visibility || "unknown";
     types.value = typeRows;
     departments.value = deptRows;
     entities.value = entityRows;
@@ -465,6 +470,7 @@ async function load() {
     Object.assign(assignment, assignmentRow);
     const responsibilities = await api.assetResponsibilities(id);
     confirmedResponsible.value = responsibilities.find(r => r.role_type === "responsible")?.person_id || null;
+    canSetRepositoryVisibility.value = canUploadOutcome.value || canReview.value || confirmedResponsible.value === currentUser.person_id;
     proposals.value = responsibilities.filter(r => ["proposed_responsible", "proposed_user"].includes(r.role_type));
     Object.assign(edit, {
       name: item.name,
@@ -608,6 +614,21 @@ async function saveProfile() {
     saving.value = false;
   }
 }
+
+async function saveRepositoryVisibility() {
+  if (!asset.value || saving.value) return;
+  saving.value = true; error.value = "";
+  const body = { version: asset.value.version, visibility: repositoryVisibility.value };
+  const snapshot = JSON.stringify(body);
+  if (visibilityPayload && visibilityPayload !== snapshot) visibilityRequestId.value = crypto.randomUUID();
+  visibilityPayload = snapshot;
+  try {
+    await api.saveRepositoryVisibility(id, { ...body, request_id: visibilityRequestId.value });
+    message.value = "仓库可见性已保存；私有或尚未确认的 GitHub 地址不对外展示。";
+    visibilityPayload = ""; visibilityRequestId.value = crypto.randomUUID(); await load();
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : "仓库可见性保存失败"; }
+  finally { saving.value = false; }
+}
 async function saveIdentifier() {
   if (
     !identifierForm.namespace ||
@@ -668,7 +689,7 @@ function fieldInputType(field: AssetFieldDefinition) {
       : "text";
 }
 function groupLabel(direction: RelationDirection) {
-  return { upstream: "上游来源", downstream: "下游使用方", peer: "同级关系" }[
+  return { upstream: "依赖与归属", downstream: "引用与使用", peer: "协作与同级关系" }[
     direction
   ];
 }
@@ -696,7 +717,7 @@ onMounted(load);
 <template>
   <div class="page-stack detail-page-v2">
     <button class="back-link" @click="router.push('/assets')">
-      <ArrowLeft :size="16" />返回资产中心
+      <ArrowLeft :size="16" />返回数字中心
     </button>
     <PageHeader
       :eyebrow="primaryIdentifier"
@@ -982,6 +1003,11 @@ onMounted(load);
       </section>
 
       <section v-if="tab === 'profile'" class="detail-surface profile-surface">
+        <form class="balanced-form content-panel" @submit.prevent="saveRepositoryVisibility">
+          <div class="wide"><h3>GitHub 仓库可见性</h3><p>由负责人确认仓库是公开还是私有。私有及尚未确认时隐藏地址和所有指向 GitHub 的按钮，访问应用的链接仍按资料展示。</p></div>
+          <label><span>仓库可见性</span><select v-model="repositoryVisibility" :disabled="saving || !canSetRepositoryVisibility"><option value="unknown">尚未确认（隐藏地址）</option><option value="public">公开仓库</option><option value="private">私有仓库（隐藏地址）</option></select></label>
+          <div class="form-actions"><button v-if="canSetRepositoryVisibility" class="secondary-button" :disabled="saving">保存仓库可见性</button><p v-else class="form-hint">请由负责人或资产管理员维护。</p></div>
+        </form>
         <header>
           <div>
             <span class="section-kicker">专属资料</span>
@@ -1064,7 +1090,7 @@ onMounted(load);
           <form class="balanced-form" @submit.prevent="saveProfile">
             <label
               ><span>代码仓库地址</span
-              ><input v-model="profileForm.repository_url" /></label
+              ><input v-model="profileForm.repository_url" placeholder="隐藏的已有地址无需重复填写，留空会保留" /></label
             ><label
               ><span>访问地址</span
               ><input v-model="profileForm.production_url" /></label
@@ -1162,7 +1188,7 @@ onMounted(load);
             <span class="section-kicker">关联资产</span>
             <h2>像搭积木一样建立清晰关系</h2>
             <p>
-              先选择关系类型，再选择符合条件的关联对象。
+              区分归属、注册、购买、部署、调用和管理；人员的责任与使用权在下方单独维护。
             </p>
           </div>
           <Network :size="30" />
@@ -1189,6 +1215,8 @@ onMounted(load);
                 {{ groupLabel(direction) }}
               </button>
             </div>
+            <p class="form-hint">{{ relationForm.direction === 'upstream' ? '当前资产使用、依赖或归属于哪些对象。例如：账号使用注册邮箱，系统部署在服务器。' : relationForm.direction === 'downstream' ? '哪些对象注册使用、调用、依赖当前资产，或由当前资产管理。例如：邮箱被哪个平台账号使用，服务器承载哪些系统。' : '两个对象之间的协作或同级联系，不表示公司归属、持有人或账号权限。' }}</p>
+            <p v-if="relationForm.relation_type" class="form-hint">关系方向：{{ asset.name }} → {{ relationOptions.find(item => item.relation_type === relationForm.relation_type)?.label }} → {{ allAssets.find(item => item.id === relationForm.related_asset_id)?.name || '待选择关联对象' }}</p>
             <div class="relation-input-grid">
               <label
                 ><span>关系</span

@@ -128,6 +128,8 @@ def test_source_label_cannot_fake_child_exemption(actors):
 def test_card_links_include_existing_profiles_and_url_fields_without_secret_fields(actors):
     asset = draft(actors.owner, actors)
     with SessionLocal() as db:
+        from app.services.repository_visibility import set_visibility
+        set_visibility(db, UUID(asset["id"]), "public")
         db.add(InternalSystemProfile(asset_id=UUID(asset["id"]),
                                     repository_url="https://github.com/example/project",
                                     production_url="https://app.example.test/",
