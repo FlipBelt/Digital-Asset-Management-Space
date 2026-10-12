@@ -13,6 +13,7 @@ from app.models import (
     AssetType,
     Person,
     PlatformTenant,
+    RegistrationIdentityProfile,
     ResourceProfile,
 )
 
@@ -57,6 +58,16 @@ def account_asset_clause():
     )
 
 
+def communication_resource_clause():
+    # Contact management has its own entry; category changes must not leak it back.
+    return or_(
+        Asset.asset_type_id.in_(select(AssetType.id).where(AssetType.code == "registration_identity")),
+        exists(select(RegistrationIdentityProfile.id).where(
+            RegistrationIdentityProfile.asset_id == Asset.id,
+        )),
+    )
+
+
 def asset_library_exclusion_clause():
     personal_subscription = and_(
         Asset.source_system.is_not(None),
@@ -70,7 +81,10 @@ def asset_library_exclusion_clause():
             ResourceProfile.archived_at.is_(None),
         )
     )
-    return or_(account_asset_clause(), personal_subscription, platform_reference)
+    return or_(
+        account_asset_clause(), communication_resource_clause(), personal_subscription,
+        platform_reference,
+    )
 
 
 def responsibility_map(db: Session):

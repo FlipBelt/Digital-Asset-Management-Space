@@ -117,8 +117,8 @@ def test_library_filters_before_count_pages_export_and_preserves_uuid(actors, co
     result = actors.admin.get(
         "/api/v1/assets", params={"keyword": marker, "library_only": True, "page_size": 1}
     ).json()
-    assert result["pagination"]["total"] == 2
-    assert result["data"][0]["name"] in {marker + " resource", marker + " identity"}
+    assert result["pagination"]["total"] == 1
+    assert result["data"][0]["name"] == marker + " resource"
     assert actors.admin.get(f"/api/v1/assets/{row['asset_id']}").status_code == 200
     assert (
         actors.admin.get("/api/v1/assets", params={"keyword": marker}).json()["pagination"]["total"]
@@ -133,6 +133,7 @@ def test_library_filters_before_count_pages_export_and_preserves_uuid(actors, co
     }
     assert marker + " resource" in names
     assert marker + " parent" not in names and marker + " child" not in names
+    assert marker + " identity" not in names
 
 
 @pytest.mark.parametrize("funding", ["personal", "company"])

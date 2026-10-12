@@ -43,7 +43,8 @@ import {
   type Person,
   type Platform,
   type PlatformAccountContext,
-  type RelationOption,
+  type RelationshipChoice,
+  type RelationshipGroup,
   type RelationshipEdge,
   type RelationshipNode,
   type RelationshipSection,
@@ -52,9 +53,8 @@ import {
 import { displayStatus } from "../lib/labels";
 import { isPersonalSubscription, subscriptionStatus } from "../lib/personalSubscriptions";
 import { isAIOutcome } from "../lib/aiDiscovery";
-import { relationshipNodeHref } from "../lib/relationship";
+import { relationshipGroups, relationshipNodeHref, relationshipPreview, relationshipSentence } from "../lib/relationship";
 
-type RelationDirection = "upstream" | "downstream" | "peer";
 const route = useRoute();
 const router = useRouter();
 const id = String(route.params.id);
@@ -73,7 +73,16 @@ const relationshipGraph = ref<AssetRelationshipView | null>(null);
 const logs = ref<AuditLog[]>([]);
 const profile = ref<InternalSystemProfile | null>(null);
 const identifiers = ref<AssetIdentifier[]>([]);
-const relationOptions = ref<RelationOption[]>([]);
+const relationChoices = ref<RelationshipChoice[]>([]);
+const relationGroup = ref<RelationshipGroup>("ownership");
+const relationLoading = ref(false);
+const relationError = ref("");
+const relationRequestId = ref(crypto.randomUUID());
+const identifierEditing = ref(false);
+const nativeIdentifier = reactive({ identifier: "", identifier_type: "account_id" });
+const identifierRequestId = ref(crypto.randomUUID());
+let identifierPayload = "";
+let relationPayload = "";
 const platformAccountContext = ref<PlatformAccountContext | null>(null);
 const platforms = ref<Platform[]>([]);
 const serviceInstances = ref<ServiceInstance[]>([]);
@@ -110,17 +119,7 @@ const profileForm = reactive({
   recovery_guide_url: "",
   backup_description: "",
 });
-const relationForm = reactive<{
-  direction: RelationDirection;
-  related_asset_id: string;
-  relation_type: string;
-  note: string;
-}>({
-  direction: "upstream",
-  related_asset_id: "",
-  relation_type: "",
-  note: "",
-});
+const relationForm = reactive({ choice_key: "", target_id: "", note: "" });
 const editingRelationId = ref<string | null>(null);
 const editingRelationTarget = ref("");
 const identifierForm = reactive({
@@ -207,6 +206,14 @@ const groupedFields = computed(() =>
     ),
   ),
 );
+const responsibleDisplay = computed(() => confirmedResponsible.value
+  ? personName.value[confirmedResponsible.value] || "已登记负责人"
+  : assignment.responsible_status === "proposed" && assignment.responsible_person_id
+    ? `建议：${personName.value[assignment.responsible_person_id] || '已登记人员'}` : "尚未配置");
+const responsibleHint = computed(() => assignment.responsible_status === "proposed"
+  ? "待确认 · 请在责任与使用中保存" : assignment.responsible_status === "inactive"
+    ? assignment.responsibility_issue || "责任配置待更新" : assignment.responsible_status === "confirmed"
+      ? "已确认的责任配置" : "请在责任与使用中配置");
 const ownershipText = computed(() =>
   assignment.ownership_scope === "department"
     ? (departmentName.value[assignment.owner_department_id ?? ""] ?? "待选部门")
@@ -281,25 +288,17 @@ const relationGroups = computed<Record<RelationshipSection, RelationshipEdge[]>>
 );
 function relationSectionLabel(section: RelationshipSection) {
   return {
-    structure: "关联结构",
-    business: "业务关系",
+    structure: "归属与账号资料",
+    business: "部署、调用与使用",
     responsibility: "责任与使用",
   }[section];
 }
 function relationSectionDescription(section: RelationshipSection) {
   return {
     structure: "公司主体、注册身份和所属平台等结构性事实",
-    business: "购买、开通、管理、部署、调用和包含等业务关系",
+    business: "部署、挂载、调用、使用及已有采购记录；每条关系显示实际方向",
     responsibility: "负责人、使用人员、部门和账号授权",
   }[section];
-}
-function relationDirectionLabel(direction: RelationshipEdge["direction"]) {
-  return {
-    upstream: "上游",
-    downstream: "下游",
-    peer: "同级",
-    responsibility: "责任 / 使用",
-  }[direction];
 }
 function relationOtherNode(edge: RelationshipEdge) {
   const currentId = relationshipGraph.value?.current_node.id;
@@ -344,28 +343,13 @@ async function saveRelationEdit(edge: RelationshipEdge) {
     error.value = reason instanceof Error ? reason.message : "关联更新失败";
   }
 }
-const candidateAssets = computed(() => {
-  const allowed = new Set(
-    relationOptions.value
-      .filter(
-        (item) =>
-          !relationForm.relation_type ||
-          item.relation_type === relationForm.relation_type,
-      )
-      .flatMap((item) => item.target_type_codes),
-  );
-  return allAssets.value.filter(
-    (item) =>
-      item.id !== id &&
-      !item.archived_at &&
-      (!allowed.size ||
-        allowed.has("*") ||
-        allowed.has(
-          types.value.find((type) => type.id === item.asset_type_id)?.code ??
-            "",
-        )),
-  );
-});
+const groupChoices = computed(() => relationChoices.value.filter(row => row.group === relationGroup.value));
+const selectedChoice = computed(() => groupChoices.value.find(row => row.key === relationForm.choice_key));
+const selectedTarget = computed(() => selectedChoice.value?.targets.find(row => row.id === relationForm.target_id));
+const targetQuery = ref("");
+const relationTargets = computed(() => (selectedChoice.value?.targets || []).filter(row =>
+  `${row.label} ${row.object_type} ${row.detail}`.toLowerCase().includes(targetQuery.value.trim().toLowerCase())));
+const targetLabel = computed(() => ({ platform: "已有平台", legal_entity: "归属公司", department: "归属部门", asset: "已有资产或公司账号" }[selectedChoice.value?.target_kind || "asset"]));
 const relationshipSlots = computed(() => {
   const responsible = confirmedResponsible.value
     ? personName.value[confirmedResponsible.value]
@@ -466,10 +450,12 @@ async function load() {
     identifiers.value = identifierRows;
     platforms.value = platformRows;
     serviceInstances.value = serviceInstanceRows;
-    fieldDefinitions.value = fieldRows;
+    fieldDefinitions.value = typeRows.find(row => row.id === item.asset_type_id)?.code === "platform_tenant"
+      ? fieldRows.filter(row => !["tenant_id", "account_id", "uid", "external_id", "workspace_id", "organization_id"].includes(row.field_key))
+      : fieldRows;
     Object.assign(assignment, assignmentRow);
     const responsibilities = await api.assetResponsibilities(id);
-    confirmedResponsible.value = responsibilities.find(r => r.role_type === "responsible")?.person_id || null;
+    confirmedResponsible.value = assignmentRow.confirmed_responsible_person_id || null;
     canSetRepositoryVisibility.value = canUploadOutcome.value || canReview.value || confirmedResponsible.value === currentUser.person_id;
     proposals.value = responsibilities.filter(r => ["proposed_responsible", "proposed_user"].includes(r.role_type));
     Object.assign(edit, {
@@ -485,6 +471,10 @@ async function load() {
         string | number | null;
     });
     const currentType = typeRows.find((row) => row.id === item.asset_type_id);
+    if (currentType?.code === "registration_identity") {
+      await router.replace({ path: "/accounts", query: { section: "contacts" } });
+      return;
+    }
     if (currentType?.profile_kind === "internal_system") {
       profile.value = await api.internalProfile(id);
       if (profile.value)
@@ -498,8 +488,12 @@ async function load() {
           ),
         );
     }
-    if (currentType?.code === "platform_tenant")
+    if (currentType?.code === "platform_tenant") {
       platformAccountContext.value = await api.platformAccountContext(id);
+      nativeIdentifier.identifier = platformAccountContext.value.tenant_identifier || "";
+      nativeIdentifier.identifier_type = platformAccountContext.value.external_identifier_type || "account_id";
+      if (!["account_id", "uid", "organization_id", "workspace_id", "merchant_id", "other"].includes(nativeIdentifier.identifier_type)) nativeIdentifier.identifier_type = "other";
+    }
     childAccounts.value = currentType?.code === "platform_tenant"
       ? await api.platformAccountChildren(id)
       : [];
@@ -524,14 +518,14 @@ async function load() {
   }
 }
 async function loadRelationOptions() {
-  relationOptions.value = await api.relationOptions(id, relationForm.direction);
-  if (
-    !relationOptions.value.some(
-      (item) => item.relation_type === relationForm.relation_type,
-    )
-  )
-    relationForm.relation_type = relationOptions.value[0]?.relation_type ?? "";
-  relationForm.related_asset_id = "";
+  relationLoading.value = true; relationError.value = "";
+  try {
+    relationChoices.value = await api.relationshipChoices(id);
+    if (!groupChoices.value.length) relationGroup.value = relationChoices.value[0]?.group || "ownership";
+    relationForm.choice_key = groupChoices.value.find(row => row.targets.length)?.key || groupChoices.value[0]?.key || "";
+    relationForm.target_id = "";
+  } catch (reason) { relationError.value = reason instanceof Error ? reason.message : "关系读取失败"; }
+  finally { relationLoading.value = false; }
 }
 async function saveAsset() {
   if (!asset.value) return;
@@ -576,10 +570,8 @@ async function saveAssignment() {
         user_person_ids: assignment.user_person_ids,
       }),
     );
-    asset.value = await api.asset(id);
-    proposals.value = [];
-    confirmedResponsible.value = assignment.responsible_person_id;
-    message.value = "责任配置已保存，成果审核请进入管理区 → 成果审核";
+    await load();
+    message.value = isPlatformTenant.value ? "责任配置已保存，概览与跟进同步更新。" : "责任配置已保存，概览与跟进同步更新。成果审核在管理区维护。";
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "保存失败";
   } finally {
@@ -655,22 +647,43 @@ async function saveIdentifier() {
   }
 }
 async function addRelation() {
-  if (!relationForm.related_asset_id || !relationForm.relation_type) return;
+  if (!asset.value || !relationForm.target_id || !selectedChoice.value || saving.value) return;
+  saving.value = true; relationError.value = "";
+  const body = { version: asset.value.version, ...relationForm };
+  const snapshot = JSON.stringify(body);
+  if (relationPayload && relationPayload !== snapshot) relationRequestId.value = crypto.randomUUID();
+  relationPayload = snapshot;
   try {
-    await api.createIntelligentRelation(id, relationForm);
-    relationshipGraph.value = await api.relationshipView(id);
-    relationForm.related_asset_id = "";
+    await api.createRelationshipConnection(id, { ...body, request_id: relationRequestId.value });
+    relationForm.target_id = "";
     relationForm.note = "";
+    relationPayload = ""; relationRequestId.value = crypto.randomUUID();
+    await load();
     message.value = "关联已建立";
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : "建立失败";
-  }
+    relationError.value = reason instanceof Error ? reason.message : "建立失败";
+  } finally { saving.value = false; }
+}
+async function saveNativeIdentifier() {
+  if (!asset.value || saving.value) return;
+  saving.value = true; error.value = "";
+  const body = { version: asset.value.version, ...nativeIdentifier };
+  const snapshot = JSON.stringify(body);
+  if (identifierPayload && identifierPayload !== snapshot) identifierRequestId.value = crypto.randomUUID();
+  identifierPayload = snapshot;
+  try {
+    await api.savePlatformIdentifier(id, { ...body, request_id: identifierRequestId.value });
+    identifierEditing.value = false; identifierPayload = ""; identifierRequestId.value = crypto.randomUUID();
+    await load(); message.value = "平台账号 ID 已保存；核验页会直接引用这份资料。";
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : "账号 ID 保存失败"; }
+  finally { saving.value = false; }
 }
 async function removeRelation(item: RelationshipEdge) {
   if (!item.relation_id || !item.editable) return;
   try {
-    await api.archiveRelation(id, item.relation_id);
-    relationshipGraph.value = await api.relationshipView(id);
+    if (item.source_model === "AssetPlatformLink") await api.archivePlatformLink(id, item.relation_id);
+    else await api.archiveRelation(id, item.relation_id);
+    await load();
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : "无法删除关联";
   }
@@ -688,17 +701,11 @@ function fieldInputType(field: AssetFieldDefinition) {
       ? "date"
       : "text";
 }
-function groupLabel(direction: RelationDirection) {
-  return { upstream: "依赖与归属", downstream: "引用与使用", peer: "协作与同级关系" }[
-    direction
-  ];
-}
-watch(
-  () => relationForm.direction,
-  () => {
-    void loadRelationOptions();
-  },
-);
+watch(relationGroup, () => {
+  relationForm.choice_key = groupChoices.value.find(row => row.targets.length)?.key || groupChoices.value[0]?.key || "";
+  relationForm.target_id = ""; targetQuery.value = "";
+});
+watch(() => relationForm.choice_key, () => { relationForm.target_id = ""; targetQuery.value = ""; });
 watch(
   () => assignment.responsible_person_id,
   (personId) => {
@@ -759,11 +766,9 @@ onMounted(load);
         <article>
           <span>负责人</span
           ><strong>{{
-            confirmedResponsible
-              ? personName[confirmedResponsible]
-              : "待配置"
+            responsibleDisplay
           }}</strong
-          ><small>{{ assignment.user_person_ids.length }} 位协同使用人</small>
+          ><small>{{ responsibleHint }} · {{ assignment.user_person_ids.length }} 位协同使用人</small>
         </article>
         <article class="completion-card">
           <span>登记状态</span><strong>已建档</strong
@@ -896,12 +901,10 @@ onMounted(load);
             <article>
               <UserRound :size="19" /><span>负责人</span
               ><strong>{{
-                confirmedResponsible
-                  ? personName[confirmedResponsible]
-                  : "待确认"
+                responsibleDisplay
               }}</strong
               ><small
-                >登记人：{{
+                >{{ responsibleHint }} · 登记人：{{
                   asset.created_by_person_id
                     ? personName[asset.created_by_person_id] || "已记录"
                     : "系统登记"
@@ -964,10 +967,19 @@ onMounted(load);
             </button>
           </div>
         </form>
+        <section v-if="platformAccountContext" class="identifier-panel" id="platform-identifier">
+          <div><h3><Tags :size="18" />平台账号 ID</h3><p>这里只填写一次。概览和核验页直接引用；资产编号由系统生成。</p></div>
+          <div v-if="!identifierEditing" class="native-id-read"><strong>{{ platformAccountContext.tenant_identifier || '平台未提供 / 暂未填写' }}</strong><button v-if="canReview" class="secondary-button" @click="identifierEditing = true">维护账号 ID</button></div>
+          <form v-else class="balanced-form" @submit.prevent="saveNativeIdentifier">
+            <label><span>ID 类型</span><select v-model="nativeIdentifier.identifier_type"><option value="account_id">账号 ID</option><option value="uid">UID</option><option value="organization_id">组织 ID</option><option value="workspace_id">工作区 ID</option><option value="merchant_id">商户号</option><option value="other">其他平台编号</option></select></label>
+            <label><span>平台提供的账号 ID（可选）</span><input v-model="nativeIdentifier.identifier" maxlength="200" placeholder="从平台后台复制，平台没有提供时可留空" /></label>
+            <div class="form-actions wide"><button type="button" class="secondary-button" :disabled="saving" @click="identifierEditing = false">取消</button><button class="primary-button" :disabled="saving">保存账号 ID</button></div>
+          </form>
+        </section>
         <section class="identifier-panel">
           <div>
-            <h3><Tags :size="18" />平台与历史标识</h3>
-            <p>没有平台原生 ID 可以留空；历史编号只保留用于追溯。</p>
+            <h3><Tags :size="18" />{{ isPlatformTenant ? '历史编号（只读）' : '其他标识' }}</h3>
+            <p>{{ isPlatformTenant ? '保留旧资料用于追溯。平台原生 ID 统一在上方维护。' : '补充当前资源的其他编号，资产编号由系统生成。' }}</p>
           </div>
           <div class="identifier-chips">
             <span
@@ -982,7 +994,7 @@ onMounted(load);
               ><b>{{ item.identifier_value }}</b></span
             >
           </div>
-          <form class="identifier-form-v2" @submit.prevent="saveIdentifier">
+          <form v-if="!isPlatformTenant" class="identifier-form-v2" @submit.prevent="saveIdentifier">
             <input
               v-model="identifierForm.namespace"
               placeholder="平台名称，例如：阿里云"
@@ -1185,10 +1197,10 @@ onMounted(load);
       >
         <header>
           <div>
-            <span class="section-kicker">关联资产</span>
-            <h2>像搭积木一样建立清晰关系</h2>
+            <span class="section-kicker">关联关系</span>
+            <h2>选择实际关系，再关联已有对象</h2>
             <p>
-              区分归属、注册、购买、部署、调用和管理；人员的责任与使用权在下方单独维护。
+              公司与部门决定归属；平台、账号和资源记录部署与使用。负责人在“责任与使用”中确认，手机号与邮箱在“平台与账号”中管理。
             </p>
           </div>
           <Network :size="30" />
@@ -1202,46 +1214,45 @@ onMounted(load);
           <form @submit.prevent="addRelation">
             <div class="direction-picker">
               <button
-                v-for="direction in [
-                  'upstream',
-                  'downstream',
-                  'peer',
-                ] as RelationDirection[]"
-                :key="direction"
+                v-for="group in relationshipGroups"
+                :key="group.key"
                 type="button"
-                :class="{ active: relationForm.direction === direction }"
-                @click="relationForm.direction = direction"
+                :class="{ active: relationGroup === group.key }"
+                @click="relationGroup = group.key"
               >
-                {{ groupLabel(direction) }}
+                {{ group.label }}
               </button>
             </div>
-            <p class="form-hint">{{ relationForm.direction === 'upstream' ? '当前资产使用、依赖或归属于哪些对象。例如：账号使用注册邮箱，系统部署在服务器。' : relationForm.direction === 'downstream' ? '哪些对象注册使用、调用、依赖当前资产，或由当前资产管理。例如：邮箱被哪个平台账号使用，服务器承载哪些系统。' : '两个对象之间的协作或同级联系，不表示公司归属、持有人或账号权限。' }}</p>
-            <p v-if="relationForm.relation_type" class="form-hint">关系方向：{{ asset.name }} → {{ relationOptions.find(item => item.relation_type === relationForm.relation_type)?.label }} → {{ allAssets.find(item => item.id === relationForm.related_asset_id)?.name || '待选择关联对象' }}</p>
+            <p v-if="relationLoading" role="status" class="form-hint">正在读取数字中心已有对象…</p>
+            <p v-if="selectedChoice" class="form-hint">{{ selectedChoice.description }}</p>
+            <p v-if="selectedChoice" class="relation-preview">{{ relationshipPreview(asset.name, selectedChoice, selectedTarget?.label) }}</p>
+            <p v-if="relationError" class="form-error" role="alert">{{ relationError }} <button type="button" class="secondary-button compact-button" @click="loadRelationOptions">重新读取</button></p>
             <div class="relation-input-grid">
               <label
                 ><span>关系</span
-                ><select v-model="relationForm.relation_type" required>
+                ><select v-model="relationForm.choice_key" required :disabled="relationLoading || saving">
                   <option
-                    v-for="item in relationOptions"
-                    :key="item.relation_type"
-                    :value="item.relation_type"
+                    v-for="item in groupChoices"
+                    :key="item.key"
+                    :value="item.key"
                   >
-                    {{ item.label }}
+                    {{ item.label }} · {{ item.targets.length }} 个可选对象
                   </option>
-                  <option v-if="!relationOptions.length" value="">
-                    暂无可用关系
+                  <option v-if="!groupChoices.length" value="">
+                    当前对象不适用此类关系
                   </option>
                 </select></label
               ><label
-                ><span>目标资产</span
-                ><select v-model="relationForm.related_asset_id" required>
-                  <option value="" disabled>选择兼容的目标资产</option>
+                ><span>{{ targetLabel }}</span
+                ><input v-model="targetQuery" type="search" placeholder="搜索名称、编号或公司" :disabled="saving || !selectedChoice?.targets.length" />
+                <select v-model="relationForm.target_id" required :disabled="saving || !selectedChoice?.targets.length">
+                  <option value="" disabled>选择{{ targetLabel }}</option>
                   <option
-                    v-for="item in candidateAssets"
+                    v-for="item in relationTargets"
                     :key="item.id"
                     :value="item.id"
                   >
-                    {{ item.name }} · {{ item.asset_code }}
+                    {{ item.label }} · {{ item.object_type }}{{ item.detail ? ` · ${item.detail}` : '' }}
                   </option>
                 </select></label
               ><label
@@ -1251,11 +1262,13 @@ onMounted(load);
                   placeholder="例如业务系统主实例" /></label
               ><button
                 class="primary-button"
-                :disabled="!relationOptions.length"
+                :disabled="saving || relationLoading || !selectedTarget"
               >
-                <Plus :size="16" />建立关系
+                <Plus :size="16" />{{ saving ? '正在保存…' : '保存关系' }}
               </button>
             </div>
+            <p v-if="!relationLoading && !selectedChoice?.targets.length" class="form-hint">{{ groupChoices.length ? '当前没有符合条件的已登记对象。请先登记对应资源，再回到这里关联。' : '此类关系不适用于当前对象或你没有维护权限，可查看下方已建立的关系。' }} <RouterLink to="/accounts">查看平台与账号</RouterLink></p>
+            <p v-else-if="!relationTargets.length" class="form-hint">没有匹配搜索词的对象，请调整关键词。</p>
           </form>
         </div>
         <div class="relation-lanes">
@@ -1279,9 +1292,10 @@ onMounted(load);
                 class="relation-card"
                 ><GitBranch :size="17" />
                 <div>
-                  <small>{{ item.label }} · {{ relationDirectionLabel(item.direction) }}</small
+                  <small>{{ item.label }}</small
                   ><strong>{{ relationOtherNode(item)?.label ?? "关联对象" }}</strong
-                  ><span>{{ relationOtherNode(item)?.object_type ?? "" }} · 来源 {{ item.source_model }}</span>
+                  ><span>{{ relationshipGraph ? relationshipSentence(relationshipGraph.current_node, item, relationshipGraph.nodes) : '' }}</span>
+                  <span v-if="item.note">{{ item.note }}</span>
                   <div
                     v-if="editingRelationId === item.id"
                     class="relation-inline-edit"
@@ -1356,6 +1370,9 @@ onMounted(load);
 </template>
 
 <style scoped>
+.native-id-read { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.native-id-read strong { overflow-wrap:anywhere; }
+.relation-preview { padding:12px; margin:12px 0; border:1px solid var(--border); border-radius:8px; background:var(--surface); font-size:13px; font-weight:600; overflow-wrap:anywhere; }
 .responsibility-people { display:grid; gap:12px; min-width:0; }
 .responsibility-hint { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:0; color:var(--muted); font-size:12px; line-height:1.6; }
 

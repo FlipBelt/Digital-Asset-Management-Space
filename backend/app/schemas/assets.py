@@ -143,6 +143,9 @@ class AssetAssignmentRead(BaseModel):
     ownership_scope: str
     responsible_person_id: UUID | None
     user_person_ids: list[UUID]
+    confirmed_responsible_person_id: UUID | None = None
+    responsible_status: Literal["confirmed", "proposed", "inactive", "missing"] = "missing"
+    responsibility_issue: str | None = None
 
 
 class AssetRelationCreate(BaseModel):
@@ -195,6 +198,39 @@ class AssetRelationshipViewRead(BaseModel):
 
 class RelationshipLinkUpdate(BaseModel):
     target_id: UUID
+
+
+class RelationshipTargetRead(BaseModel):
+    id: UUID
+    label: str
+    object_type: str
+    detail: str = ""
+
+
+class RelationshipChoiceRead(BaseModel):
+    key: str
+    group: Literal["ownership", "deployment", "usage", "other"]
+    relation_type: str
+    label: str
+    direction: Literal["upstream", "downstream", "peer"]
+    target_kind: Literal["asset", "platform", "legal_entity", "department"]
+    targets: list[RelationshipTargetRead]
+    description: str
+
+
+class RelationshipConnectionWrite(BaseModel):
+    request_id: UUID
+    version: int = Field(ge=1)
+    choice_key: str = Field(min_length=1, max_length=100)
+    target_id: UUID
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class PlatformIdentifierWrite(BaseModel):
+    request_id: UUID
+    version: int = Field(ge=1)
+    identifier: str | None = Field(default=None, max_length=200)
+    identifier_type: Literal["account_id", "uid", "organization_id", "workspace_id", "merchant_id", "other"] = "account_id"
 
 
 class AssetPlatformLinkCreate(BaseModel):

@@ -88,7 +88,13 @@ export interface HuduAssetsResponse {
 export interface HuduResponsibility { id: string; role_type: string; is_primary: boolean; person_id: string | null; person_name: string | null; department_id: string | null; department_name: string | null; starts_at: string | null; ends_at: string | null }
 export interface HuduRelation { id: string; relation_type: string; note: string | null; direction: string; related_asset_id: string; related_name: string; related_asset_code: string; related_type_name: string; related_category_name: string }
 export interface HuduAssetDetail { asset: HuduAssetItem; responsibilities: HuduResponsibility[]; relations: HuduRelation[]; identifiers: { id: string; namespace: string; identifier_type: string; identifier_value: string; is_primary: boolean; verification_status: string }[]; profile: { kind: string; data: Record<string, string | null> } | null; account_context: { login_identifier: string; account_type: string; mfa_status: string; privilege_level: string; platform_name: string | null; tenant_identifier: string | null } | null; history: { id: string; action: string; created_at: string | null; after_data: Record<string, unknown> | null }[] }
-export interface HuduExpirationsResponse { items: HuduAssetItem[]; total: number; window_days: number }
+export interface HuduFollowupItem extends HuduAssetItem {
+  followup_kind?: "account" | "subscription" | "asset";
+  group_key?: string; group_label?: string; group_section?: "accounts" | "assets";
+  group_href?: string | null; platform_name?: string | null; parent_account_name?: string | null;
+  plan_name?: string | null; proposed_responsible_name?: string | null;
+}
+export interface HuduExpirationsResponse { items: HuduFollowupItem[]; total: number; window_days: number; due_before?: string }
 export interface Responsibility { id: string; asset_id: string; person_id: string | null; department_id: string | null; role_type: string; is_primary: boolean; starts_at: string | null; ends_at: string | null; archived_at: string | null }
 export interface AssetRelation { id: string; source_asset_id: string; target_asset_id: string; relation_type: string; source_type: string; note: string | null; archived_at: string | null }
 export type RelationshipSection = "structure" | "business" | "responsibility";
@@ -96,6 +102,8 @@ export type RelationshipDirection = "upstream" | "downstream" | "peer" | "respon
 export interface RelationshipNode { id: string; layer: number; label: string; object_type: string; kind: string; asset_id: string | null; status: string | null; href: string | null }
 export interface RelationshipEdge { id: string; source: string; target: string; label: string; section: RelationshipSection; direction: RelationshipDirection; source_model: string; editable: boolean; relation_id: string | null; note: string | null; edit_kind: string | null; edit_target_id: string | null }
 export interface AssetRelationshipView { current_node: RelationshipNode; nodes: RelationshipNode[]; edges: RelationshipEdge[] }
+export type RelationshipGroup = "ownership" | "deployment" | "usage" | "other";
+export interface RelationshipChoice { key: string; group: RelationshipGroup; relation_type: string; label: string; direction: "upstream" | "downstream" | "peer"; target_kind: "asset" | "platform" | "legal_entity" | "department"; targets: { id: string; label: string; object_type: string; detail: string }[]; description: string }
 export interface AssetPlatformLink { id: string; asset_id: string; platform_id: string; relation_type: string; source_type: string; source_import_record_id: string | null; review_status: string; confirmed_by_person_id: string | null; confirmed_at: string | null; note: string | null; archived_at: string | null }
 export interface Provider { id: string; code: string; name: string; website: string | null }
 export interface Platform { id: string; provider_id: string | null; code: string; name: string; category: string; website: string | null; review_status: string; description: string | null; submitted_by_person_id: string | null }
@@ -161,7 +169,7 @@ export interface DingTalkProfile {
 }
 export interface DingTalkIdentity { person_id: string; display_name: string; department_id: string | null; job_title: string | null; is_department_manager: boolean; is_group_leader?: boolean }
 export interface DingTalkSession { user: CurrentUser; identity: DingTalkIdentity; expires_at: string }
-export interface AssetAssignment { owner_department_id: string | null; ownership_scope: string; responsible_person_id: string | null; user_person_ids: string[] }
+export interface AssetAssignment { owner_department_id: string | null; ownership_scope: string; responsible_person_id: string | null; user_person_ids: string[]; confirmed_responsible_person_id?: string | null; responsible_status?: "confirmed" | "proposed" | "inactive" | "missing"; responsibility_issue?: string | null }
 export interface AssetIdentifier { id: string; asset_id: string; namespace: string; identifier_type: string; identifier_value: string; is_primary: boolean; verification_status: string; confidentiality: string; source_import_record_id: string | null; archived_at: string | null }
 export interface RelationDefinition { id: string; relation_type: string; source_type_code: string; target_type_code: string; forward_label: string; inverse_label: string; category: string; source_max_count: number | null; target_max_count: number | null; is_system: boolean }
 export interface RelationOption { relation_type: string; label: string; target_type_codes: string[]; direction: "upstream" | "downstream" | "peer" }
@@ -375,6 +383,10 @@ export const api = {
   relations: (id: string) => request<AssetRelation[]>(`/api/v1/assets/${id}/relations`),
   relationNeighborhood: (id: string) => request<AssetRelation[]>(`/api/v1/assets/${id}/relation-neighborhood`),
   relationshipView: (id: string) => request<AssetRelationshipView>(`/api/v1/assets/${id}/relationship-view`),
+  relationshipChoices: (id: string) => request<RelationshipChoice[]>(`/api/v1/assets/${id}/relationship-choices`),
+  archivePlatformLink: (assetId: string, id: string) => request(`/api/v1/assets/${assetId}/platform-links/${id}/archive`, json("POST")),
+  createRelationshipConnection: (id: string, body: Record<string, unknown>) => request<AssetRelationshipView>(`/api/v1/assets/${id}/relationship-connections`, json("POST", body)),
+  savePlatformIdentifier: (id: string, body: Record<string, unknown>) => request<Asset>(`/api/v1/assets/${id}/platform-identifier`, json("PUT", body)),
   updateRelationshipLink: (id: string, kind: string, target_id: string) => request<AssetRelationshipView>(`/api/v1/assets/${id}/relationship-links/${kind}`, json("PUT", { target_id })),
   addRelation: (id: string, body: Record<string, unknown>) => request<AssetRelation>(`/api/v1/assets/${id}/relations`, json("POST", body)),
   archiveRelation: (assetId: string, id: string) => request(`/api/v1/assets/${assetId}/relations/${id}/archive`, json("POST")),

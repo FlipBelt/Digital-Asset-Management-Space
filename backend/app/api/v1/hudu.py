@@ -33,12 +33,12 @@ from app.models import (
     Person,
     Platform,
     PlatformTenant,
-    RegistrationIdentityProfile,
     ResourceProfile,
 )
 from app.services.account_structure import (
     asset_library_exclusion_clause,
     child_employee_issue,
+    communication_resource_clause,
     owner_facts,
     responsibility_map,
 )
@@ -216,21 +216,27 @@ def list_hudu_assets(
 def expirations(db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)):
     categories, types, departments, entities, people, owners = _maps(db)
     visible = _active_assets(db, access)
+    from app.services.followup_projection import followup_contexts
+
+    contexts, excluded = followup_contexts(db, visible, types, people)
     children = list(db.scalars(select(Account).join(Asset).where(
         Account.archived_at.is_(None), Asset.archived_at.is_(None), Asset.status != "deleted",
         asset_visibility_clause(access),
     )))
     details = {row.asset_id for row in children} | set(db.scalars(
-        select(RegistrationIdentityProfile.asset_id)
+        select(Asset.id).where(communication_resource_clause())
     ))
     tenants = {row.asset_id: row for row in db.scalars(select(PlatformTenant).where(
         PlatformTenant.archived_at.is_(None)
     ))}
     assets = []
     for row in visible:
-        if row.id in details or row.is_personal_subscription:
+        if row.id in details or row.id in excluded or row.is_personal_subscription:
             continue
         item = _asset_item(row, categories, types, departments, entities, people, owners, db)
+        item.update(contexts.get(row.id, {}))
+        if item.get("service_expires_at"):
+            item["expires_at"] = item["service_expires_at"]
         tenant = tenants.get(row.id)
         if tenant:
             pending = sum(1 for child in children if child.platform_tenant_id == tenant.id
@@ -242,7 +248,7 @@ def expirations(db: Session = Depends(get_db), access: AccessContext = Depends(g
     soon = today + timedelta(days=90)
     due = [item for item in assets if (item["expires_at"] and item["expires_at"][:10] <= soon.isoformat()) or not item["has_owner"] or item.get("pending_child_count", 0)]
     due.sort(key=lambda item: (item["expires_at"] is None, item["expires_at"] or "9999-12-31", item["name"]))
-    return {"items": due, "total": len(due), "window_days": 90}
+    return {"items": due, "total": len(due), "window_days": 90, "due_before": soon.isoformat()}
 
 
 @router.get("/assets/{asset_id}")

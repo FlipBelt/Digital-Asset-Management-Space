@@ -304,9 +304,13 @@ async function loadBusiness(sequence = loadSequence) {
   if (sequence !== loadSequence) return;
   currentUser.value = user;
   departments.value = departmentRows;
-  businessCategories.value = categoryRows.filter(item => item.code !== "platform_account");
+  businessCategories.value = categoryRows.filter(item => !["platform_account", "communication_resources"].includes(item.code));
   const accountCategoryIds = new Set(categoryRows.filter(item => item.code === "platform_account").map(item => item.id));
   const accountTypeIds = new Set(typeResponse.filter(item => item.code !== "registration_identity" && (accountCategoryIds.has(item.category_id) || ["platform_account", "platform_tenant"].includes(item.code))).map(item => item.id));
+  const contactCategoryIds = new Set(categoryRows.filter(item => item.code === "communication_resources").map(item => item.id));
+  if (contactCategoryIds.has(businessCategory.value) || typeResponse.some(item => item.id === businessFilters.asset_type_id && item.code === "registration_identity")) {
+    await router.replace("/accounts?section=contacts"); return;
+  }
   if (accountCategoryIds.has(businessCategory.value) || accountTypeIds.has(businessFilters.asset_type_id)) {
     await router.replace("/accounts"); return;
   }
@@ -315,7 +319,7 @@ async function loadBusiness(sequence = loadSequence) {
     return loadBusiness(sequence);
   }
   businessAssets.value = assetsResponse.data;
-  businessTypes.value = typeResponse.filter(item => !accountTypeIds.has(item.id));
+  businessTypes.value = typeResponse.filter(item => !accountTypeIds.has(item.id) && item.code !== "registration_identity");
   total.value = assetsResponse.pagination.total;
 }
 

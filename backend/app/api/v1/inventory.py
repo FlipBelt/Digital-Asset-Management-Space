@@ -266,6 +266,8 @@ def get_platform_relationship_view(
         "registered_on": "登记于平台",
         "uses": "关联平台",
         "provided_by": "由平台提供",
+        "deployed_on": "部署在平台",
+        "mounted_on": "挂载到平台",
     }
     for link in links:
         linked_asset = assets_by_id.get(link.asset_id)

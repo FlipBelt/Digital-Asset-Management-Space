@@ -36,7 +36,7 @@ from app.models import (
 from app.schemas.assets import AssetRead
 from app.schemas.catalog import AssetTypeRead
 from app.schemas.common import ListResponse, Pagination
-from app.services.account_structure import child_account_clause
+from app.services.account_structure import child_account_clause, communication_resource_clause
 from app.services.asset_presentation import asset_list_reads
 from app.services.assets import allocate_asset_code, ensure_internal_identifier
 
@@ -200,7 +200,8 @@ def space_assets(
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
 ):
-    conditions = [Asset.archived_at.is_(None), asset_visibility_clause(access), ~child_account_clause()]
+    conditions = [Asset.archived_at.is_(None), asset_visibility_clause(access),
+                  ~child_account_clause(), ~communication_resource_clause()]
     person = db.get(Person, access.person_id) if access.person_id else None
     if scope == "mine":
         conditions.append(
@@ -262,7 +263,8 @@ def space_groups(
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
 ):
-    conditions = [Asset.archived_at.is_(None), asset_visibility_clause(access), ~child_account_clause()]
+    conditions = [Asset.archived_at.is_(None), asset_visibility_clause(access),
+                  ~child_account_clause(), ~communication_resource_clause()]
     if scope == "team":
         person = db.get(Person, access.person_id) if access.person_id else None
         selected = department_id or (person.department_id if person else None)
@@ -525,6 +527,7 @@ def space_summary(
                 .where(
                     Asset.archived_at.is_(None),
                     ~child_account_clause(),
+                    ~communication_resource_clause(),
                     asset_visibility_clause(access),
                     personal_scope(access.person_id, None, category),
                 )
