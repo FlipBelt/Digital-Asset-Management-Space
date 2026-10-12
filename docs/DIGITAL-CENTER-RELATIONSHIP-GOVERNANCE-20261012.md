@@ -1,6 +1,6 @@
 # 数字中心：关联关系与到期责任治理
 
-日期：2026-10-12。状态：实现及本地回归完成，待测试发布、页面回读与正式发布。原发布授权继续有效。
+日期：2026-10-12。状态：实现、本地回归、测试回退演练及正式发布完成；已认证页面只读回读通过，人工业务验收独立。沿用本线程的发布授权。
 
 ## 管理边界
 
@@ -19,7 +19,7 @@
 ## 负责人和 ID
 
 - 生效负责人统一来自责任配置，概览、责任页、跟进页使用同一事实。只有登记建议时显示姓名与「待确认」；已离职或无效责任人明确需要交接，不冒充生效负责人。
-- 企业账号的原生 ID 在概览的「平台原生 ID」单处维护；登记页只填一次。核验页引用这个值，专属资料不再重复要求填写，历史编号区域只读保留。
+- 企业账号的原生 ID 在概览的「平台账号 ID」单处维护；登记页只填一次。核验页引用这个值，专属资料不再重复要求填写，历史编号区域只读保留。
 - ID 修改须管理员权限、版本和幂等编号，重复平台 ID 拒绝；修改后重新进入待核验状态。核验操作不另行覆盖 ID。
 
 ## 本地验证
@@ -33,4 +33,30 @@
 
 ## 验收和发布
 
-待记录实际发布回执与认证页面证据。自动测试、测试回退演练、正式技术发布和人工业务验收分别记录；本轮不替用户确认外部平台账号、人员离职或仓库公开性质。
+运行应用为 `04e43ba48e8a4ae3b6143d9fee21de0c50bdd6f3`，已推送至 `codex/platform-account-hierarchy-and-offboarding`；PR #6 保持 Draft。后续证据文档提交不改变冻结应用版本。
+
+- 冻结增量：24 个运行文件、102989 字节、5 个分片；包 SHA256 `5fde10f6c52001771168a5b23c989e25f34132f75f16901e6c97930420610015`，发布程序 SHA256 `64c8adc0620f1dbc3e197bb8353571d35844451e897594ee779f59229e3358ef`。
+- 测试云助手 `t-hz06ztap15rce80` exit 0/PASS：75 张业务表内容指纹保持，Schema 不变，旧代码/静态回退再应用与正式服务隔离通过。测试备份 `/opt/account-center-test/backups/04e43ba48e8a-relationship-governance-test-20261012`。
+- 测试已认证只读页面：跟进 20 项，分为公司账号与订阅 12 项、业务资产 8 项；资产库 18 项公司业务资料，不含通讯资源、个人订阅、子账号或已归类的平台目录。32 个实际平台可用于部署，5 个实际接口可用于调用；账号提供反向承载系统入口，选择后显示完整句子。建议负责人显示姓名及待确认；唯一 ID 编辑器、核验只读和补充资料去重通过。没有提交测试页面上的关系、核验、责任或 ID 表单。
+- 正式云助手 `t-hz06ztfl1dsk1ds` exit 0/PASS：75 张业务表在代码发布前后完整内容指纹保持，无迁移。正式备份 `/opt/account-center/backups/04e43ba48e8a-relationship-governance-production-20261012`；保留回退材料，正式未执行回退或数据库恢复演练。
+- 最终双环境公开回读：每环境 8 个冻结静态文件逐字节一致、7 条 SPA 入口、6 个匿名受保护读取与离职写入拒绝 401，ready/database 正常。新的关系写入和 ID 写入匿名拒绝由服务器发布检查覆盖。
+- 正式已认证只读页面：资产库 7 项实际业务资产；跟进 6 项，包括 1 个公司账号、5 个实际接口，目录及子账号不独立列出。已有生效负责人在概览和责任页一致，且无到期问题时不被误列为待补负责人。通讯资源仍可在「平台与账号 → 手机号与邮箱」查看；首页原八个子账号及通讯资源不出现，创建计数为 4。部署候选和完整方向预览通过，未提交正式业务表单。测试与正式的数据不同，数量不应相互替代。
+
+回执和页面截图位于 `.deploy-artifacts/relationship-governance/04e43ba48e8a`：`test-server-PASS.json`、`test-ui-PASS.json`、`production-server-PASS.json`、`production-ui-PASS.json`、`final-public-PASS.json` 及同目录截图。仓库未配置 GitHub CI；构建原有大包提示保留。
+
+## 测试资料分类校正
+
+测试库的五条旧记录仅有提供方名称，没有原生资源 ID、管理地址或 ServiceInstance；它们此前已经在正式库按相同证据归类。本轮代码发布后，单独在测试库校正 `ResourceProfile.resource_family` 为 `platform_catalog`，保留 UUID、编号、归属、责任、其他资料及原关联；资产版本和审计随写入增加。此操作不混入代码发布前后业务表保持结论，也不重复改写正式库。
+
+- 行锁、预览版本、请求批次与可读数据库备份均已核对；审计记录运维来源，不冒充员工身份。
+- 预览云助手 `t-hz06ztbta0zlx4w`，执行 `t-hz06ztc34hpvym8` exit 0/PASS；批次 `6c8a2dc1-f5b0-4706-8dbd-03fa24e6a4a5`。保存后回读 5 项分类，ServiceInstance 改动为 0，原编号与其他业务资料保持。
+- 备份 `/opt/account-center-test/backups/catalog-classification-6c8a2dc1-f5b0-4706-8dbd-03fa24e6a4a5-apply`；同批次可幂等重试，回退受后续版本保护。未执行分类回退或数据库恢复。
+- 分类后页面重新读取：旧平台记录退出资产库、跟进及新接口候选；实际 5 个接口和既有关联保留。回执 `test-catalog-preview.json`、`test-catalog-PASS.json`。
+
+## 文件范围和验收边界
+
+- 后端：`account_structure.py`、`asset_space.py`、`assets.py`、`hudu.py`、`inventory.py`、资产 schema，以及新增 `relationship_choices.py`、`followup_projection.py`。
+- 前端：`AssetDetailPage.vue`、`AssetFollowupPage.vue`、`AssetsPage.vue`、`PlatformAccountVerification.vue`、`api.ts`、`relationship.ts` 和新增 `followup.ts`。
+- 验证：`test_relationship_governance.py`、旧层级测试的资产库预期、`test-relationship-followup.mjs`；本说明及两份此前已发布的子账号/通讯资源证据说明。
+
+自动测试、测试回退演练、正式技术发布和人工业务验收分别记录；本轮不替用户确认外部账号、人员离职、责任指派、仓库公开性质或实际部署关系。选择控件的技术回读不等于真实业务关系已经建立；真实数据须按已有依据保存。
