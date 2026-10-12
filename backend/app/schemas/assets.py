@@ -50,6 +50,11 @@ class AssetPatch(BaseModel):
         return value
 
 
+class AssetCardLink(BaseModel):
+    label: str
+    url: str
+
+
 class AssetRead(ORMModel):
     id: UUID
     asset_code: str
@@ -69,6 +74,11 @@ class AssetRead(ORMModel):
     sharing_scope: str | None = None
     source_system: str | None = None
     is_personal_subscription: bool = False
+    is_child_account: bool = False
+    parent_asset_id: UUID | None = None
+    management_href: str | None = None
+    verification_status: str | None = None
+    card_links: list[AssetCardLink] = Field(default_factory=list)
     source_agent: str | None = None
     source_reference: str | None = None
     development_method: str | None = None
@@ -85,7 +95,7 @@ class AssetRead(ORMModel):
     @model_validator(mode="after")
     def personal_subscription_review_policy(self):
         # Apply the same rule to subscriptions registered before this policy change.
-        if self.is_personal_subscription:
+        if self.is_personal_subscription or self.is_child_account:
             self.review_status = "not_required"
         return self
 

@@ -54,6 +54,8 @@ export interface Asset {
   owner_department_id: string | null; ownership_scope: string; status: string; criticality: string; confidentiality: string;
   sharing_scope?: string | null; source_system?: string | null; source_agent?: string | null; source_reference?: string | null; development_method?: string | null;
   is_personal_subscription?: boolean;
+  is_child_account?: boolean; parent_asset_id?: string | null; management_href?: string | null;
+  verification_status?: string | null; card_links?: { label: string; url: string }[];
   source_type: string; started_at: string | null; expires_at: string | null; last_verified_at: string | null;
   description: string | null; version: number; outcome_version?: number; created_at: string; updated_at: string; archived_at: string | null;
   created_by_person_id?: string | null; confirmed_by_person_id?: string | null; confirmed_at?: string | null; review_status?: string;

@@ -270,6 +270,8 @@ def owned_draft(db: Session, access: AccessContext, asset_id: UUID) -> Asset:
     if asset is None or asset.archived_at is not None:
         raise HTTPException(404, "草稿不存在")
     require_asset_visible(db, access, asset)
+    if asset.is_child_account:
+        raise HTTPException(409, "子账号无需单独确认或审核，请在所属公司账号中维护")
     if asset.created_by_person_id != access.person_id:
         raise HTTPException(403, "只有创建人可以确认这份草稿")
     return asset

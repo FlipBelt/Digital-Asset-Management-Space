@@ -414,6 +414,10 @@ async function load() {
   cancelRelationEdit();
   try {
     const item = await api.asset(id);
+    if (item.is_child_account && item.management_href) {
+      await router.replace(item.management_href);
+      return;
+    }
     const currentUser = await api.currentSession();
     canReview.value = currentUser.roles.some(role => ["system_admin", "asset_manager", "department_manager", "group_leader"].includes(role));
     canUploadOutcome.value = item.created_by_person_id === currentUser.person_id || currentUser.roles.some(role => ["system_admin", "asset_manager"].includes(role));

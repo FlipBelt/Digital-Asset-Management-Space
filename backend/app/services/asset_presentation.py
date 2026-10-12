@@ -1,0 +1,98 @@
+"""Safe read projections over existing asset and account records."""
+
+from sqlalchemy import select
+
+from app.core.access import require_asset_visible
+from app.models import AssetFieldDefinition, AssetFieldValue, InternalSystemProfile, ResourceProfile
+from app.schemas.assets import AssetCardLink, AssetRead
+from app.services.account_structure import account_parent
+
+PROFILE_LINKS = {
+    "repository_url": "代码仓库",
+    "production_url": "打开应用",
+    "deployment_guide_url": "部署说明",
+    "recovery_guide_url": "恢复说明",
+}
+INHERITED_FIELDS = (
+    "legal_entity_id", "owner_department_id", "ownership_scope", "status", "criticality",
+    "confidentiality", "sharing_scope", "started_at", "expires_at", "last_verified_at",
+    "description", "source_type", "source_system", "source_agent", "source_reference",
+    "development_method", "created_by_person_id", "confirmed_by_person_id", "confirmed_at",
+)
+
+
+def card_link_map(db, asset_ids):
+    result = {identity: [] for identity in asset_ids}
+    if not result:
+        return result
+    for profile in db.scalars(
+        select(InternalSystemProfile).where(InternalSystemProfile.asset_id.in_(result))
+    ):
+        for key, label in PROFILE_LINKS.items():
+            value = getattr(profile, key)
+            if value:
+                result[profile.asset_id].append(AssetCardLink(label=label, url=value))
+    for profile in db.scalars(
+        select(ResourceProfile).where(
+            ResourceProfile.asset_id.in_(result), ResourceProfile.archived_at.is_(None)
+        )
+    ):
+        if profile.management_url:
+            result[profile.asset_id].append(AssetCardLink(label="管理入口", url=profile.management_url))
+    fields = db.execute(
+        select(AssetFieldValue, AssetFieldDefinition)
+        .join(AssetFieldDefinition)
+        .where(
+            AssetFieldValue.asset_id.in_(result),
+            AssetFieldDefinition.archived_at.is_(None),
+            AssetFieldDefinition.confidentiality.in_(("public", "internal")),
+            AssetFieldDefinition.data_type == "url",
+        )
+        .order_by(AssetFieldDefinition.sort_order, AssetFieldDefinition.id)
+    )
+    for field, definition in fields:
+        value = (field.value or {}).get("value")
+        if isinstance(value, str) and value:
+            result[field.asset_id].append(AssetCardLink(label=definition.label, url=value))
+    return result
+
+
+def asset_list_reads(db, assets):
+    rows = list(assets)
+    links = card_link_map(db, [asset.id for asset in rows])
+    return [
+        AssetRead.model_validate(asset).model_copy(update={"card_links": links[asset.id]})
+        for asset in rows
+    ]
+
+
+def asset_detail_read(db, asset, access):
+    item = AssetRead.model_validate(asset)
+    origin = asset
+    if item.is_child_account:
+        parent, tenant = account_parent(db, asset.id)
+        if parent is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(409, "所属公司账号不可用，请在平台与账号中维护关联")
+        require_asset_visible(db, access, parent)
+        origin = parent
+        for key in INHERITED_FIELDS:
+            setattr(item, key, getattr(parent, key))
+        item.parent_asset_id = parent.id
+        item.management_href = f"/accounts?platform={tenant.platform_id}&tenant={parent.id}"
+        item.verification_status = tenant.verification_status
+    item.card_links = card_link_map(db, [origin.id])[origin.id]
+    return item
+
+
+def governance_origin(db, asset, access):
+    if not asset.is_child_account:
+        return asset
+    parent, _ = account_parent(db, asset.id)
+    if parent is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(409, "所属公司账号不可用，请在平台与账号中维护关联")
+    require_asset_visible(db, access, parent)
+    return parent

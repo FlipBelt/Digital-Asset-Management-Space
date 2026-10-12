@@ -129,10 +129,12 @@ def get_asset(
     asset_id: UUID,
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
-) -> Asset:
+) -> AssetRead:
     asset = asset_service.require(db, asset_id)
     require_asset_visible(db, access, asset)
-    return asset
+    from app.services.asset_presentation import asset_detail_read
+
+    return asset_detail_read(db, asset, access)
 
 
 @router.get("/{asset_id}/identifiers", response_model=list[AssetIdentifierRead])
@@ -395,9 +397,12 @@ def list_responsibilities(
 ) -> list[AssetResponsibilityRead]:
     asset = asset_service.require(db, asset_id)
     require_asset_visible(db, access, asset)
+    from app.services.asset_presentation import governance_origin
+
+    asset = governance_origin(db, asset, access)
     return [
         AssetResponsibilityRead.model_validate(item)
-        for item in asset_repository.list_responsibilities(db, asset_id)
+        for item in asset_repository.list_responsibilities(db, asset.id)
     ]
 
 
@@ -1380,7 +1385,10 @@ def get_assignment(
 ) -> AssetAssignmentRead:
     asset = asset_service.require(db, asset_id)
     require_asset_visible(db, access, asset)
-    rows = asset_repository.list_responsibilities(db, asset_id)
+    from app.services.asset_presentation import governance_origin
+
+    asset = governance_origin(db, asset, access)
+    rows = asset_repository.list_responsibilities(db, asset.id)
     responsible_person_id = next(
         (row.person_id for row in rows if row.role_type == "responsible"), None
     ) or next(
@@ -1407,6 +1415,9 @@ def save_assignment(
     from fastapi import HTTPException
 
     asset = asset_service.require(db, asset_id)
+    if asset.is_child_account:
+        require_asset_visible(db, access, asset)
+        raise HTTPException(409, "子账号的归属与责任沿用父账号，请维护所属公司账号")
     from app.services.asset_confirmation import lock_asset
     asset = lock_asset(db, asset_id)
     if asset.archived_at is not None:

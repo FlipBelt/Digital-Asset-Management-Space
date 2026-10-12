@@ -744,16 +744,20 @@ def create_platform_account_child(
         name=f"{parent_asset.name} · {payload.display_name}",
         asset_type_id=account_type.id,
         legal_entity_id=tenant.legal_entity_id,
-        status_value="draft",
+        status_value=parent_asset.status,
         description=(
             "L4公司平台账号下的登录账号/席位明细；不属于六层独立对象，不保存密码。"
             + (f"\n来源说明：{payload.note}" if payload.note else "")
         ),
-        criticality="important" if payload.privilege_level in {"admin", "root"} else "normal",
+        owner_department_id=parent_asset.owner_department_id,
+        ownership_scope=parent_asset.ownership_scope,
+        criticality=parent_asset.criticality,
         source_type="manual",
         created_by_person_id=access.person_id,
-        review_status="pending_review",
+        review_status="not_required",
     )
+    for key in ("confidentiality", "sharing_scope", "started_at", "expires_at", "last_verified_at"):
+        setattr(account_asset, key, getattr(parent_asset, key))
     item = Account(
         asset_id=account_asset.id,
         platform_tenant_id=tenant.id,

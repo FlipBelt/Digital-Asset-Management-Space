@@ -79,7 +79,7 @@ watch(() => props.assetId, () => { mode.value = null; message.value = ""; void l
 </script>
 <template>
   <section class="child-accounts-panel">
-    <header><div><h2>子账号与员工席位</h2><p>在当前公司账号内维护子账号、上级关系和绑定员工。</p></div><button v-if="canManage" class="primary-button" :disabled="loading || saving" @click="openCreate"><Plus :size="16" />添加子账号</button></header>
+    <header><div><h2>子账号与员工席位</h2><p>子账号无需核验或审核，归属、责任、状态和到期信息沿用当前父账号；在此维护登录名与员工绑定。</p></div><button v-if="canManage" class="primary-button" :disabled="loading || saving" @click="openCreate"><Plus :size="16" />添加子账号</button></header>
     <p v-if="message" class="success-message" role="status">{{ message }}</p>
     <div v-if="loading" class="mini-empty" role="status">正在读取账号明细…</div>
     <div v-else-if="error && !mode" class="message-panel error-message" role="alert">{{ error }}<button class="secondary-button" @click="load">重新读取</button></div>

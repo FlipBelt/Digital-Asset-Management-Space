@@ -250,7 +250,15 @@ def get_hudu_asset(asset_id: UUID, db: Session = Depends(get_db), access: Access
     if asset is None:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="资产不存在")
+    from app.services.asset_presentation import asset_detail_read, governance_origin
+
+    original = asset_detail_read(db, asset, access)
+    asset = governance_origin(db, asset, access)
+    asset_id = asset.id
     base = _asset_item(asset, categories, types, departments, entities, people, owners)
+    if original.is_child_account:
+        base.update(id=str(original.id), is_child_account=True, review_status="not_required",
+                    parent_asset_id=str(asset.id), management_href=original.management_href)
     responsibilities = []
     for row in db.scalars(select(AssetResponsibility).where(AssetResponsibility.asset_id == asset_id, AssetResponsibility.archived_at.is_(None)).order_by(AssetResponsibility.is_primary.desc(), AssetResponsibility.created_at)):
         person = people.get(row.person_id) if row.person_id else None

@@ -17,6 +17,23 @@ from app.models import (
 )
 
 
+def child_account_clause():
+    # Use the canonical account association, never a client-provided source label.
+    return exists(select(Account.id).where(Account.asset_id == Asset.id))
+
+
+def account_parent(db: Session, asset_id):
+    tenant = db.scalar(
+        select(PlatformTenant)
+        .join(Account, Account.platform_tenant_id == PlatformTenant.id)
+        .where(Account.asset_id == asset_id, PlatformTenant.archived_at.is_(None))
+    )
+    parent = db.get(Asset, tenant.asset_id) if tenant else None
+    if parent and not parent.archived_at and parent.status != "deleted":
+        return parent, tenant
+    return None, None
+
+
 def account_asset_clause():
     classified = Asset.asset_type_id.in_(
         select(AssetType.id)

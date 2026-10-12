@@ -59,6 +59,8 @@ class AssetService:
             raise HTTPException(404, "资产不存在")
         if asset.archived_at is not None:
             raise HTTPException(409, "资产已归档或删除，请刷新后重试")
+        if asset.is_child_account:
+            raise HTTPException(409, "子账号在所属公司账号内维护，状态与责任资料沿用父账号")
         if asset.version != payload.version:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="记录已被其他用户修改")
         before = self._snapshot(asset)
