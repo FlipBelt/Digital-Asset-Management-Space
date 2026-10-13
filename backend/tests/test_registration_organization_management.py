@@ -1,7 +1,7 @@
 """Recoverable registry maintenance and source-backed group ownership on isolated PG."""
 
 from datetime import UTC, datetime
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import pytest
 from fastapi.testclient import TestClient
@@ -196,6 +196,51 @@ def test_group_company_mapping_is_source_bound_versioned_audited_and_retry_safe(
         assert db.get(LegalEntity, UUID(source["id"])).name == source["name"]
         assert db.scalar(select(func.count(AuditLog.id)).where(AuditLog.request_id == body["request_id"])) == 1
         assert db.get(Person, actors.person["owner"]).legal_entity_id == group_directory["root"]
+
+
+@pytest.mark.parametrize("conflict_kind", ["archived", "archived_source_id", "inactive", "duplicate"])
+def test_group_company_mapping_preserves_conflicts_and_maps_other_sources(actors, group_directory, conflict_kind):
+    marker = uuid4().hex[:8]
+    source_id = uuid5(NAMESPACE_URL, "digital-center/company/" + group_directory["source_name"])
+    safe_name = marker + "无冲突企业有限公司"
+    safe_id = uuid5(NAMESPACE_URL, "digital-center/company/" + safe_name)
+    with SessionLocal() as db:
+        archived_at = datetime.now(UTC) if conflict_kind != "inactive" else None
+        conflict = LegalEntity(id=source_id if conflict_kind == "archived_source_id" else uuid4(),
+            code="OLD-" + marker, name=group_directory["source_name"], archived_at=archived_at,
+            status="inactive" if conflict_kind == "inactive" else "active")
+        db.add(conflict)
+        if conflict_kind == "duplicate":
+            db.add(LegalEntity(code="COPY-" + marker, name=conflict.name, archived_at=archived_at))
+        code = "DT-safe-" + marker
+        db.add(Department(legal_entity_id=group_directory["root"], code=code, name=safe_name))
+        snapshot = db.scalar(select(AppSetting).where(AppSetting.key == "dingtalk_directory_snapshot"))
+        snapshot.value = {**snapshot.value, "department_codes": [*snapshot.value["department_codes"], code]}
+        db.commit()
+        conflict_id = conflict.id
+    url = "/api/v1/organization/company-mappings"
+    before = actors.admin.get(url).json()
+    source = next(item for item in before["companies"] if item["name"] == group_directory["source_name"])
+    assert source["mapped"] is False and source["conflict_reason"]
+    body = {"request_id": str(uuid4()), "fingerprint": before["fingerprint"]}
+    saved = actors.admin.post(url, json=body)
+    assert saved.status_code == 200, saved.text
+    result = saved.json()
+    assert result["mapped_count"] >= 1
+    assert {item["name"] for item in result["conflicts"]} == {source["name"]}
+    assert actors.admin.post(url, json=body).json() == result
+    after = actors.admin.get(url).json()
+    assert next(item for item in after["companies"] if item["id"] == str(safe_id))["mapped"]
+    assert not next(item for item in after["companies"] if item["id"] == str(source_id))["mapped"]
+    again = actors.admin.post(url, json={"request_id": str(uuid4()), "fingerprint": after["fingerprint"]})
+    assert again.status_code == 200 and again.json()["mapped_count"] == 0
+    with SessionLocal() as db:
+        unchanged = db.get(LegalEntity, conflict_id)
+        assert bool(unchanged.archived_at) == bool(archived_at)
+        assert unchanged.status == ("inactive" if conflict_kind == "inactive" else "active")
+        assert db.get(LegalEntity, safe_id).name == safe_name
+        assert db.get(Person, actors.person["owner"]).legal_entity_id == group_directory["root"]
+        assert db.scalar(select(func.count(AuditLog.id)).where(AuditLog.request_id == body["request_id"])) == 1
 
 
 def test_confirmed_responsibility_still_blocks_cross_company_reassignment(actors, company_account, group_directory):

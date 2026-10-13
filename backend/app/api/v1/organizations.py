@@ -52,6 +52,7 @@ def map_group_companies(
     from app.models import AuditLog
     from app.services.audited_requests import audited_retry
     from app.services.organization_mapping import (
+        company_mapping_conflict,
         group_company_targets,
         lock_company_mapping,
         mapping_snapshot,
@@ -65,12 +66,16 @@ def map_group_companies(
     snapshot = mapping_snapshot(db)
     if snapshot["fingerprint"] != payload.fingerprint:
         raise HTTPException(409, "集团公司来源已经变化，请重新读取后映射")
-    count = 0
+    count, conflicts = 0, []
     for target in group_company_targets(db):
+        conflict = company_mapping_conflict(db, target)
+        if conflict:
+            conflicts.append({"id": str(target.id), "name": target.name, "reason": conflict})
+            continue
         if db.get(LegalEntity, target.id) is None:
             register_source_company(db, access, target)
             count += 1
-    result = {**mapping_snapshot(db), "mapped_count": count}
+    result = {**mapping_snapshot(db), "mapped_count": count, "conflicts": conflicts}
     db.add(AuditLog(actor_user_id=access.user.id, action="organization.group.map", object_type="organization",
         request_id=str(payload.request_id), after_data={"request_digest": fingerprint, "result": result}))
     db.commit()

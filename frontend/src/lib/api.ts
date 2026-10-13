@@ -268,6 +268,9 @@ export function apiPath(path: string): string {
 
 const json = (method: string, body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) });
 
+export interface OrganizationCompanyMapping { id: string; name: string; source: string; mapped: boolean; conflict_reason: string | null }
+export interface OrganizationCompanyMappings { fingerprint: string; companies: OrganizationCompanyMapping[] }
+
 export const api = {
   spaceSummary: () => request<SpaceSummary>("/api/v1/space/summary"),
   spaceBookmarks: () => request<string[]>("/api/v1/space/bookmarks"),
@@ -456,8 +459,8 @@ export const api = {
   commitImport: (body: ImportPreview) => request("/api/v1/imports/commit", json("POST", body)),
   registrationIdentities: (deletedOnly = false) => request<RegistrationIdentity[]>(`/api/v1/workspace/registration-identities${deletedOnly ? '?deleted_only=true' : ''}`),
   renameRegistrationIdentity: (id: string, body: { name: string; version: number; request_id: string }) => request<RegistrationIdentity>(`/api/v1/workspace/registration-identities/${id}/name`, json("PATCH", body)),
-  organizationCompanyMappings: () => request<{ fingerprint: string; companies: { id: string; name: string; source: string; mapped: boolean }[] }>("/api/v1/organization/company-mappings"),
-  mapOrganizationCompanies: (body: { fingerprint: string; request_id: string }) => request<{ mapped_count: number }>("/api/v1/organization/company-mappings", json("POST", body)),
+  organizationCompanyMappings: () => request<OrganizationCompanyMappings>("/api/v1/organization/company-mappings"),
+  mapOrganizationCompanies: (body: { fingerprint: string; request_id: string }) => request<OrganizationCompanyMappings & { mapped_count: number; conflicts: { id: string; name: string; reason: string }[] }>("/api/v1/organization/company-mappings", json("POST", body)),
   permissionCatalog: () => request<PermissionCatalog>("/api/v1/permission-management/catalog"),
   permissionUsers: (keyword = "") => request<{ items: PermissionUserSummary[]; total: number }>(`/api/v1/permission-management/users?keyword=${encodeURIComponent(keyword)}`),
   permissionUser: (id: string) => request<PermissionUser>(`/api/v1/permission-management/users/${id}`),

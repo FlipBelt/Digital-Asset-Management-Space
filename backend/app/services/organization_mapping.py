@@ -88,14 +88,15 @@ def register_source_company(db, access, target):
         raise HTTPException(403, "集团公司映射需要资产管理员权限")
     lock_company_mapping(db)
     existing = db.get(LegalEntity, target.id)
-    if existing:
+    if existing and not existing.archived_at and existing.status == "active":
         return existing
     names, _ = directory_structure(db)
     if target.name not in names:
         raise HTTPException(422, "公司来源已经变化，请重新读取集团架构")
+    conflict = company_mapping_conflict(db, target)
+    if conflict:
+        raise HTTPException(409, conflict)
     matches = list(db.scalars(select(LegalEntity).where(LegalEntity.name == target.name)))
-    if len(matches) > 1 or (matches and (matches[0].archived_at or matches[0].status != "active")):
-        raise HTTPException(409, "同名公司主体有历史或重复档案，请先核实映射")
     if matches:
         return matches[0]
     item = LegalEntity(id=target.id, code="ORG-" + str(target.id).replace("-", "")[:20], name=target.name)
@@ -106,6 +107,24 @@ def register_source_company(db, access, target):
     return item
 
 
+def company_mapping_conflict(db, target):
+    existing = db.get(LegalEntity, target.id)
+    if existing and not existing.archived_at and existing.status == "active":
+        return None
+    if existing and existing.archived_at:
+        return "同名公司档案已归档，请确认是否恢复沿用"
+    if existing:
+        return "同名公司档案已停用，请核实后映射"
+    matches = list(db.scalars(select(LegalEntity).where(LegalEntity.name == target.name)))
+    if len(matches) > 1:
+        return "同名公司存在多个档案，请核实后映射"
+    if matches and matches[0].archived_at:
+        return "同名公司档案已归档，请确认是否恢复沿用"
+    if matches and matches[0].status != "active":
+        return "同名公司档案已停用，请核实后映射"
+    return None
+
+
 def lock_company_mapping(db):
     if db.bind.dialect.name == "postgresql":
         db.execute(select(func.pg_advisory_xact_lock(
@@ -114,6 +133,11 @@ def lock_company_mapping(db):
 
 def mapping_snapshot(db):
     targets = group_company_targets(db)
-    return {"fingerprint": digest(sorted((str(row.id), row.name, row.detail) for row in targets)),
-        "companies": [{"id": str(row.id), "name": row.name, "source": row.detail,
-            "mapped": db.get(LegalEntity, row.id) is not None} for row in targets]}
+    companies = []
+    for row in targets:
+        existing = db.get(LegalEntity, row.id)
+        companies.append({"id": str(row.id), "name": row.name, "source": row.detail,
+            "mapped": bool(existing and not existing.archived_at and existing.status == "active"),
+            "conflict_reason": company_mapping_conflict(db, row)})
+    return {"fingerprint": digest(sorted((row["id"], row["name"], row["source"], row["mapped"],
+        row["conflict_reason"]) for row in companies)), "companies": companies}

@@ -7,7 +7,7 @@ import EmployeeLifecyclePanel from "../components/EmployeeLifecyclePanel.vue";
 import PermissionManagementPanel from "../components/PermissionManagementPanel.vue";
 import {
   api, type Department, type DepartmentMembership, type DingTalkOrganization, type DingTalkProfile,
-  type LegalEntity, type LegalEntityIdentifier, type LegalEntityProfile, type Person,
+  type LegalEntity, type LegalEntityIdentifier, type LegalEntityProfile, type OrganizationCompanyMapping, type Person,
 } from "../lib/api";
 import { currentDirectoryScope, organizationScope } from "../lib/organizationScope";
 import { companyVerificationLabel, organizationStructure } from "../lib/organizationStructure";
@@ -17,6 +17,7 @@ const loading = ref(true);
 const globalManager = ref(false);
 const systemAdmin = ref(false);
 const mappingCompanies = ref(false);
+const mappingConflicts = ref<OrganizationCompanyMapping[]>([]);
 const syncingDingtalk = ref(false);
 const refreshingCompanies = ref(false);
 const error = ref("");
@@ -130,6 +131,8 @@ async function load() {
     [entities.value, departments.value, people.value, memberships.value, dingtalkProfiles.value, organizationBinding.value] = await Promise.all([
       api.legalEntities(), api.departments(), api.people(), api.departmentMemberships(), globalManager.value ? api.dingtalkProfiles() : Promise.resolve([]), api.dingtalkOrganization(),
     ]);
+    mappingConflicts.value = globalManager.value
+      ? (await api.organizationCompanyMappings()).companies.filter(item => item.conflict_reason) : [];
     if (!structure.value.companies.some((item) => item.id === selectedCompanyId.value) && !pendingCompanySelected.value) {
       selectedCompanyId.value = structure.value.companies[0]?.id ?? "";
     }
@@ -150,7 +153,7 @@ async function mapCompanies() {
     const snapshot = await api.organizationCompanyMappings();
     const result = await api.mapOrganizationCompanies({ fingerprint: snapshot.fingerprint, request_id: crypto.randomUUID() });
     await load();
-    success.value = `集团公司映射已更新，新增 ${result.mapped_count} 个来源主体；通讯录成员和部门挂靠保留，工商资料可在主体档案中补充。`;
+    success.value = `新增 ${result.mapped_count} 个公司来源映射${result.conflicts.length ? `，${result.conflicts.length} 个公司待核实` : ''}。通讯录成员和部门挂靠保留，工商资料可在主体档案中补充。`;
   } catch (cause) { error.value = cause instanceof Error ? cause.message : "集团公司映射失败"; }
   finally { mappingCompanies.value = false; }
 }
@@ -286,6 +289,11 @@ watch(showLegalProfile, async (visible) => {
     <EmployeeLifecyclePanel v-if="organizationView === 'employees' && globalManager" @changed="load" />
     <PermissionManagementPanel v-if="organizationView === 'permissions' && systemAdmin" :client="api" />
     <div v-if="organizationView === 'companies' && globalManager" class="organization-review-note"><span>集团公司来源与业务归属共用映射；工商核验在主体档案中维护。</span><button class="secondary-button" :disabled="mappingCompanies || loading" @click="mapCompanies">{{ mappingCompanies ? '映射中…' : '映射集团公司' }}</button></div>
+    <section v-if="organizationView === 'companies' && globalManager && mappingConflicts.length" class="message-panel" role="status" aria-label="待核实的公司映射">
+      <strong>{{ mappingConflicts.length }} 个公司映射待核实</strong>
+      <p v-for="company in mappingConflicts" :key="company.id">{{ company.name }}：{{ company.conflict_reason }}</p>
+      <p>其他公司可正常映射。历史档案会保留，确认后再处理该公司的归属。</p>
+    </section>
     <section v-if="organizationView === 'companies'" class="content-panel organization-workspace">
       <aside class="organization-tree">
         <div class="tree-heading"><div><strong>公司</strong><span>成员按钉钉公司主体字段分组</span></div></div>
