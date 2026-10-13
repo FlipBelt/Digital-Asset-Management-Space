@@ -1,6 +1,6 @@
 # 数字中心：注册标识、集团映射与权限管理
 
-日期：2026-10-13。风险等级 T3。注册标识、员工分组、权限管理与个人订阅隔离已发布测试与正式环境（7463cc53ef2f）。公司映射冲突修正目标回归完成，补丁发布待执行。
+日期：2026-10-13。风险等级 T3。技术实现、目标验证、测试→正式发布与独立回读完成。最终运行版本 ea2736d3248eab4ca20cc14cf2fc4fc83a56a186；Schema f13f20261010 保持，无迁移。
 
 ## 行为与边界
 
@@ -30,9 +30,9 @@
 
 服务/契约：`personal_subscription_policy.py`、`organization_mapping.py`、`permission_management.py`、`organization_leadership.py`、`relationship_choices.py`、`contact_resources.py`、`assets.py`、`core/access.py`，以及 workspace/organizations/permission_management schemas。
 
-前端：`ContactResourcesPanel.vue`、`PermissionManagementPanel.vue`、`api.ts`、`AccountsPage.vue`、`OrganizationPage.vue`、`IntakePage.vue`、`AssetDetailPage.vue`。
+前端：`ContactResourcesPanel.vue`、`PermissionManagementPanel.vue`、`api.ts`、`AccountsPage.vue`、`OrganizationPage.vue`、`IntakePage.vue`、`AssetDetailPage.vue`，以及订阅入口相关的 `router.ts`、`App.vue`、`AssetSpacePage.vue`、组织分组相关的 `organizationStructure.ts`。
 
-回归：`test_registration_organization_management.py`、`test_permission_management.py`、`test_personal_subscription_privacy.py`、`test_asset_visibility.py`。
+回归：`test_registration_organization_management.py`、`test_permission_management.py`、`test_personal_subscription_privacy.py`、`test_asset_visibility.py`，以及 `scripts/test-organization-structure.mjs`。
 
 ## 发布与回滚
 
@@ -42,4 +42,12 @@
 
 7463cc53ef2f 测试云助手 t-hz06zvu16iba2v4、正式云助手 t-hz06zvymr7b19mo 均 exit 0/PASS，75 张业务表与 Schema 保持。测试回退再应用通过。独立公开回读核对两个环境元数据、8 个静态文件、7 条 SPA 路径和 11 个匿名 API 拒绝；测试页面 10 项读取检查通过。正式注册标识读取 73 条 / 11 组，姓名搜索、首页排除、权限来源读取通过；未更改真实员工权限。
 
-首次正式“映射集团公司”因同名归档公司返回 409，整批事务回滚，不计为成功；只读云助手 t-hz06zw2421eyqrk 确认唯一冲突为飞将体育科技（宁波）有限公司的 COL-L1-002 旧档案，归档于 2026-08-31。用户明确要求保留归档，暂不映射该公司；其余映射在补丁发布后执行并独立回读。补丁同时修复用户新反馈的个人订阅入口重定向。
+首次正式“映射集团公司”因同名归档公司返回 409，整批事务回滚，不计为成功；只读云助手 t-hz06zw2421eyqrk 确认冲突为飞将体育科技（宁波）有限公司的 COL-L1-002 旧档案，归档于 2026-08-31。用户明确要求保留归档，暂不映射该公司；全角/半角括号来源去重后，该公司不会以另一种写法新增。补丁同时修复用户新反馈的个人订阅入口重定向。
+
+最终测试 t-hz06zwvf2xwibr4、正式 t-hz06zww70lvu4n4 均 exit 0/PASS；75 表在代码切换前后内容一致，测试旧代码/静态回退再应用通过，正式未演练回退或数据库恢复。独立公开回读双环境各 8 个冻结静态文件、7 个 SPA 路径、11 个匿名受保护 GET 拒绝及 ready/database 通过。前置 73f8b8f 的订阅列表→登记→返回、旧地址兼容检查通过；最终页面再次读取原有 Plus、批准服务及 Plus 套餐选项，未登记真实订阅。
+
+正式公司资料操作新增 14 个来源主体，17 个已映射、1 个按用户决定保留归档，来源列表共 18 个；当前部门 23 个、成员 63 人。保存后重载与独立只读校验 t-hz06zwxq3u04veo 通过，幂等审计请求 55419e97-5fcc-4fa6-b258-7e88765d1776 可追溯。人员、部门、用户、角色、权限、资产、租户、注册标识和授权的 14 张相关表完整指纹保持。新增 legal_entities 14 行、audit_logs 15 行；另观察到 provider_connections 内容更新与 sync_job_runs 增加 1 行，故不把资料操作期间表述为所有 75 表保持。
+
+最终正式标识页面为 73 条 / 11 组（10 个保管员工组及 57 条部门共用/待补保管人资料），展开/收起与名称搜索通过；正式页面 7 项最终检查完成。没有授予或撤销真实员工角色、停用员工访问、修改标识名称或删除标识。人工业务 UAT 独立保留。
+
+冻结发布包、上传、公开验证、服务器与页面回执、资料校验及截图：`.deploy-artifacts/company-mapping-conflicts/ea2736d3248e/`。前期分组/权限验证保留在 `.deploy-artifacts/registry-access-governance/7463cc53ef2f/`；PR #6 保持 Draft，仓库未配置 CI。
