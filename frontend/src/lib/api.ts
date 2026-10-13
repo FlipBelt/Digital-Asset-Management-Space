@@ -1,3 +1,5 @@
+import type { PermissionCatalog, PermissionRequest, PermissionUser, PermissionUserSummary } from "../components/PermissionManagementPanel.vue";
+
 export interface HealthStatus { status: string; database: string }
 export interface ScenarioSummary {
   code: string; name: string; description: string;
@@ -452,7 +454,18 @@ export const api = {
   resolveRisk: (id: string, version: number) => request<RiskFinding>(`/api/v1/risk-findings/${id}/resolve?version=${version}`, json("POST")),
   previewImport: (file: File) => { const form = new FormData(); form.append("file", file); return request<ImportPreview>("/api/v1/imports/preview", { method: "POST", body: form }) },
   commitImport: (body: ImportPreview) => request("/api/v1/imports/commit", json("POST", body)),
-  registrationIdentities: () => request<RegistrationIdentity[]>("/api/v1/workspace/registration-identities"),
+  registrationIdentities: (deletedOnly = false) => request<RegistrationIdentity[]>(`/api/v1/workspace/registration-identities${deletedOnly ? '?deleted_only=true' : ''}`),
+  renameRegistrationIdentity: (id: string, body: { name: string; version: number; request_id: string }) => request<RegistrationIdentity>(`/api/v1/workspace/registration-identities/${id}/name`, json("PATCH", body)),
+  organizationCompanyMappings: () => request<{ fingerprint: string; companies: { id: string; name: string; source: string; mapped: boolean }[] }>("/api/v1/organization/company-mappings"),
+  mapOrganizationCompanies: (body: { fingerprint: string; request_id: string }) => request<{ mapped_count: number }>("/api/v1/organization/company-mappings", json("POST", body)),
+  permissionCatalog: () => request<PermissionCatalog>("/api/v1/permission-management/catalog"),
+  permissionUsers: (keyword = "") => request<{ items: PermissionUserSummary[]; total: number }>(`/api/v1/permission-management/users?keyword=${encodeURIComponent(keyword)}`),
+  permissionUser: (id: string) => request<PermissionUser>(`/api/v1/permission-management/users/${id}`),
+  grantPermissionRole: (id: string, body: PermissionRequest & { role_code: string; department_id: string | null }) => request<PermissionUser>(`/api/v1/permission-management/users/${id}/roles`, json("POST", body)),
+  revokePermissionRole: (id: string, assignment: string, body: PermissionRequest) => request<PermissionUser>(`/api/v1/permission-management/users/${id}/roles/${assignment}/revoke`, json("POST", body)),
+  setPermissionAccess: (id: string, body: PermissionRequest & { enabled: boolean }) => request<PermissionUser>(`/api/v1/permission-management/users/${id}/access`, json("POST", body)),
+  grantPermissionResource: (id: string, body: PermissionRequest & { asset_id: string; starts_at: string | null; ends_at: string | null }) => request<PermissionUser>(`/api/v1/permission-management/users/${id}/resource-grants`, json("POST", body)),
+  revokePermissionResource: (id: string, grant: string, body: PermissionRequest) => request<PermissionUser>(`/api/v1/permission-management/users/${id}/resource-grants/${grant}/revoke`, json("POST", body)),
   reconcileContacts: (body: Record<string, unknown>) => request<RegistrationIdentity[]>("/api/v1/workspace/registration-identities/reconcile", json("POST", body)),
   layerRecords: (layer: number) => request<LayerRecord[]>(`/api/v1/workspace/layer-records?layer=${layer}`),
   createRegistrationIdentity: (body: Record<string, unknown>) => request<RegistrationIdentity>("/api/v1/workspace/registration-identities", json("POST", body)),

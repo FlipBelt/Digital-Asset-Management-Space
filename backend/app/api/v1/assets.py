@@ -311,6 +311,7 @@ def create_identifier(
     from app.services.asset_confirmation import lock_asset
     from app.services.registrar_details import touch_web_details
     asset = lock_asset(db, asset_id)
+    require_asset_visible(db, access, asset)
     if asset.archived_at is not None or not can_manage_asset(db, access, asset):
         raise HTTPException(403, "当前已无权修改该资产资料")
     touch_web_details(asset, access)
@@ -1490,6 +1491,7 @@ def save_assignment(
         raise HTTPException(409, "子账号的归属与责任沿用父账号，请维护所属公司账号")
     from app.services.asset_confirmation import lock_asset
     asset = lock_asset(db, asset_id)
+    require_asset_visible(db, access, asset)
     if asset.archived_at is not None:
         raise HTTPException(409, "资产已归档或删除，请先恢复")
     if asset.version != payload.version:
@@ -1534,11 +1536,12 @@ def save_assignment(
         raise HTTPException(status_code=422, detail="只有部门级资产可以设置归属部门")
     if payload.owner_department_id:
         department = db.get(Department, payload.owner_department_id)
+        from app.services.organization_mapping import department_compatible
         if (
             asset.legal_entity_id is None
             or
             department is None
-            or department.legal_entity_id != asset.legal_entity_id
+            or not department_compatible(db, department, asset.legal_entity_id)
             or department.archived_at is not None
         ):
             raise HTTPException(status_code=422, detail="归属部门不属于当前公司")

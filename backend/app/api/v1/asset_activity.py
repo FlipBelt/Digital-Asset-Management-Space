@@ -291,18 +291,20 @@ def prepare_confirmation(
     asset = owned_draft(db, access, asset_id)
     if payload.sharing_scope == "team" and asset.owner_department_id is None:
         raise HTTPException(422, "未关联部门，暂不能选择团队共享")
-    # A self-funded subscription is a personal fact, not a company license.
+    # Individual registrations remain private regardless of who pays for them.
     subscription = db.scalar(
         select(ServiceInstance).where(
             ServiceInstance.asset_id == asset_id, ServiceInstance.archived_at.is_(None)
         )
     )
     if (
-        subscription
-        and subscription.funding_source == "personal"
+        (
+            asset.is_personal_subscription
+            or (subscription and subscription.funding_source == "personal")
+        )
         and payload.sharing_scope != "private"
     ):
-        raise HTTPException(422, "个人自费订阅请保留私有；分享探索证据不转移使用许可")
+        raise HTTPException(422, "个人订阅请保留私有；分享探索证据不转移使用许可")
     if asset.status != "draft" or asset.version != payload.version:
         raise HTTPException(409, "草稿已改变，请重新读取")
     snapshot = draft_snapshot(db, asset, payload.sharing_scope)
@@ -367,6 +369,8 @@ def confirm_draft(
         raise HTTPException(404, "确认记录不存在")
     if row.asset_version != payload.version or row.content_digest != payload.content_digest:
         raise HTTPException(409, "确认内容不匹配，请重新预览")
+    if asset.is_personal_subscription and row.sharing_scope != "private":
+        raise HTTPException(422, "个人订阅请保留私有，请重新预览后确认")
     now = datetime.now(UTC)
     if row.cancelled_at:
         raise HTTPException(409, "已取消确认")

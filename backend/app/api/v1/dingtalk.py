@@ -47,6 +47,7 @@ from app.services.dingtalk import (
 )
 from app.services.dingtalk_company import stored_company_affiliation
 from app.services.organization_leadership import department_leadership_role, leadership_policy
+from app.services.permission_management import lock_permission_changes
 
 router = APIRouter(prefix="/dingtalk", tags=["dingtalk"])
 # Exact public aliases requested by the web client.  The existing /api/v1
@@ -203,11 +204,14 @@ def _provision_dingtalk_user(
     # server-side configuration and is only evaluated after DingTalk has
     # verified the identity and stored its stable userid mapping.  It is not
     # driven by a request header, browser storage, or client supplied name.
+    lock_permission_changes(db)
     bootstrap = db.scalar(select(AppSetting).where(AppSetting.key == "organization_bootstrap"))
     configured_candidate = (
         (bootstrap.value or {}).get("initial_administrator_candidate") if bootstrap else None
     )
-    if configured_candidate and person.display_name == configured_candidate:
+    permission_policy = db.scalar(select(AppSetting).where(AppSetting.key == "permission_management_policy"))
+    bootstrap_revoked = set((permission_policy.value or {}).get("bootstrap_revoked_user_ids", [])) if permission_policy else set()
+    if configured_candidate and person.display_name == configured_candidate and str(user.id) not in bootstrap_revoked:
         _ensure_role_scope(db, user, "system_admin", "company", person.legal_entity_id)
         _ensure_role_scope(db, user, "asset_manager", "company", person.legal_entity_id)
     return user, person, profile, dingtalk_user_id

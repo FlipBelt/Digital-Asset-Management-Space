@@ -21,6 +21,7 @@ from app.models import (
     User,
 )
 from app.services.organization_leadership import resolved_role_scopes
+from app.services.personal_subscription_policy import personal_subscription_privacy_clause
 
 
 @dataclass(frozen=True)
@@ -166,15 +167,18 @@ def asset_visibility_clause(context: AccessContext):
             ),
         )
     if context.person_id is None:
-        return shared
-    return or_(
-        shared,
-        Asset.created_by_person_id == context.person_id,
-        and_(
-            Asset.sharing_scope == "team",
-            Asset.owner_department_id.in_(person_department_ids(context.person_id)),
+        return and_(shared, personal_subscription_privacy_clause(None))
+    return and_(
+        personal_subscription_privacy_clause(context.person_id),
+        or_(
+            shared,
+            Asset.created_by_person_id == context.person_id,
+            and_(
+                Asset.sharing_scope == "team",
+                Asset.owner_department_id.in_(person_department_ids(context.person_id)),
+            ),
+            assigned_asset_clause(context.person_id),
         ),
-        assigned_asset_clause(context.person_id),
     )
 
 
@@ -183,6 +187,8 @@ def can_manage_asset(db: Session, context: AccessContext, asset: Asset) -> bool:
         return False
     if context.is_global_manager:
         return True
+    if asset.is_personal_subscription:
+        return context.person_id is not None and asset.created_by_person_id == context.person_id
     if "auditor" in context.roles:
         return False
     if (
@@ -212,6 +218,11 @@ def can_manage_asset(db: Session, context: AccessContext, asset: Asset) -> bool:
 
 
 def can_govern_asset(context: AccessContext, asset: Asset) -> bool:
+    if asset.is_personal_subscription:
+        return context.has_permission("asset.write") and (
+            context.is_global_manager
+            or (context.person_id is not None and asset.created_by_person_id == context.person_id)
+        )
     return context.has_permission("asset.write") and (
         context.is_global_manager or asset.owner_department_id in context.department_scopes
     )

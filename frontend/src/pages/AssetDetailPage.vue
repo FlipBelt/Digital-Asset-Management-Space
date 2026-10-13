@@ -153,7 +153,7 @@ const linkedIdentity = computed(() => {
   const tenantIdentity = platformAccountContext.value?.registration_identities[0];
   if (tenantIdentity) return tenantIdentity.identifier;
   const identityEdge = relationshipGraph.value?.edges.find(
-    (item) => item.section === "structure" && item.label === "注册身份",
+    (item) => item.section === "structure" && item.label === "册册身份",
   );
   return identityEdge
     ? relationshipGraph.value?.nodes.find((node) => node.id === identityEdge.source)
@@ -295,7 +295,7 @@ function relationSectionLabel(section: RelationshipSection) {
 }
 function relationSectionDescription(section: RelationshipSection) {
   return {
-    structure: "公司主体、注册身份和所属平台等结构性事实",
+    structure: "公司主体、册册身份和所属平台等结构性事实",
     business: "部署、挂载、调用、使用及已有采购记录；每条关系显示实际方向",
     responsibility: "负责人、使用人员、部门和账号授权",
   }[section];
@@ -371,7 +371,7 @@ const relationshipSlots = computed(() => {
     },
     {
       layer: "L2",
-      label: "注册身份",
+      label: "册册身份",
       value: linkedIdentity.value ?? "暂无明确证据",
       confirmed: Boolean(linkedIdentity.value),
     },
@@ -878,7 +878,7 @@ onMounted(load);
               ><small>{{ platformAccountContext.platform_category }}</small>
             </article>
             <article>
-              <Smartphone :size="19" /><span>主要注册身份</span
+              <Smartphone :size="19" /><span>主要册册身份</span
               ><strong>{{
                 platformAccountContext.registration_identities[0]?.identifier ||
                 "暂不清楚"
@@ -1024,7 +1024,7 @@ onMounted(load);
           <div>
             <span class="section-kicker">专属资料</span>
             <h2>按类型填写，不用记复杂字段</h2>
-            <p>每张彩色卡片对应一组业务信息；标注提示告诉你该填什么。</p>
+            <p>每张彩色卡片对应一组业务信息；标册提示告诉你该填什么。</p>
           </div>
           <StatusBadge :tone="completeness >= 80 ? 'success' : 'warning'">{{
             completeness >= 80 ? "资料较完整" : "仍有待补充项"
@@ -1200,7 +1200,7 @@ onMounted(load);
             <span class="section-kicker">关联关系</span>
             <h2>选择实际关系，再关联已有对象</h2>
             <p>
-              公司与部门决定归属；平台、账号和资源记录部署与使用。负责人在“责任与使用”中确认，手机号与邮箱在“平台与账号”中管理。
+              公司与部门决定归属；平台、账号和资源记录部署与使用。负责人在“责任与使用”中确认，机机号与邮箱在“平台与账号”中管理。
             </p>
           </div>
           <Network :size="30" />
@@ -1256,7 +1256,7 @@ onMounted(load);
                   </option>
                 </select></label
               ><label
-                ><span>备注（可选）</span
+                ><span>备册（可选）</span
                 ><input
                   v-model="relationForm.note"
                   placeholder="例如业务系统主实例" /></label

@@ -4,6 +4,7 @@ import { Building2, ChevronDown, ChevronRight, Crown, FolderTree, Plus, RefreshC
 import PageHeader from "../components/PageHeader.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import EmployeeLifecyclePanel from "../components/EmployeeLifecyclePanel.vue";
+import PermissionManagementPanel from "../components/PermissionManagementPanel.vue";
 import {
   api, type Department, type DepartmentMembership, type DingTalkOrganization, type DingTalkProfile,
   type LegalEntity, type LegalEntityIdentifier, type LegalEntityProfile, type Person,
@@ -14,12 +15,14 @@ import { companyVerificationLabel, organizationStructure } from "../lib/organiza
 type TreeRow = Department & { depth: number; hasChildren: boolean };
 const loading = ref(true);
 const globalManager = ref(false);
+const systemAdmin = ref(false);
+const mappingCompanies = ref(false);
 const syncingDingtalk = ref(false);
 const refreshingCompanies = ref(false);
 const error = ref("");
 const success = ref("");
 const search = ref("");
-const organizationView = ref<"companies" | "departments" | "employees">("companies");
+const organizationView = ref<"companies" | "departments" | "employees" | "permissions">("companies");
 const selectedCompanyId = ref("");
 const selectedDepartmentId = ref("");
 const expandedDepartmentIds = ref<string[]>([]);
@@ -122,6 +125,7 @@ async function load() {
   try {
     const session = await api.currentSession();
     globalManager.value = session.roles.some(role => ["system_admin", "asset_manager"].includes(role));
+    systemAdmin.value = session.roles.includes("system_admin");
     if (!globalManager.value) organizationView.value = "departments";
     [entities.value, departments.value, people.value, memberships.value, dingtalkProfiles.value, organizationBinding.value] = await Promise.all([
       api.legalEntities(), api.departments(), api.people(), api.departmentMemberships(), globalManager.value ? api.dingtalkProfiles() : Promise.resolve([]), api.dingtalkOrganization(),
@@ -139,6 +143,16 @@ async function load() {
     expandedDepartmentIds.value = [...new Set([...expandedDepartmentIds.value, ...rootDepartments.value.map((item) => item.id)])];
   } catch (reason) { error.value = reason instanceof Error ? reason.message : "组织数据加载失败"; }
   finally { loading.value = false; }
+}
+async function mapCompanies() {
+  mappingCompanies.value = true; error.value = ""; success.value = "";
+  try {
+    const snapshot = await api.organizationCompanyMappings();
+    const result = await api.mapOrganizationCompanies({ fingerprint: snapshot.fingerprint, request_id: crypto.randomUUID() });
+    await load();
+    success.value = `集团公司映射已更新，新增 ${result.mapped_count} 个来源主体；通讯录成员和部门挂靠保留，工商资料可在主体档案中补充。`;
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : "集团公司映射失败"; }
+  finally { mappingCompanies.value = false; }
 }
 async function loadCompanyProfile() {
   const request = ++companyProfileRequest;
@@ -267,8 +281,11 @@ watch(showLegalProfile, async (visible) => {
       <button v-if="globalManager" :class="{ active: organizationView === 'companies' }" :aria-pressed="organizationView === 'companies'" @click="organizationView = 'companies'"><Building2 :size="17" />公司<span>{{ structure.companies.length }}</span></button>
       <button :class="{ active: organizationView === 'departments' }" :aria-pressed="organizationView === 'departments'" @click="organizationView = 'departments'"><FolderTree :size="17" />部门<span>{{ structure.departments.length }}</span></button>
       <button v-if="globalManager" :class="{ active: organizationView === 'employees' }" :aria-pressed="organizationView === 'employees'" @click="organizationView = 'employees'"><UserRound :size="17" />离职员工</button>
+      <button v-if="systemAdmin" :class="{ active: organizationView === 'permissions' }" :aria-pressed="organizationView === 'permissions'" @click="organizationView = 'permissions'">权限管理</button>
     </div>
     <EmployeeLifecyclePanel v-if="organizationView === 'employees' && globalManager" @changed="load" />
+    <PermissionManagementPanel v-if="organizationView === 'permissions' && systemAdmin" :client="api" />
+    <div v-if="organizationView === 'companies' && globalManager" class="organization-review-note"><span>集团公司来源与业务归属共用映射；工商核验在主体档案中维护。</span><button class="secondary-button" :disabled="mappingCompanies || loading" @click="mapCompanies">{{ mappingCompanies ? '映射中…' : '映射集团公司' }}</button></div>
     <section v-if="organizationView === 'companies'" class="content-panel organization-workspace">
       <aside class="organization-tree">
         <div class="tree-heading"><div><strong>公司</strong><span>成员按钉钉公司主体字段分组</span></div></div>

@@ -79,6 +79,12 @@ class ContactReconcileRequest(BaseModel):
     rows: list[ContactReconcileRow] = Field(min_length=1, max_length=100)
 
 
+class RegistrationIdentityNameWrite(BaseModel):
+    request_id: UUID
+    version: int = Field(ge=1)
+    name: str = Field(min_length=1, max_length=200)
+
+
 class CompanyPlatformAccountCreate(BaseModel):
     platform_id: UUID
     legal_entity_id: UUID

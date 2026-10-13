@@ -28,6 +28,12 @@ from app.schemas.assets import RelationshipChoiceRead, RelationshipTargetRead
 from app.services.account_structure import child_account_clause, communication_resource_clause
 from app.services.asset_confirmation import lock_asset
 from app.services.audited_requests import audited_retry
+from app.services.organization_mapping import (
+    department_path,
+    directory_structure,
+    group_company_targets,
+    register_source_company,
+)
 
 
 def relationship_choices(db, access, current):
@@ -43,6 +49,11 @@ def relationship_choices(db, access, current):
     departments = list(db.scalars(select(Department).where(
         Department.archived_at.is_(None), Department.status == "active",
     )))
+    group_names, group_departments = directory_structure(db)
+    group_ids = {row.id for row in group_departments}
+    current_company = entities.get(current.legal_entity_id)
+    group_company = bool(current_company and current_company.name in group_names)
+    departments = [row for row in departments if not row.code.startswith("DT-") or row.id in group_ids]
     rows = list(db.scalars(select(Asset).where(
         Asset.archived_at.is_(None), Asset.status.not_in(["deleted", "retired"]),
         Asset.id != current.id, asset_visibility_clause(access),
@@ -81,8 +92,8 @@ def relationship_choices(db, access, current):
                                           detail=row.asset_code)
         return RelationshipTargetRead(id=row.id, label=row.name, object_type={
             "platform": "平台", "legal_entity": "公司", "department": "部门",
-        }[kind], detail=entities[row.legal_entity_id].name
-            if kind == "department" and row.legal_entity_id in entities else "")
+        }[kind], detail=(department_path(row, departments) if kind == "department"
+                else row.detail if kind == "legal_entity" else ""))
 
     choices = []
 
@@ -98,17 +109,17 @@ def relationship_choices(db, access, current):
 
     if can_govern_asset(access, current):
         add("ownership", "OWNED_BY", "归属公司", "upstream", "legal_entity",
-            [row for row in entities.values() if access.is_global_manager
+            [row for row in group_company_targets(db) if access.is_global_manager
              or row.id == current.legal_entity_id],
-            "更新公司归属；不改变负责人，也不授予访问权限。")
+            "引用集团既有公司来源；未映射项保存时登记。已有责任配置的跨公司变更需先交接。")
         add("ownership", "OWNED_BY", "归属部门", "upstream", "department",
             [row for row in departments if (current.legal_entity_id is None
-             or row.legal_entity_id == current.legal_entity_id)
+             or row.legal_entity_id == current.legal_entity_id or (group_company and row.id in group_ids))
              and (access.is_global_manager or row.id in access.department_scopes)],
-            "从当前公司已有部门选择，归属范围同步到责任与使用。")
+            "从集团当前组织架构选择管理部门，保留业务法人归属；此操作不授予访问权限。")
     if current.id in tenants and can_govern_asset(access, current):
         add("ownership", "ON_PLATFORM", "所属平台", "upstream", "platform", platforms,
-            "维护企业账号的所属平台；手机号与邮箱在平台与账号中引用。")
+            "维护企业账号的所属平台；注册与登录标识在平台与账号中引用。")
     if runtime(current):
         add("deployment", "DEPLOYED_ON", "部署在平台", "upstream", "platform", platforms,
             "选择已登记的平台；具体公司账号或服务器可以在下方关系中选择。")
@@ -174,16 +185,19 @@ def create_connection(db, access, asset_id, payload):
                 raise HTTPException(422, "已有生效责任配置，请先在责任与使用中完成公司交接")
             current.owner_department_id = None
             current.ownership_scope = "company"
-        current.legal_entity_id = payload.target_id
+        selected = next(row for row in group_company_targets(db) if row.id == payload.target_id)
+        entity = register_source_company(db, access, selected) if not db.get(LegalEntity, payload.target_id) else db.get(LegalEntity, payload.target_id)
+        current.legal_entity_id = entity.id
         tenant = db.scalar(select(PlatformTenant).where(PlatformTenant.asset_id == current.id))
         if tenant:
-            tenant.legal_entity_id = payload.target_id
+            tenant.legal_entity_id = entity.id
     elif choice.target_kind == "department":
         department = db.get(Department, payload.target_id)
         before = {"owner_department_id": str(current.owner_department_id),
                   "ownership_scope": current.ownership_scope}
         current.owner_department_id = department.id
-        current.legal_entity_id = department.legal_entity_id
+        if current.legal_entity_id is None:
+            current.legal_entity_id = department.legal_entity_id
         current.ownership_scope = "department"
     elif choice.relation_type == "ON_PLATFORM":
         tenant = db.scalar(select(PlatformTenant).where(PlatformTenant.asset_id == current.id))

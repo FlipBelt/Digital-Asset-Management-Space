@@ -74,18 +74,22 @@ def normalize_contact_catalog(db):
         select(AssetCategory).where(AssetCategory.code == "communication_resources")
     )
     if category is None:
-        category = AssetCategory(code="communication_resources", name="手机号与邮箱", sort_order=15)
+        category = AssetCategory(code="communication_resources", name="注册与登录标识", sort_order=15)
         db.add(category)
         db.flush()
     asset_type = db.scalar(select(AssetType).where(AssetType.code == "registration_identity"))
     if asset_type is None:
         raise HTTPException(422, "缺少手机号与邮箱类型")
     asset_type.category_id = category.id
-    asset_type.name = "手机号 / 邮箱"
+    category.name = "注册与登录标识"
+    asset_type.name = "注册与登录标识"
     return asset_type
 
 
 def require_identity_reference(db, access, identity, company_id):
+    if identity is not None:
+        identity = db.scalar(select(Asset).where(Asset.id == identity.id).with_for_update()
+                             .execution_options(populate_existing=True))
     if identity is None or identity.archived_at is not None or identity.status == "deleted":
         raise HTTPException(422, "所选手机号或邮箱不存在")
     require_asset_visible(db, access, identity)

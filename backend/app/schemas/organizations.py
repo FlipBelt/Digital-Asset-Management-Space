@@ -11,6 +11,11 @@ class LegalEntityCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class OrganizationMappingWrite(BaseModel):
+    request_id: UUID
+    fingerprint: str = Field(min_length=64, max_length=64)
+
+
 class LegalEntityRead(ORMModel):
     id: UUID
     code: str

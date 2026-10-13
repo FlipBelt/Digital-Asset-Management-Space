@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.access import (
     AccessContext,
+    active_period,
     asset_visibility_clause,
     can_manage_asset,
     get_access_context,
@@ -86,6 +87,7 @@ from app.schemas.workspace import (
     PlatformAccountChildCreate,
     PlatformAccountContextRead,
     RegistrationIdentityCreate,
+    RegistrationIdentityNameWrite,
     RegistrationIdentityRead,
     ResourceCreate,
 )
@@ -205,15 +207,18 @@ def infer_identity_type(value: str) -> str:
 
 @router.get("/workspace/registration-identities", response_model=list[RegistrationIdentityRead])
 def list_registration_identities(
+    deleted_only: bool = False,
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
 ) -> list[RegistrationIdentityRead]:
+    if deleted_only and not access.is_global_manager:
+        raise HTTPException(403, "回收站需要资产管理员权限")
     rows = db.execute(
         select(RegistrationIdentityProfile, Asset)
         .join(Asset, Asset.id == RegistrationIdentityProfile.asset_id)
         .where(
             RegistrationIdentityProfile.archived_at.is_(None),
-            Asset.archived_at.is_(None),
+            Asset.status == "deleted" if deleted_only else Asset.archived_at.is_(None),
             asset_visibility_clause(access),
         )
         .order_by(Asset.name)
@@ -222,6 +227,43 @@ def list_registration_identities(
         contact_read(db, profile, asset)
         for profile, asset in rows
     ]
+
+
+@router.patch("/workspace/registration-identities/{asset_id}/name", response_model=RegistrationIdentityRead)
+def rename_registration_identity(
+    asset_id: UUID,
+    payload: RegistrationIdentityNameWrite,
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(require_asset_write),
+):
+    if not access.is_global_manager:
+        raise HTTPException(403, "修改标识名称需要资产管理员权限")
+    previous, fingerprint = audited_retry(db, access, "registration_identity.rename", payload, asset_id)
+    asset = lock_asset(db, asset_id)
+    profile = db.scalar(select(RegistrationIdentityProfile).where(
+        RegistrationIdentityProfile.asset_id == asset_id, RegistrationIdentityProfile.archived_at.is_(None),
+    ))
+    if profile is None or asset.archived_at:
+        raise HTTPException(404, "注册与登录标识不存在或已删除")
+    require_asset_visible(db, access, asset)
+    if previous:
+        if asset.version != previous.after_data.get("version"):
+            raise HTTPException(409, "标识资料已有变化，请重新读取")
+        return contact_read(db, profile, asset)
+    if asset.version != payload.version:
+        raise HTTPException(409, "标识资料已有更新，请刷新后再保存")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(422, "名称不能为空")
+    before = {"name": asset.name, "version": asset.version}
+    if asset.name != name:
+        asset.name = name
+        asset.version += 1
+    db.add(AuditLog(actor_user_id=access.user.id, action="registration_identity.rename",
+        object_type="asset", object_id=asset_id, request_id=str(payload.request_id),
+        before_data=before, after_data={"request_digest": fingerprint, "name": name, "version": asset.version}))
+    db.commit()
+    return contact_read(db, profile, asset)
 
 
 @router.post("/workspace/registration-identities/reconcile", response_model=list[RegistrationIdentityRead])
@@ -260,9 +302,11 @@ def list_my_assets(
         .join(AssetResponsibility, AssetResponsibility.asset_id == Asset.id)
         .where(
             Asset.archived_at.is_(None),
+            asset_visibility_clause(access),
             AssetResponsibility.person_id == access.person_id,
             AssetResponsibility.role_type.in_(["responsible", "user"]),
             AssetResponsibility.archived_at.is_(None),
+            active_period(AssetResponsibility),
         )
         .distinct()
         .order_by(Asset.updated_at.desc(), Asset.id)
@@ -311,6 +355,7 @@ def list_layer_records(
             .where(
                 Account.platform_tenant_id.in_([item.id for item in tenants]),
                 Account.archived_at.is_(None),
+                Account.asset_id.in_(visible_asset_ids),
             )
             .group_by(Account.platform_tenant_id)
         )
@@ -1229,6 +1274,8 @@ def create_access_grant(
     if target is None or target.archived_at is not None:
         raise HTTPException(status_code=422, detail="授权必须明确指向一个有效资产")
     require_asset_visible(db, access, target)
+    if target.is_personal_subscription:
+        raise HTTPException(422, "个人订阅仅本人和管理员可见，不能授权给其他人员或部门")
     if payload.person_id:
         person = db.get(Person, payload.person_id)
         if person is None or person.archived_at is not None:
@@ -1433,7 +1480,7 @@ def get_asset_map(
                     relation="使用平台",
                 ),
             )
-        if service_instance.purchase_tenant_asset_id:
+        if service_instance.purchase_tenant_asset_id in visible_asset_ids:
             edge_id = f"tenant-service:{service_instance.id}"
             edges[edge_id] = MapEdge(
                 id=edge_id,
@@ -1493,6 +1540,7 @@ def get_asset_map(
 
     if include_people:
         add_people_to_map(db, nodes, edges, visible_asset_ids)
+    edges = {key: edge for key, edge in edges.items() if edge.source in nodes and edge.target in nodes}
     if platform_id is not None:
         nodes, edges = scope_asset_map_to_platform(nodes, edges, platform_id)
     referenced = {edge.source for edge in edges.values()} | {edge.target for edge in edges.values()}

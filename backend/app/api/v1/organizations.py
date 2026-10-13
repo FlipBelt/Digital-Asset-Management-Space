@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.access import AccessContext, require_permission
+from app.core.access import AccessContext, require_global_manager, require_permission
 from app.db.session import get_db
 from app.models import (
     Department,
@@ -24,6 +24,7 @@ from app.schemas.organizations import (
     LegalEntityProfileRead,
     LegalEntityProfileWrite,
     LegalEntityRead,
+    OrganizationMappingWrite,
     PersonCreate,
     PersonPatch,
     PersonRead,
@@ -32,6 +33,48 @@ from app.services.organization_leadership import department_leadership_role, lea
 
 router = APIRouter(tags=["organization"])
 require_organization_write = Depends(require_permission("organization.write"))
+
+
+@router.get("/organization/company-mappings")
+def get_company_mappings(db: Session = Depends(get_db), _: AccessContext = Depends(require_global_manager)):
+    from app.services.organization_mapping import mapping_snapshot
+    return mapping_snapshot(db)
+
+
+@router.post("/organization/company-mappings")
+def map_group_companies(
+    payload: OrganizationMappingWrite,
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(require_global_manager),
+):
+    from fastapi import HTTPException
+
+    from app.models import AuditLog
+    from app.services.audited_requests import audited_retry
+    from app.services.organization_mapping import (
+        group_company_targets,
+        lock_company_mapping,
+        mapping_snapshot,
+        register_source_company,
+    )
+
+    previous, fingerprint = audited_retry(db, access, "organization.group.map", payload, "group")
+    if previous:
+        return previous.after_data["result"]
+    lock_company_mapping(db)
+    snapshot = mapping_snapshot(db)
+    if snapshot["fingerprint"] != payload.fingerprint:
+        raise HTTPException(409, "集团公司来源已经变化，请重新读取后映射")
+    count = 0
+    for target in group_company_targets(db):
+        if db.get(LegalEntity, target.id) is None:
+            register_source_company(db, access, target)
+            count += 1
+    result = {**mapping_snapshot(db), "mapped_count": count}
+    db.add(AuditLog(actor_user_id=access.user.id, action="organization.group.map", object_type="organization",
+        request_id=str(payload.request_id), after_data={"request_digest": fingerprint, "result": result}))
+    db.commit()
+    return result
 
 
 @router.get("/legal-entities", response_model=list[LegalEntityRead])

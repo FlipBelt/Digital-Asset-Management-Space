@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.access import AccessContext, active_period, require_global_manager
-from app.core.auth import require_csrf
+from app.core.access import AccessContext, active_period, get_access_context, require_global_manager
+from app.core.auth import require_csrf, require_current_employee
 from app.db.session import get_db
 from app.models import (
     AccessGrant,
@@ -26,6 +26,7 @@ from app.models import (
 )
 from app.schemas.organizations import PersonRead
 from app.services.audited_requests import audited_retry
+from app.services.permission_management import ensure_system_admin_survives, lock_permission_changes
 
 router = APIRouter(tags=["employee-lifecycle"])
 
@@ -205,6 +206,12 @@ def change_employee_lifecycle(
     db: Session = Depends(get_db),
     access: AccessContext = Depends(require_global_manager),
 ):
+    lock_permission_changes(db)
+    db.refresh(access.user)
+    if not access.user.is_active or access.user.archived_at is not None:
+        raise HTTPException(403, "当前登录账号已停用")
+    require_current_employee(db, access.user)
+    require_global_manager(get_access_context(access.user, db))
     previous, fingerprint = audited_retry(db, access, "employee.lifecycle", payload, person_id)
     person = db.scalar(
         select(Person)
@@ -239,6 +246,7 @@ def change_employee_lifecycle(
             )
             .with_for_update()
         ):
+            ensure_system_admin_survives(db, user.id, disable_user=True)
             disabled += int(user.is_active)
             user.is_active = False
             for session in db.scalars(
