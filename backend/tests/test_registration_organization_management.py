@@ -243,6 +243,38 @@ def test_group_company_mapping_preserves_conflicts_and_maps_other_sources(actors
         assert db.scalar(select(func.count(AuditLog.id)).where(AuditLog.request_id == body["request_id"])) == 1
 
 
+@pytest.mark.parametrize("archived", [True, False])
+def test_company_punctuation_variants_reuse_active_or_preserve_archived_records(actors, group_directory, archived):
+    marker = uuid4().hex[:8]
+    company_name = marker + "体育科技（宁波）有限公司"
+    variant_name = company_name.replace("（", "(").replace("）", ")")
+    with SessionLocal() as db:
+        company = LegalEntity(code="PUNCT-" + marker, name=company_name,
+            archived_at=datetime.now(UTC) if archived else None)
+        db.add(company)
+        codes = ["DT-punct-full-" + marker, "DT-punct-half-" + marker]
+        for code, name in zip(codes, [company_name, variant_name]):
+            db.add(Department(legal_entity_id=group_directory["root"], code=code, name=name))
+        snapshot = db.scalar(select(AppSetting).where(AppSetting.key == "dingtalk_directory_snapshot"))
+        snapshot.value = {**snapshot.value, "department_codes": [*snapshot.value["department_codes"], *codes]}
+        db.commit()
+        company_id = company.id
+    url = "/api/v1/organization/company-mappings"
+    before = actors.admin.get(url).json()
+    source = [item for item in before["companies"] if item["name"] in [company_name, variant_name]]
+    assert len(source) == 1
+    assert source[0]["mapped"] is not archived
+    assert bool(source[0]["conflict_reason"]) is archived
+    saved = actors.admin.post(url, json={"request_id": str(uuid4()), "fingerprint": before["fingerprint"]})
+    assert saved.status_code == 200, saved.text
+    if archived:
+        assert len([item for item in saved.json()["conflicts"] if item["name"] in [company_name, variant_name]]) == 1
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count(LegalEntity.id)).where(
+            LegalEntity.name.in_([company_name, variant_name]))) == 1
+        assert bool(db.get(LegalEntity, company_id).archived_at) is archived
+
+
 def test_confirmed_responsibility_still_blocks_cross_company_reassignment(actors, company_account, group_directory):
     with SessionLocal() as db:
         db.add(AssetResponsibility(asset_id=UUID(company_account["asset"]),

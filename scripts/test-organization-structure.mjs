@@ -55,4 +55,17 @@ const forged = organizationStructure(entity, [entity], scoped, [{
   person_id: "creator", company_affiliation: { name: "合成创作有限公司", source_field: "client-claim", status: "available" },
 }]);
 assert.equal(forged.companyPeople.size, 0);
-console.log("Organization structure: 16 assertions passed, including distinct company/member sources, isolation, stale nodes and cycles.");
+const punctuationName = "合成体育科技（宁波）有限公司";
+const punctuationEntity = { id: "punctuation", name: punctuationName, code: "PUNCT", status: "active" };
+const punctuation = organizationStructure(entity, [entity, punctuationEntity], {
+  ...scoped, departments: [{ ...departments[0], name: punctuationName.replaceAll("（", "(").replaceAll("）", ")") }, departments[1]],
+}, [
+  { person_id: "creator", company_affiliation: { name: punctuationName, source_field: "主体（社保公司）", status: "available" } },
+  { person_id: "contact", company_affiliation: { name: punctuationName.replaceAll("（", "(").replaceAll("）", ")"), source_field: "主体（社保公司）", status: "available" } },
+]);
+assert.equal(punctuation.companies.length, 2);
+assert.equal(punctuation.companies.find(row => row.name === punctuationName).legalEntityId, "punctuation");
+assert.deepEqual(punctuation.companyPeople.get(punctuationName).map(row => row.id), ["creator", "contact"]);
+assert.deepEqual(punctuation.departments.map(row => row.id), ["team"]);
+assert.deepEqual({ departments, people, memberships, profiles }, original);
+console.log("Organization structure assertions passed, including source isolation, stale nodes, cycles and full/half-width company punctuation without directory mutations.");

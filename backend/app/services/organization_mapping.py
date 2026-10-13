@@ -19,6 +19,15 @@ class CompanySource:
     detail: str
 
 
+def company_name_key(name):
+    return name.replace("（", "(").replace("）", ")").strip()
+
+
+def company_name_matches(db, name):
+    key = company_name_key(name)
+    return [row for row in db.scalars(select(LegalEntity)) if company_name_key(row.name) == key]
+
+
 def directory_structure(db):
     binding = resolve_dingtalk_organization(db)
     if binding.status != "bound" or binding.entity is None:
@@ -58,9 +67,13 @@ def group_company_targets(db):
     )))
     names, _ = directory_structure(db)
     result = [CompanySource(row.id, row.name, "已登记公司主体") for row in entities]
-    registered = {row.name for row in entities}
-    result.extend(CompanySource(uuid5(NAMESPACE_URL, "digital-center/company/" + name), name,
-        source + " · 尚未映射，保存时登记主体") for name, source in names.items() if name not in registered)
+    registered = {company_name_key(row.name) for row in entities}
+    for name, source in names.items():
+        key = company_name_key(name)
+        if key not in registered:
+            result.append(CompanySource(uuid5(NAMESPACE_URL, "digital-center/company/" + name), name,
+                source + " · 尚未映射，保存时登记主体"))
+            registered.add(key)
     return result
 
 
@@ -70,7 +83,8 @@ def department_compatible(db, department, company_id):
     names, departments = directory_structure(db)
     company = db.get(LegalEntity, company_id)
     return bool(company and not company.archived_at and company.status == "active" and
-        company.name in names and department.id in {row.id for row in departments})
+        company_name_key(company.name) in {company_name_key(name) for name in names} and
+        department.id in {row.id for row in departments})
 
 
 def department_path(department, departments):
@@ -96,7 +110,7 @@ def register_source_company(db, access, target):
     conflict = company_mapping_conflict(db, target)
     if conflict:
         raise HTTPException(409, conflict)
-    matches = list(db.scalars(select(LegalEntity).where(LegalEntity.name == target.name)))
+    matches = company_name_matches(db, target.name)
     if matches:
         return matches[0]
     item = LegalEntity(id=target.id, code="ORG-" + str(target.id).replace("-", "")[:20], name=target.name)
@@ -115,7 +129,7 @@ def company_mapping_conflict(db, target):
         return "同名公司档案已归档，请确认是否恢复沿用"
     if existing:
         return "同名公司档案已停用，请核实后映射"
-    matches = list(db.scalars(select(LegalEntity).where(LegalEntity.name == target.name)))
+    matches = company_name_matches(db, target.name)
     if len(matches) > 1:
         return "同名公司存在多个档案，请核实后映射"
     if matches and matches[0].archived_at:

@@ -13,6 +13,8 @@ interface OrganizationScope {
   memberships: DepartmentMembership[];
 }
 
+function companyNameKey(name: string) { return name.replaceAll("（", "(").replaceAll("）", ")").trim(); }
+
 export function organizationStructure(
   entity: LegalEntity | undefined,
   entities: LegalEntity[],
@@ -33,7 +35,17 @@ export function organizationStructure(
   const visibleNodes = scoped.departments.filter((item) =>
     item.status === "active" && (!visibleCodes || !item.code.startsWith("DT-") || visibleCodes.has(item.code)));
   const staleNodes = scoped.departments.filter((item) => !visibleNodes.includes(item));
-  const names = new Map<string, OrganizationCompany["source"]>([[entity.name, "registered"]]);
+  const registeredEntities = entities.filter(item => item.status === "active");
+  const names = new Map<string, { name: string; source: OrganizationCompany["source"] }>();
+  function addCompany(name: string, source: OrganizationCompany["source"]) {
+    const key = companyNameKey(name);
+    if (!names.has(key)) {
+      const registered = registeredEntities.filter(item => companyNameKey(item.name) === key);
+      names.set(key, { name: registered.length === 1 ? registered[0]!.name : name, source });
+    }
+    return names.get(key)!.name;
+  }
+  addCompany(entity.name, "registered");
   const profileByPerson = new Map(profiles.map((profile) => [profile.person_id, profile]));
   const companyPeople = new Map<string, Person[]>();
   const pendingCompanyPeople: Person[] = [];
@@ -46,19 +58,19 @@ export function organizationStructure(
       pendingCompanyPeople.push(person);
       continue;
     }
-    if (!names.has(affiliation.name)) names.set(affiliation.name, "member_field");
-    const members = companyPeople.get(affiliation.name) ?? [];
+    const companyName = addCompany(affiliation.name, "member_field");
+    const members = companyPeople.get(companyName) ?? [];
     members.push(person);
-    companyPeople.set(affiliation.name, members);
+    companyPeople.set(companyName, members);
   }
-  const registeredNames = new Set(entities.map((item) => item.name));
+  const registeredNames = new Set(registeredEntities.map((item) => companyNameKey(item.name)));
   const isCompany = (item: Department) =>
-    names.has(item.name) || registeredNames.has(item.name) || /(?:公司|合伙企业|个体工商户)$/.test(item.name);
+    names.has(companyNameKey(item.name)) || registeredNames.has(companyNameKey(item.name)) || /(?:公司|合伙企业|个体工商户)$/.test(item.name);
   for (const item of visibleNodes) {
-    if (isCompany(item) && !names.has(item.name)) names.set(item.name, "directory");
+    if (isCompany(item)) addCompany(item.name, "directory");
   }
-  const companies = [...names].map(([name, source]) => {
-    const registered = entities.filter((item) => item.name === name);
+  const companies = [...names.values()].map(({ name, source }) => {
+    const registered = registeredEntities.filter((item) => companyNameKey(item.name) === companyNameKey(name));
     return {
       id: `company:${name}`,
       name,
