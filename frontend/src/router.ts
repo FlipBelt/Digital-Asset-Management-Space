@@ -43,8 +43,7 @@ const router = createRouter({
     { path: "/login", name: "login", component: LoginPage },
     { path: "/my/requests", component: MyRequestsPage },
     { path: "/my/contributions", component: AssetEvidencePage },
-    { path: "/my/subscriptions", redirect: { path: "/accounts", query: { section: "personal" } } },
-    { path: "/my/:category(created|responsible|using|ai|drafts|bookmarks)", component: AssetSpacePage, props: { scope: "mine" } },
+    { path: "/my/:category(created|responsible|using|subscriptions|ai|drafts|bookmarks)", component: AssetSpacePage, props: { scope: "mine" } },
     { path: "/manage", component: AssetManagePage },
     { path: "/manage/reviews", component: AssetReviewPage },
     { path: "/manage/followup", component: AssetFollowupPage },
@@ -71,6 +70,9 @@ const router = createRouter({
 });
 
 router.beforeEach(to => {
+  if (to.path === "/accounts" && to.query.section === "personal" && !to.query.platform) {
+    return { path: "/my/subscriptions", query: { q: to.query.q, type: to.query.type, page: to.query.page } };
+  }
   if (to.path === "/discover" && to.query.category === "workflows") {
     const { category: _category, group: _group, ...query } = to.query;
     return { path: "/workflows", query };
