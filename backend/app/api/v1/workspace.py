@@ -283,7 +283,7 @@ def reconcile_contacts(
     if len(set(values)) != len(values):
         raise HTTPException(422, "同一批次不能重复登记同一个手机号或邮箱")
     asset_type = normalize_contact_catalog(db)
-    result = [save_contact(db, access, row, asset_type, payload.source_note) for row in payload.rows]
+    result = [save_contact(db, access, row, asset_type, payload.source_note.strip()) for row in payload.rows]
     db.add(AuditLog(actor_user_id=access.user.id, action="contact.reconcile", object_type="contacts",
         request_id=str(payload.request_id), after_data={"request_digest": fingerprint,
             "result": [row.model_dump(mode="json") for row in result]}))

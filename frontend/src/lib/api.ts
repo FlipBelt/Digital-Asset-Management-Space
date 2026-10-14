@@ -224,7 +224,7 @@ export function resetPmSessionCache() {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message) }
+  constructor(public status: number, message: string, public detail: unknown = null) { super(message) }
 }
 
 export async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 12000): Promise<T> {
@@ -251,8 +251,9 @@ export async function request<T>(path: string, init: RequestInit = {}, timeoutMs
   }
   if (!response.ok) {
     let message = `请求失败：${response.status}`;
-    try { const body = await response.json(); message = Array.isArray(body.detail) ? body.detail.map((item: { msg?: string }) => item.msg || "输入有误").join("；") : body.detail ?? body.message ?? message } catch { /* keep generic */ }
-    throw new ApiError(response.status, message);
+    let detail: unknown = null;
+    try { const body = await response.json(); detail = body.detail; message = Array.isArray(body.detail) ? body.detail.map((item: { msg?: string }) => item.msg || "输入有误").join("；") : typeof body.detail === "string" ? body.detail : body.detail?.message ?? body.message ?? message } catch { /* keep generic */ }
+    throw new ApiError(response.status, message, detail);
   }
   if (response.status === 204) return undefined as T;
   if (response.headers.get("content-type")?.startsWith("application/zip") || response.headers.get("content-type")?.startsWith("image/")) return await response.blob() as T;

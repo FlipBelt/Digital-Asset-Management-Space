@@ -1,6 +1,7 @@
 """Corrections update the existing registry object and its live account references."""
 
 import hashlib
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -12,6 +13,7 @@ from app.db.session import SessionLocal
 from app.main import app
 from app.models import (
     Asset,
+    AssetRelation,
     AuditLog,
     PlatformAccountRegistrationIdentity,
     RegistrationIdentityProfile,
@@ -90,7 +92,10 @@ def test_duplicate_correction_keeps_both_records_and_versions(actors, deleted):
     # Different formatting must not bypass an existing phone identifier.
     body = edit_body(row, identifier="+86 " + other["identifier"])
     response = actors.admin.patch(endpoint(row), json=body)
-    assert response.status_code == 409 and "已登记" in response.text
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "registration_identifier_conflict"
+    assert response.json()["detail"]["conflict"]["asset_id"] == other["asset_id"]
+    assert response.json()["detail"]["conflict"]["deleted"] is deleted
     with SessionLocal() as db:
         assert db.get(Asset, UUID(row["asset_id"])).version == row["version"]
         assert db.get(RegistrationIdentityProfile, UUID(row["id"])).identifier_value == row["identifier"]
@@ -120,7 +125,7 @@ def test_legacy_username_without_holder_can_be_corrected_without_changing_custom
 
 @pytest.mark.parametrize("changes", [
     {"identifier": "not-a-phone"}, {"identifier": "not-an-email", "identity_type": "email"},
-    {"identifier": "  ", "identity_type": "username"}, {"source_note": " "},
+    {"identifier": "  ", "identity_type": "username"},
 ])
 def test_invalid_correction_is_atomic(actors, changes):
     row = registry_row(actors)
@@ -144,3 +149,90 @@ def test_identifier_edit_authorization_csrf_and_deleted_record_guards(actors):
     deleted = actors.admin.delete(f"/api/v1/assets/{row['asset_id']}", params={"version": row["version"]})
     assert deleted.status_code == 200, deleted.text
     assert actors.admin.patch(endpoint(row), json=edit_body(row, expected_version=deleted.json()["version"])).status_code == 404
+
+
+@pytest.mark.parametrize("omitted", [False, True])
+def test_source_is_optional_for_edit_and_batch_reconciliation(actors, omitted):
+    body = contact_body(actors)
+    if omitted:
+        body.pop("source_note")
+    else:
+        body["source_note"] = ""
+    response = reconcile(actors.admin, body)
+    assert response.status_code == 200, response.text
+    row = response.json()[0]
+    update = edit_body(row, identifier="189" + str(uuid4().int)[-8:], source_note="")
+    if omitted:
+        update.pop("source_note")
+    saved = actors.admin.patch(endpoint(row), json=update)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["asset_id"] == row["asset_id"] and saved.json()["note"] == row["note"]
+
+
+def archive_identity(row, *, profile_archived=True, asset_archived=True):
+    with SessionLocal() as db:
+        asset = db.get(Asset, UUID(row["asset_id"]))
+        profile = db.get(RegistrationIdentityProfile, UUID(row["id"]))
+        if asset_archived:
+            asset.archived_at = datetime.now(UTC)
+            asset.status = "archived"
+        if profile_archived:
+            profile.archived_at = datetime.now(UTC)
+        db.commit()
+
+
+def test_dormant_archived_claim_can_be_reused_preserving_history_and_retry(actors):
+    row, historical = registry_row(actors), registry_row(actors)
+    archive_identity(historical)
+    body = edit_body(row, identifier=historical["identifier"], source_note="")
+    saved = actors.admin.patch(endpoint(row), json=body)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["asset_id"] == row["asset_id"] and saved.json()["identifier"] == historical["identifier"]
+    assert actors.admin.patch(endpoint(row), json=body).json() == saved.json()
+    with SessionLocal() as db:
+        old_asset = db.get(Asset, UUID(historical["asset_id"]))
+        old_profile = db.get(RegistrationIdentityProfile, UUID(historical["id"]))
+        current = db.get(RegistrationIdentityProfile, UUID(row["id"]))
+        assert old_asset.status == "archived" and old_asset.archived_at is not None
+        assert old_asset.name == historical["name"] and old_asset.asset_code == historical["asset_code"]
+        assert old_profile.archived_at is not None and old_profile.identifier_value == historical["identifier"]
+        assert old_profile.identifier_fingerprint != current.identifier_fingerprint
+        assert db.scalar(select(func.count(AuditLog.id)).where(
+            AuditLog.action == "registration_identity.release_archived_claim", AuditLog.request_id == body["request_id"])) == 1
+
+
+@pytest.mark.parametrize("reference_kind", ["account", "asset"])
+def test_archived_claim_with_effective_reference_still_blocks_correction(actors, company_account, reference_kind):
+    row, historical = registry_row(actors), registry_row(actors)
+    archive_identity(historical)
+    with SessionLocal() as db:
+        if reference_kind == "account":
+            db.add(PlatformAccountRegistrationIdentity(platform_tenant_id=UUID(company_account["id"]),
+                registration_identity_asset_id=UUID(historical["asset_id"])))
+        else:
+            db.add(AssetRelation(source_asset_id=UUID(company_account["asset"]),
+                target_asset_id=UUID(historical["asset_id"]), relation_type="uses"))
+        db.commit()
+    response = actors.admin.patch(endpoint(row), json=edit_body(row, identifier=historical["identifier"]))
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["conflict"]["historical"]
+    with SessionLocal() as db:
+        assert db.get(RegistrationIdentityProfile, UUID(historical["id"])).identifier_fingerprint == hashlib.sha256(historical["identifier"].encode()).hexdigest()
+
+
+@pytest.mark.parametrize("profile_archived", [False, True])
+def test_partial_archival_does_not_release_a_claim(actors, profile_archived):
+    row, historical = registry_row(actors), registry_row(actors)
+    archive_identity(historical, profile_archived=profile_archived, asset_archived=not profile_archived)
+    assert actors.admin.patch(endpoint(row), json=edit_body(row, identifier=historical["identifier"])).status_code == 409
+
+
+def test_stale_correction_rolls_back_archived_claim_release(actors):
+    row, historical = registry_row(actors), registry_row(actors)
+    archive_identity(historical)
+    body = edit_body(row, identifier=historical["identifier"], expected_version=row["version"] + 1)
+    assert actors.admin.patch(endpoint(row), json=body).status_code == 409
+    with SessionLocal() as db:
+        profile = db.get(RegistrationIdentityProfile, UUID(historical["id"]))
+        assert profile.identifier_fingerprint == hashlib.sha256(historical["identifier"].encode()).hexdigest()
+        assert not db.scalar(select(AuditLog.id).where(AuditLog.request_id == body["request_id"]))

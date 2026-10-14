@@ -75,7 +75,7 @@ class ContactReconcileRow(RegistrationIdentityCreate):
 
 class ContactReconcileRequest(BaseModel):
     request_id: UUID
-    source_note: str = Field(min_length=1, max_length=2000)
+    source_note: str = Field(default="", max_length=2000)
     rows: list[ContactReconcileRow] = Field(min_length=1, max_length=100)
 
 
@@ -89,7 +89,7 @@ class RegistrationIdentityWrite(ContactReconcileRow):
     request_id: UUID
     expected_version: int = Field(ge=1)
     identity_type: Literal["phone", "email", "username", "wechat", "other"]
-    source_note: str = Field(min_length=1, max_length=2000)
+    source_note: str = Field(default="", max_length=2000)
 
 
 class CompanyPlatformAccountCreate(BaseModel):

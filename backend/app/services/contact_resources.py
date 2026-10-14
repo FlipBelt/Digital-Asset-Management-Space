@@ -7,17 +7,20 @@ from datetime import UTC, datetime
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
-from app.core.access import can_manage_asset, require_asset_visible
+from app.core.access import active_period, can_manage_asset, require_asset_visible
 from app.models import (
     Asset,
     AssetCategory,
     AssetIdentifier,
+    AssetRelation,
     AssetResponsibility,
     AssetType,
     AuditLog,
     Department,
     LegalEntity,
     Person,
+    PlatformAccountRegistrationIdentity,
+    PlatformTenant,
     RegistrationIdentityProfile,
 )
 from app.schemas.workspace import RegistrationIdentityRead
@@ -108,6 +111,37 @@ def require_identity_reference(db, access, identity, company_id):
     return profile
 
 
+def release_archived_identity_claim(db, access, profile, target_asset_id, request_id, fingerprint):
+    if profile.archived_at is None:
+        return False
+    asset = db.scalar(select(Asset).where(Asset.id == profile.asset_id).with_for_update())
+    if asset is None or asset.archived_at is None or asset.status != "archived":
+        return False
+    account_reference = db.scalar(select(PlatformAccountRegistrationIdentity.id)
+        .join(PlatformTenant, PlatformTenant.id == PlatformAccountRegistrationIdentity.platform_tenant_id)
+        .join(Asset, Asset.id == PlatformTenant.asset_id)
+        .where(PlatformAccountRegistrationIdentity.registration_identity_asset_id == asset.id,
+               PlatformAccountRegistrationIdentity.status == "active",
+               active_period(PlatformAccountRegistrationIdentity),
+               PlatformTenant.archived_at.is_(None), Asset.archived_at.is_(None)))
+    relation_reference = db.scalar(select(AssetRelation.id).join(Asset,
+        (Asset.id == AssetRelation.source_asset_id) | (Asset.id == AssetRelation.target_asset_id))
+        .where((AssetRelation.source_asset_id == asset.id) | (AssetRelation.target_asset_id == asset.id),
+               AssetRelation.archived_at.is_(None), Asset.id != asset.id, Asset.archived_at.is_(None)))
+    if account_reference or relation_reference:
+        return False
+    # Only release the unique lookup claim. The archived identifier, object and history stay intact.
+    if profile.identifier_fingerprint == fingerprint:
+        historical_fingerprint = hashlib.sha256(f"archived-registry:{profile.id}:{fingerprint}".encode()).hexdigest()
+        profile.identifier_fingerprint = historical_fingerprint
+        db.add(AuditLog(actor_user_id=access.user.id, action="registration_identity.release_archived_claim",
+            object_type="asset", object_id=asset.id, request_id=str(request_id),
+            before_data={"identifier_fingerprint": fingerprint},
+            after_data={"identifier_fingerprint": historical_fingerprint, "reused_by": str(target_asset_id)}))
+        db.flush()
+    return True
+
+
 def save_contact(db, access, row, asset_type, source_note, *, asset_id=None):
     if asset_id is not None and row.identity_type not in ("phone", "email"):
         value, kind = row.identifier.strip(), row.identity_type
@@ -117,8 +151,6 @@ def save_contact(db, access, row, asset_type, source_note, *, asset_id=None):
         value, kind = normalize_identifier(row.identifier)
         if asset_id is not None and kind != row.identity_type:
             raise HTTPException(422, "标识内容与所选类型不一致，请核对手机号或邮箱格式")
-    if not source_note.strip():
-        raise HTTPException(422, "请注明核对资料的来源")
     fingerprint = hashlib.sha256(value.lower().encode()).hexdigest()
     if db.bind.dialect.name == "postgresql":
         db.execute(select(func.pg_advisory_xact_lock(int(fingerprint[:15], 16))))
@@ -146,7 +178,15 @@ def save_contact(db, access, row, asset_type, source_note, *, asset_id=None):
             except HTTPException:
                 candidate_value = candidate.identifier_value.strip()
             if candidate.identifier_fingerprint == fingerprint or candidate_value.lower() == value.lower():
-                raise HTTPException(409, "该标识已登记，请使用已有记录；已删除的记录请先核对回收站")
+                if release_archived_identity_claim(db, access, candidate, asset_id, row.request_id, fingerprint):
+                    continue
+                other = db.get(Asset, candidate.asset_id)
+                state = "回收站" if other.status == "deleted" else "历史归档" if other.archived_at else "当前登记"
+                raise HTTPException(409, {"code": "registration_identifier_conflict",
+                    "message": f"该标识已由 {other.asset_code} 占用（{state}），请核对已有记录。",
+                    "conflict": {"asset_id": str(other.id), "asset_code": other.asset_code,
+                        "name": other.name, "deleted": other.status == "deleted",
+                        "historical": candidate.archived_at is not None}})
     entity = db.get(LegalEntity, row.legal_entity_id) if row.legal_entity_id else None
     if row.legal_entity_id and (entity is None or entity.archived_at):
         raise HTTPException(422, "所选公司不存在")
