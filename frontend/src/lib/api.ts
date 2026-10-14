@@ -459,7 +459,6 @@ export const api = {
   previewImport: (file: File) => { const form = new FormData(); form.append("file", file); return request<ImportPreview>("/api/v1/imports/preview", { method: "POST", body: form }) },
   commitImport: (body: ImportPreview) => request("/api/v1/imports/commit", json("POST", body)),
   registrationIdentities: (deletedOnly = false) => request<RegistrationIdentity[]>(`/api/v1/workspace/registration-identities${deletedOnly ? '?deleted_only=true' : ''}`),
-  renameRegistrationIdentity: (id: string, body: { name: string; version: number; request_id: string }) => request<RegistrationIdentity>(`/api/v1/workspace/registration-identities/${id}/name`, json("PATCH", body)),
   updateRegistrationIdentity: (id: string, body: Record<string, unknown>) => request<RegistrationIdentity>(`/api/v1/workspace/registration-identities/${id}`, json("PATCH", body)),
   organizationCompanyMappings: () => request<OrganizationCompanyMappings>("/api/v1/organization/company-mappings"),
   mapOrganizationCompanies: (body: { fingerprint: string; request_id: string }) => request<OrganizationCompanyMappings & { mapped_count: number; conflicts: { id: string; name: string; reason: string }[] }>("/api/v1/organization/company-mappings", json("POST", body)),

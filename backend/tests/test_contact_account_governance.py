@@ -46,9 +46,13 @@ def test_contact_reconciliation_exact_retry_version_bound_update_and_holder(acto
     created = reconcile(actors.admin, body)
     assert created.status_code == 200, created.text
     first = created.json()[0]
+    assert first["name"] == first["identifier"] == body["rows"][0]["identifier"]
     assert first["verification_status"] == "documented" and first["version"] == 1
     assert reconcile(actors.admin, body).json() == created.json()
     assert reconcile(actors.admin, {**body, "source_note": "变更来源"}).status_code == 409
+    with SessionLocal() as db:
+        db.get(Asset, UUID(first["asset_id"])).name = "历史通讯资源别名"
+        db.commit()
     update = contact_body(
         actors,
         identifier=body["rows"][0]["identifier"],
@@ -59,11 +63,13 @@ def test_contact_reconciliation_exact_retry_version_bound_update_and_holder(acto
     updated = reconcile(actors.admin, update)
     assert updated.status_code == 200, updated.text
     row = updated.json()[0]
+    assert row["name"] == row["identifier"] == first["identifier"]
     assert row["asset_id"] == first["asset_id"] and row["version"] == 2
     assert row["registration_blocked"] and row["custodian_person_id"] == str(actors.person["other"])
     assert reconcile(actors.admin, {**update, "request_id": str(uuid4())}).status_code == 409
     with SessionLocal() as db:
         asset = db.get(Asset, UUID(first["asset_id"]))
+        assert asset.name == first["identifier"]
         assert asset.review_status == "not_required" and asset.status == "active"
         responsibility = db.scalar(
             select(AssetResponsibility).where(

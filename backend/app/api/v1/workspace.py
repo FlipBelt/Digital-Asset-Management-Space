@@ -223,7 +223,7 @@ def list_registration_identities(
             Asset.status == "deleted" if deleted_only else Asset.archived_at.is_(None),
             asset_visibility_clause(access),
         )
-        .order_by(Asset.name)
+        .order_by(RegistrationIdentityProfile.identifier_value, Asset.id)
     ).all()
     return [
         contact_read(db, profile, asset)
@@ -231,7 +231,7 @@ def list_registration_identities(
     ]
 
 
-@router.patch("/workspace/registration-identities/{asset_id}/name", response_model=RegistrationIdentityRead)
+@router.patch("/workspace/registration-identities/{asset_id}/name", response_model=RegistrationIdentityRead, deprecated=True)
 def rename_registration_identity(
     asset_id: UUID,
     payload: RegistrationIdentityNameWrite,
@@ -240,7 +240,6 @@ def rename_registration_identity(
 ):
     if not access.is_global_manager:
         raise HTTPException(403, "修改标识名称需要资产管理员权限")
-    previous, fingerprint = audited_retry(db, access, "registration_identity.rename", payload, asset_id)
     asset = lock_asset(db, asset_id)
     profile = db.scalar(select(RegistrationIdentityProfile).where(
         RegistrationIdentityProfile.asset_id == asset_id, RegistrationIdentityProfile.archived_at.is_(None),
@@ -248,24 +247,9 @@ def rename_registration_identity(
     if profile is None or asset.archived_at:
         raise HTTPException(404, "注册与登录标识不存在或已删除")
     require_asset_visible(db, access, asset)
-    if previous:
-        if asset.version != previous.after_data.get("version"):
-            raise HTTPException(409, "标识资料已有变化，请重新读取")
-        return contact_read(db, profile, asset)
     if asset.version != payload.version:
         raise HTTPException(409, "标识资料已有更新，请刷新后再保存")
-    name = payload.name.strip()
-    if not name:
-        raise HTTPException(422, "名称不能为空")
-    before = {"name": asset.name, "version": asset.version}
-    if asset.name != name:
-        asset.name = name
-        asset.version += 1
-    db.add(AuditLog(actor_user_id=access.user.id, action="registration_identity.rename",
-        object_type="asset", object_id=asset_id, request_id=str(payload.request_id),
-        before_data=before, after_data={"request_digest": fingerprint, "name": name, "version": asset.version}))
-    db.commit()
-    return contact_read(db, profile, asset)
+    raise HTTPException(422, "标识即为名称，请在注册与登录标识的‘修改资料’中更正标识内容")
 
 
 @router.post("/workspace/registration-identities/reconcile", response_model=list[RegistrationIdentityRead])
@@ -278,7 +262,7 @@ def reconcile_contacts(
         raise HTTPException(403, "通讯资源资料核对需要资产管理员权限")
     previous, fingerprint = audited_retry(db, access, "contact.reconcile", payload, "contacts")
     if previous:
-        return previous.after_data["result"]
+        return [{**row, "name": row["identifier"]} for row in previous.after_data["result"]]
     values = [normalize_identifier(row.identifier)[0] for row in payload.rows]
     if len(set(values)) != len(values):
         raise HTTPException(422, "同一批次不能重复登记同一个手机号或邮箱")
@@ -614,6 +598,8 @@ def create_registration_identity(
         ):
             raise HTTPException(status_code=422, detail="当前保管人不属于所选公司")
     value = payload.identifier.strip()
+    if not value or any(ord(character) < 32 for character in value):
+        raise HTTPException(422, "请填写有效的标识内容")
     fingerprint = hashlib.sha256(value.lower().encode("utf-8")).hexdigest()
     existing = db.scalar(
         select(RegistrationIdentityProfile).where(
@@ -627,7 +613,7 @@ def create_registration_identity(
     asset_type = require_asset_type(db, "registration_identity")
     asset = create_asset(
         db,
-        name=f"{identity_type_label(identity_type)} · {value}",
+        name=value[:200],
         asset_type_id=asset_type.id,
         legal_entity_id=payload.legal_entity_id,
         status_value="draft",
@@ -662,18 +648,7 @@ def create_registration_identity(
     add_discovery_audit(db, access, asset, "registration_identity")
     db.commit()
     db.refresh(profile)
-    return RegistrationIdentityRead(
-        id=profile.id,
-        asset_id=asset.id,
-        asset_code=asset.asset_code,
-        legal_entity_id=asset.legal_entity_id,
-        name=asset.name,
-        identity_type=profile.identity_type,
-        identifier=profile.identifier_value,
-        source_nature=profile.source_nature,
-        custodian_person_id=profile.custodian_person_id,
-        verification_status=profile.verification_status,
-    )
+    return contact_read(db, profile, asset)
 
 
 def identity_type_label(identity_type: str) -> str:
@@ -732,18 +707,7 @@ def get_platform_account_context(
         verification_status=tenant.verification_status,
         evidence_note=tenant.evidence_note,
         registration_identities=[
-            RegistrationIdentityRead(
-                id=profile.id,
-                asset_id=identity_asset.id,
-                asset_code=identity_asset.asset_code,
-                legal_entity_id=identity_asset.legal_entity_id,
-                name=identity_asset.name,
-                identity_type=profile.identity_type,
-                identifier=profile.identifier_value,
-                source_nature=profile.source_nature,
-                custodian_person_id=profile.custodian_person_id,
-                verification_status=profile.verification_status,
-            )
+            contact_read(db, profile, identity_asset)
             for _, profile, identity_asset in identity_rows
         ],
     )
@@ -978,7 +942,7 @@ def create_company_platform_account(
         identity_asset = db.get(Asset, payload.registration_identity_asset_id)
         if identity_asset is None:
             raise HTTPException(status_code=422, detail="所选注册身份不存在")
-        require_identity_reference(db, access, identity_asset, payload.legal_entity_id)
+        identity_profile = require_identity_reference(db, access, identity_asset, payload.legal_entity_id)
         db.add(
             PlatformAccountRegistrationIdentity(
                 platform_tenant_id=tenant.id,
@@ -1041,7 +1005,7 @@ def create_company_platform_account(
         links.append(
             IntakeLinkRead(
                 kind="registration_identity",
-                label=identity_asset.name,
+                label=identity_profile.identifier_value,
                 relation="主要注册身份",
                 asset_id=identity_asset.id,
             )

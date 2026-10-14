@@ -3,7 +3,13 @@
 from sqlalchemy import select
 
 from app.core.access import require_asset_visible
-from app.models import AssetFieldDefinition, AssetFieldValue, InternalSystemProfile, ResourceProfile
+from app.models import (
+    AssetFieldDefinition,
+    AssetFieldValue,
+    InternalSystemProfile,
+    RegistrationIdentityProfile,
+    ResourceProfile,
+)
 from app.schemas.assets import AssetCardLink, AssetRead
 from app.services.account_structure import account_parent
 from app.services.repository_visibility import GITHUB_URL, hide_repository_urls, visibility_map
@@ -83,13 +89,23 @@ def card_link_map(db, asset_ids):
     return result
 
 
+def registration_name_map(db, asset_ids):
+    if not asset_ids:
+        return {}
+    return dict(db.execute(select(
+        RegistrationIdentityProfile.asset_id, RegistrationIdentityProfile.identifier_value,
+    ).where(RegistrationIdentityProfile.asset_id.in_(asset_ids))).all())
+
+
 def asset_list_reads(db, assets):
     rows = list(assets)
+    names = registration_name_map(db, [asset.id for asset in rows])
     links = card_link_map(db, [asset.id for asset in rows])
     visibility = visibility_map(db, [asset.id for asset in rows])
     return [
         AssetRead.model_validate(asset).model_copy(
             update={
+                "name": names.get(asset.id, asset.name),
                 "card_links": links[asset.id],
                 "repository_visibility": visibility[asset.id],
                 "description": asset.description
@@ -106,6 +122,7 @@ def asset_list_reads(db, assets):
 
 def asset_detail_read(db, asset, access):
     item = AssetRead.model_validate(asset)
+    item.name = registration_name_map(db, [asset.id]).get(asset.id, item.name)
     origin = asset
     if item.is_child_account:
         parent, tenant = account_parent(db, asset.id)

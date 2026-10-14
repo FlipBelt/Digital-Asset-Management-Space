@@ -63,7 +63,7 @@ def test_correction_preserves_code_profile_and_live_reference(actors, company_ac
     assert updated["identifier"] == value and updated["identity_type"] == kind
     assert updated["version"] == row["version"] + 1
     assert (updated["id"], updated["asset_id"], updated["asset_code"]) == (row["id"], row["asset_id"], row["asset_code"])
-    assert value in updated["name"] and row["identifier"] not in updated["name"]
+    assert updated["name"] == value
     assert actors.admin.patch(endpoint(row), json=body).json() == updated
     assert actors.admin.patch(endpoint(row), json={**body, "source_note": "changed"}).status_code == 409
     assert actors.admin.patch(endpoint(row), json={**body, "request_id": str(uuid4())}).status_code == 409
@@ -71,10 +71,12 @@ def test_correction_preserves_code_profile_and_live_reference(actors, company_ac
     assert next(item for item in readback if item["asset_id"] == row["asset_id"])["identifier"] == value
     context = actors.admin.get(f"/api/v1/workspace/platform-accounts/by-asset/{company_account['asset']}")
     assert context.status_code == 200, context.text
-    assert next(item for item in context.json()["registration_identities"] if item["asset_id"] == row["asset_id"])["identifier"] == value
+    identity = next(item for item in context.json()["registration_identities"] if item["asset_id"] == row["asset_id"])
+    assert identity["name"] == identity["identifier"] == value
     with SessionLocal() as db:
         profile = db.get(RegistrationIdentityProfile, UUID(row["id"]))
         assert profile.identifier_masked == value
+        assert db.get(Asset, UUID(row["asset_id"])).name == value
         assert profile.identifier_fingerprint == hashlib.sha256(value.lower().encode()).hexdigest()
         assert db.get(PlatformAccountRegistrationIdentity, link_id).registration_identity_asset_id == UUID(row["asset_id"])
         assert db.scalar(select(func.count(RegistrationIdentityProfile.id))) == count
@@ -103,7 +105,7 @@ def test_duplicate_correction_keeps_both_records_and_versions(actors, deleted):
         assert not db.scalar(select(AuditLog.id).where(AuditLog.request_id == body["request_id"]))
 
 
-def test_legacy_username_without_holder_can_be_corrected_without_changing_custom_name(actors):
+def test_legacy_name_is_derived_from_identifier_and_correction_replaces_cache(actors):
     row = registry_row(actors)
     with SessionLocal() as db:
         asset = db.get(Asset, UUID(row["asset_id"]))
@@ -116,11 +118,66 @@ def test_legacy_username_without_holder_can_be_corrected_without_changing_custom
         profile.identifier_fingerprint = hashlib.sha256(profile.identifier_value.encode()).hexdigest()
         db.commit()
     row = next(item for item in actors.admin.get("/api/v1/workspace/registration-identities").json() if item["id"] == row["id"])
+    assert row["name"] == row["identifier"]
+    assert actors.admin.get(f"/api/v1/assets/{row['asset_id']}").json()["name"] == row["identifier"]
     value = "new-" + uuid4().hex
     response = actors.admin.patch(endpoint(row), json=edit_body(row, identifier=value, identity_type="username"))
     assert response.status_code == 200, response.text
-    assert response.json()["name"] == "共享测试登录名"
+    assert response.json()["name"] == value
     assert response.json()["identifier"] == value and response.json()["legal_entity_id"] is None
+    with SessionLocal() as db:
+        assert db.get(Asset, UUID(row["asset_id"])).name == value
+
+
+def test_legacy_name_cannot_be_written_through_basic_asset_editor(actors):
+    row = registry_row(actors)
+    response = actors.admin.patch(f"/api/v1/assets/{row['asset_id']}", json={
+        "name": "独立别名", "version": row["version"], "description": "不应保存",
+    })
+    assert response.status_code == 422
+    with SessionLocal() as db:
+        asset = db.get(Asset, UUID(row["asset_id"]))
+        assert asset.version == row["version"] and asset.description == row["note"]
+        assert asset.name == row["identifier"]
+
+
+def test_full_identifier_is_name_for_create_edit_context_and_relationships(actors, company_account):
+    value = "login-" + uuid4().hex + "a" * 462
+    assert len(value) == 500
+    response = actors.admin.post("/api/v1/workspace/registration-identities", json={
+        "identifier": value, "identity_type": "username", "legal_entity_id": actors.entity,
+    })
+    assert response.status_code == 201, response.text
+    row = response.json()
+    assert row["name"] == row["identifier"] == value
+    with SessionLocal() as db:
+        asset = db.get(Asset, UUID(row["asset_id"]))
+        assert asset.name == value[:200]
+        # An old independent name must not leak into any current read projection.
+        asset.name = "历史别名"
+        db.add(PlatformAccountRegistrationIdentity(platform_tenant_id=UUID(company_account["id"]),
+            registration_identity_asset_id=asset.id))
+        db.commit()
+    assert actors.admin.get(f"/api/v1/assets/{row['asset_id']}").json()["name"] == value
+    context = actors.admin.get(f"/api/v1/workspace/platform-accounts/by-asset/{company_account['asset']}").json()
+    assert next(item for item in context["registration_identities"] if item["asset_id"] == row["asset_id"])["name"] == value
+    relationship = actors.admin.get(f"/api/v1/assets/{company_account['asset']}/relationship-view").json()
+    assert next(item for item in relationship["nodes"] if item["asset_id"] == row["asset_id"])["label"] == value
+    updated = actors.admin.patch(endpoint(row), json=edit_body(row, identifier=value[:-1] + "b"))
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["name"] == updated.json()["identifier"] == value[:-1] + "b"
+
+
+@pytest.mark.parametrize("value", ["   ", "login\nvalue"])
+def test_create_rejects_empty_or_control_character_identifier(actors, value):
+    with SessionLocal() as db:
+        count = db.scalar(select(func.count(RegistrationIdentityProfile.id)))
+    response = actors.admin.post("/api/v1/workspace/registration-identities", json={
+        "identifier": value, "identity_type": "username", "legal_entity_id": actors.entity,
+    })
+    assert response.status_code == 422
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count(RegistrationIdentityProfile.id))) == count
 
 
 @pytest.mark.parametrize("changes", [

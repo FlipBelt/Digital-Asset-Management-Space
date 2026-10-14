@@ -56,7 +56,7 @@ class RegistrationIdentityRead(BaseModel):
     asset_id: UUID
     asset_code: str
     legal_entity_id: UUID | None
-    name: str
+    name: str = Field(description="标识内容的兼容展示值，与 identifier 相同；不单独维护")
     identity_type: str
     identifier: str
     source_nature: str

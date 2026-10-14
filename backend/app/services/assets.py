@@ -66,6 +66,14 @@ class AssetService:
             raise HTTPException(409, "子账号在所属公司账号内维护，状态与责任资料沿用父账号")
         if asset.version != payload.version:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="记录已被其他用户修改")
+        identity = db.scalar(select(RegistrationIdentityProfile).where(
+            RegistrationIdentityProfile.asset_id == asset_id,
+            RegistrationIdentityProfile.archived_at.is_(None),
+        ))
+        if identity and "name" in payload.model_fields_set:
+            if payload.name != identity.identifier_value:
+                raise HTTPException(422, "标识即为名称，请在注册与登录标识的‘修改资料’中更正标识内容")
+            payload.name = identity.identifier_value[:200]
         before = self._snapshot(asset)
         changes = {
             field: value

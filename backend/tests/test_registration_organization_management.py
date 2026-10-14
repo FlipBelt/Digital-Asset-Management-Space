@@ -36,7 +36,7 @@ def registry_row(actors):
     return response.json()[0]
 
 
-def test_rename_preserves_identifier_reference_and_retry_audit(actors, company_account):
+def test_separate_name_endpoint_rejects_alias_without_changing_reference(actors, company_account):
     row = registry_row(actors)
     with SessionLocal() as db:
         link = PlatformAccountRegistrationIdentity(platform_tenant_id=UUID(company_account["id"]),
@@ -48,19 +48,16 @@ def test_rename_preserves_identifier_reference_and_retry_audit(actors, company_a
     body = {"name": " 团队测试登录标识 ", "version": row["version"], "request_id": str(uuid4())}
     assert actors.owner.patch(url, json=body).status_code == 403
     response = actors.admin.patch(url, json=body)
-    assert response.status_code == 200, response.text
-    renamed = response.json()
-    assert renamed["name"] == body["name"].strip() and renamed["identifier"] == row["identifier"]
-    assert renamed["asset_id"] == row["asset_id"] and renamed["version"] == row["version"] + 1
-    assert actors.admin.patch(url, json=body).json() == renamed
-    assert actors.admin.patch(url, json={**body, "name": "changed"}).status_code == 409
-    assert actors.admin.patch(url, json={**body, "request_id": str(uuid4())}).status_code == 409
+    assert response.status_code == 422 and "标识即为名称" in response.json()["detail"]
+    assert actors.admin.patch(url, json=body).status_code == 422
     with SessionLocal() as db:
         assert db.get(PlatformAccountRegistrationIdentity, link_id).registration_identity_asset_id == UUID(row["asset_id"])
-        assert db.scalar(select(func.count(AuditLog.id)).where(AuditLog.request_id == body["request_id"])) == 1
+        assert db.get(Asset, UUID(row["asset_id"])).version == row["version"]
+        assert db.get(RegistrationIdentityProfile, UUID(row["id"])).identifier_value == row["identifier"]
+        assert db.scalar(select(func.count(AuditLog.id)).where(AuditLog.request_id == body["request_id"])) == 0
 
 
-def test_username_name_can_change_and_blank_cookie_write_rejected(actors):
+def test_username_name_alias_and_cookie_write_rejected(actors):
     row = registry_row(actors)
     with SessionLocal() as db:
         profile = db.scalar(select(RegistrationIdentityProfile).where(
@@ -79,8 +76,9 @@ def test_username_name_can_change_and_blank_cookie_write_rejected(actors):
     finally:
         cookie.close()
     response = actors.admin.patch(url, json=body)
-    assert response.status_code == 200, response.text
-    assert response.json()["identifier"] == identifier
+    assert response.status_code == 422, response.text
+    values = actors.admin.get("/api/v1/workspace/registration-identities").json()
+    assert next(item for item in values if item["asset_id"] == row["asset_id"])["name"] == identifier
 
 
 def test_referenced_registry_deletion_blocked_then_recoverable(actors, company_account):

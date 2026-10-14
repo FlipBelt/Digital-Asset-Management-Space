@@ -14,10 +14,10 @@ const loading = ref(true), saving = ref(false), error = ref(""), message = ref("
 const editing = ref(false), batch = ref(false), input = ref(""), source = ref(""), company = ref("");
 const editingIdentity = ref<RegistrationIdentity | null>(null), identityType = ref("phone");
 const form = reactive<ContactRow>({ identifier: "", legal_entity_id: null, custodian_person_id: null, owner_department_id: null, source_nature: "company_owned", verification_status: "documented", registration_blocked: false, expected_version: null, note: "" });
-const action = ref<"rename" | "delete" | "restore">("rename"), selected = ref<RegistrationIdentity | null>(null), name = ref(""), actionError = ref("");
-let requestId = crypto.randomUUID(), previousPayload = "", actionRequestId = crypto.randomUUID(), previousActionPayload = "";
+const action = ref<"delete" | "restore">("delete"), selected = ref<RegistrationIdentity | null>(null), actionError = ref("");
+let requestId = crypto.randomUUID(), previousPayload = "";
 const preview = computed(() => parseContactRows(input.value, people.value, departments.value, rows.value, company.value));
-const visible = computed(() => rows.value.filter(row => [row.asset_code, row.name, row.identifier, personName(row.custodian_person_id), departmentName(row.owner_department_id), row.note].join(" ").toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase())));
+const visible = computed(() => rows.value.filter(row => [row.asset_code, row.identifier, personName(row.custodian_person_id), departmentName(row.owner_department_id), row.note].join(" ").toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase())));
 const collapsedGroups = ref<string[]>([]);
 const employeeGroups = computed(() => {
   const grouped = new Map<string, { id: string; person: Person | undefined; items: RegistrationIdentity[] }>();
@@ -51,22 +51,16 @@ function edit(row?: RegistrationIdentity) {
     registration_blocked: row?.registration_blocked || false, expected_version: row?.version || null, note: row?.note || "" });
 }
 function openAction(row: RegistrationIdentity, value: typeof action.value) {
-  selected.value = row; action.value = value; name.value = row.name; actionError.value = ""; actionRequestId = crypto.randomUUID(); previousActionPayload = "";
+  selected.value = row; action.value = value; actionError.value = "";
 }
 function closeAction() { if (!saving.value) selected.value = null; }
 async function applyAction() {
   const row = selected.value; if (!row || saving.value) return;
   saving.value = true; actionError.value = "";
   try {
-    if (action.value === "rename") {
-      const body = { name: name.value.trim(), version: row.version }, snapshot = JSON.stringify(body);
-      if (previousActionPayload && previousActionPayload !== snapshot) actionRequestId = crypto.randomUUID();
-      previousActionPayload = snapshot;
-      await api.renameRegistrationIdentity(row.asset_id, { ...body, request_id: actionRequestId });
-    }
-    else if (action.value === "delete") await api.deleteAsset(row.asset_id, row.version);
+    if (action.value === "delete") await api.deleteAsset(row.asset_id, row.version);
     else await api.restoreAsset(row.asset_id, row.version);
-    message.value = action.value === "rename" ? "名称已保存，原登录标识和账号引用保留。" : action.value === "delete" ? "已移入回收站，可在回收站恢复。" : "标识已恢复，可继续被平台账号引用。";
+    message.value = action.value === "delete" ? "已移入回收站，可在回收站恢复。" : "标识已恢复，可继续被平台账号引用。";
     selected.value = null; await load();
   } catch (cause) { actionError.value = cause instanceof Error ? cause.message : "操作失败，请重试"; }
   finally { saving.value = false; }
@@ -134,13 +128,12 @@ onMounted(async () => {
       <label class="wide">核对资料来源（选填）<input v-model="source" placeholder="如有资料来源，可补充文件名称或核对日期" /></label><div class="contact-actions wide"><button type="button" class="secondary-button" :disabled="saving" @click="editing = false">取消</button><button class="primary-button" :disabled="saving || (batch && (!!preview.errors.length || !preview.rows.length))">{{ saving ? '保存中…' : '保存标识资料' }}</button></div>
     </form>
     <p v-if="loading" role="status">正在读取注册与登录标识…</p>
-    <template v-else><label class="contact-search">搜索注册与登录标识<input v-model="query" type="search" placeholder="名称、手机号、邮箱、用户名、同事或部门" /></label><div class="contact-table-wrap"><table><caption>共 {{ visible.length }} 条{{ trash ? '已删除标识' : '注册与登录标识' }} · 按员工分为 {{ employeeGroups.length }} 组</caption><thead><tr><th scope="col">名称 / 登录标识</th><th scope="col">保管同事 / 使用部门</th><th scope="col">资料状态</th><th scope="col">操作</th></tr></thead><tbody v-for="group in employeeGroups" :key="group.id"><tr class="employee-group-heading"><td colspan="4"><button class="employee-group-toggle" :aria-expanded="!collapsedGroups.includes(group.id)" @click="toggleGroup(group.id)"><ChevronRight v-if="collapsedGroups.includes(group.id)" :size="16" aria-hidden="true" /><ChevronDown v-else :size="16" aria-hidden="true" /><UserRound v-if="group.person" :size="18" aria-hidden="true" /><Users v-else :size="18" aria-hidden="true" /><strong>{{ group.person?.display_name || '部门共用 / 待补保管人' }}</strong><span v-if="group.person">{{ departmentName(group.person.department_id) }}{{ group.person.employment_status === 'departed' ? ' · 已离职' : '' }}</span><span class="group-count">{{ group.items.length }} 条标识</span></button></td></tr><tr v-for="row in collapsedGroups.includes(group.id) ? [] : group.items" :key="row.asset_id"><td><strong>{{ row.name }}</strong><small>{{ typeName(row) }} · {{ row.identifier }}</small><small v-if="row.registration_blocked" class="error-message">禁止用于平台注册</small></td><td>{{ personName(row.custodian_person_id) }}<small>{{ departmentName(row.owner_department_id) }}</small></td><td>{{ trash ? '已删除' : row.verification_status === 'documented' ? '已按资料登记' : row.verification_status === 'verified' ? '已核验' : '资料待核对' }}</td><td><div class="row-actions"><template v-if="canManage && !trash"><button class="secondary-button" :disabled="saving" @click="openAction(row, 'rename')">修改名称</button><button class="text-button" :disabled="saving" @click="edit(row)">修改资料</button><button class="text-button deletion-button" :disabled="saving" @click="openAction(row, 'delete')">删除</button></template><button v-if="canManage && trash" class="secondary-button" :disabled="saving" @click="openAction(row, 'restore')">恢复</button><RouterLink v-if="!trash" :to="'/assets/' + row.asset_id + '?tab=relations'">查看引用</RouterLink></div></td></tr></tbody></table><p v-if="!visible.length" class="mini-empty">{{ query ? '没有匹配资料，请调整搜索。' : trash ? '回收站为空。' : '尚未登记注册或登录标识。' }}</p></div></template>
-    <ModalPanel v-if="selected" :title="action === 'rename' ? '修改标识名称' : action === 'delete' ? '删除注册与登录标识' : '恢复注册与登录标识'" trap-focus @close="closeAction">
-      <p>{{ selected.name }}</p><p>{{ typeName(selected) }} · {{ selected.identifier }}</p>
-      <label v-if="action === 'rename'" class="contact-search">名称<input v-model="name" maxlength="200" :disabled="saving" /></label>
-      <p v-else>{{ action === 'delete' ? '将移入可恢复的回收站。仍被平台账号或资产引用时，需先解除引用。' : '恢复后保留原名称、标识和历史资料，可继续由平台账号引用。' }}</p>
+    <template v-else><label class="contact-search">搜索注册与登录标识<input v-model="query" type="search" placeholder="标识、编号、同事或部门" /></label><div class="contact-table-wrap"><table><caption>共 {{ visible.length }} 条{{ trash ? '已删除标识' : '注册与登录标识' }} · 按员工分为 {{ employeeGroups.length }} 组</caption><thead><tr><th scope="col">登录标识</th><th scope="col">保管同事 / 使用部门</th><th scope="col">资料状态</th><th scope="col">操作</th></tr></thead><tbody v-for="group in employeeGroups" :key="group.id"><tr class="employee-group-heading"><td colspan="4"><button class="employee-group-toggle" :aria-expanded="!collapsedGroups.includes(group.id)" @click="toggleGroup(group.id)"><ChevronRight v-if="collapsedGroups.includes(group.id)" :size="16" aria-hidden="true" /><ChevronDown v-else :size="16" aria-hidden="true" /><UserRound v-if="group.person" :size="18" aria-hidden="true" /><Users v-else :size="18" aria-hidden="true" /><strong>{{ group.person?.display_name || '部门共用 / 待补保管人' }}</strong><span v-if="group.person">{{ departmentName(group.person.department_id) }}{{ group.person.employment_status === 'departed' ? ' · 已离职' : '' }}</span><span class="group-count">{{ group.items.length }} 条标识</span></button></td></tr><tr v-for="row in collapsedGroups.includes(group.id) ? [] : group.items" :key="row.asset_id"><td><strong>{{ row.identifier }}</strong><small>{{ typeName(row) }}</small><small v-if="row.registration_blocked" class="error-message">禁止用于平台注册</small></td><td>{{ personName(row.custodian_person_id) }}<small>{{ departmentName(row.owner_department_id) }}</small></td><td>{{ trash ? '已删除' : row.verification_status === 'documented' ? '已按资料登记' : row.verification_status === 'verified' ? '已核验' : '资料待核对' }}</td><td><div class="row-actions"><template v-if="canManage && !trash"><button class="text-button" :disabled="saving" @click="edit(row)">修改资料</button><button class="text-button deletion-button" :disabled="saving" @click="openAction(row, 'delete')">删除</button></template><button v-if="canManage && trash" class="secondary-button" :disabled="saving" @click="openAction(row, 'restore')">恢复</button><RouterLink v-if="!trash" :to="'/assets/' + row.asset_id + '?tab=relations'">查看引用</RouterLink></div></td></tr></tbody></table><p v-if="!visible.length" class="mini-empty">{{ query ? '没有匹配资料，请调整搜索。' : trash ? '回收站为空。' : '尚未登记注册或登录标识。' }}</p></div></template>
+    <ModalPanel v-if="selected" :title="action === 'delete' ? '删除注册与登录标识' : '恢复注册与登录标识'" trap-focus @close="closeAction">
+      <p>{{ selected.identifier }}</p><p>{{ typeName(selected) }}</p>
+      <p>{{ action === 'delete' ? '将移入可恢复的回收站。仍被平台账号或资产引用时，需先解除引用。' : '恢复后保留原标识和历史资料，可继续由平台账号引用。' }}</p>
       <p v-if="actionError" class="message-panel error-message" role="alert">{{ actionError }}</p>
-      <template #footer><button class="secondary-button" :disabled="saving" @click="closeAction">取消</button><button class="primary-button" :disabled="saving || (action === 'rename' && !name.trim())" @click="applyAction">{{ saving ? '处理中…' : action === 'rename' ? '保存名称' : action === 'delete' ? '移入回收站' : '恢复标识' }}</button></template>
+      <template #footer><button class="secondary-button" :disabled="saving" @click="closeAction">取消</button><button class="primary-button" :disabled="saving" @click="applyAction">{{ saving ? '处理中…' : action === 'delete' ? '移入回收站' : '恢复标识' }}</button></template>
     </ModalPanel>
   </section>
 </template>

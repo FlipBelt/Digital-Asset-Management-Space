@@ -538,6 +538,9 @@ def get_relationship_view(
     assets_by_id = {item.id: item for item in assets}
     if current.id not in assets_by_id:
         assets_by_id[current.id] = current
+    from app.services.asset_presentation import registration_name_map
+
+    identity_names = registration_name_map(db, list(assets_by_id))
     asset_types = {
         item.id: item
         for item in db.scalars(select(AssetType).where(AssetType.archived_at.is_(None)))
@@ -649,7 +652,7 @@ def get_relationship_view(
             nodes[key] = {
                 "id": key,
                 "layer": _relationship_layer(asset_type.code if asset_type else None),
-                "label": item.name,
+                "label": identity_names.get(item.id, item.name),
                 "object_type": asset_type.name if asset_type else "资产",
                 "kind": asset_type.code if asset_type else "asset",
                 "asset_id": item.id,

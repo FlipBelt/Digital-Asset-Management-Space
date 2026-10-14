@@ -58,7 +58,7 @@ def contact_read(db, profile, asset):
         asset_id=asset.id,
         asset_code=asset.asset_code,
         legal_entity_id=asset.legal_entity_id,
-        name=asset.name,
+        name=profile.identifier_value,
         identity_type=profile.identity_type,
         identifier=profile.identifier_value,
         source_nature=profile.source_nature,
@@ -185,7 +185,7 @@ def save_contact(db, access, row, asset_type, source_note, *, asset_id=None):
                 raise HTTPException(409, {"code": "registration_identifier_conflict",
                     "message": f"该标识已由 {other.asset_code} 占用（{state}），请核对已有记录。",
                     "conflict": {"asset_id": str(other.id), "asset_code": other.asset_code,
-                        "name": other.name, "deleted": other.status == "deleted",
+                        "name": candidate.identifier_value, "deleted": other.status == "deleted",
                         "historical": candidate.archived_at is not None}})
     entity = db.get(LegalEntity, row.legal_entity_id) if row.legal_entity_id else None
     if row.legal_entity_id and (entity is None or entity.archived_at):
@@ -229,10 +229,6 @@ def save_contact(db, access, row, asset_type, source_note, *, asset_id=None):
             "verification_status": profile.verification_status,
         }
         if asset_id is not None:
-            labels = ("手机号", "邮箱", "用户名", "账号", "注册身份", "微信身份", "微信标识")
-            if asset.name in {f"{label} · {profile.identifier_value}" for label in labels}:
-                label = {"phone": "手机号", "email": "邮箱", "username": "用户名", "wechat": "微信标识"}.get(kind, "账号")
-                asset.name = f"{label} · {value}"
             profile.identifier_value = profile.identifier_masked = value
             profile.identifier_fingerprint = fingerprint
             profile.identity_type = kind
@@ -241,7 +237,7 @@ def save_contact(db, access, row, asset_type, source_note, *, asset_id=None):
         if row.expected_version is not None:
             raise HTTPException(409, "通讯资源已改变，请刷新预览")
         asset = Asset(
-            name=f"{'手机号' if kind == 'phone' else '邮箱'} · {value}",
+            name=value[:200],
             asset_type_id=asset_type.id,
             asset_code=allocate_asset_code(db, row.legal_entity_id, asset_type.id),
             source_type="manual",
@@ -258,6 +254,8 @@ def save_contact(db, access, row, asset_type, source_note, *, asset_id=None):
             identifier_fingerprint=fingerprint,
         )
         db.add(profile)
+    # Asset.name is a bounded cache; registry reads use the full identifier value.
+    asset.name = profile.identifier_value[:200]
     asset.legal_entity_id = row.legal_entity_id
     asset.owner_department_id = row.owner_department_id
     asset.ownership_scope = "department" if department else "company"
