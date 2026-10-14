@@ -48,6 +48,7 @@ from app.schemas.inventory import (
     PlatformTenantRead,
     ProviderCreate,
     ProviderRead,
+    RepositoryVisibilityInput,
     ServiceInstanceCreate,
     ServiceInstanceRead,
     ServiceProductCreate,
@@ -265,6 +266,8 @@ def get_platform_relationship_view(
         "registered_on": "登记于平台",
         "uses": "关联平台",
         "provided_by": "由平台提供",
+        "deployed_on": "部署在平台",
+        "mounted_on": "挂载到平台",
     }
     for link in links:
         linked_asset = assets_by_id.get(link.asset_id)
@@ -551,9 +554,12 @@ def get_internal_profile(
     access: AccessContext = Depends(get_access_context),
 ) -> InternalSystemProfile | None:
     require_visible_asset(db, access, asset_id)
-    return db.scalar(
+    item = db.scalar(
         select(InternalSystemProfile).where(InternalSystemProfile.asset_id == asset_id)
     )
+    from app.services.repository_visibility import project_profile
+
+    return project_profile(db, item)
 
 
 @router.put("/assets/{asset_id}/internal-system-profile", response_model=InternalSystemProfileRead)
@@ -577,7 +583,48 @@ def upsert_internal_profile(
         db.add(item)
         action = "internal_system_profile.create"
     else:
+        from app.services.repository_visibility import GITHUB_URL, repository_visibility
+        hidden = repository_visibility(db, asset_id) != "public"
         for key, value in payload.model_dump().items():
+            # Hidden stored addresses must survive saving the other handover fields.
+            old = getattr(item, key)
+            if hidden and not value and old and GITHUB_URL.search(old):
+                continue
             setattr(item, key, value)
         action = "internal_system_profile.update"
-    return commit(db, item, action, "internal_system_profile")
+    commit(db, item, action, "internal_system_profile")
+    from app.services.repository_visibility import project_profile
+
+    return project_profile(db, item)
+
+
+@router.put("/assets/{asset_id}/repository-visibility")
+def save_repository_visibility(
+    asset_id: UUID,
+    payload: RepositoryVisibilityInput,
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(get_access_context),
+):
+    from app.services.asset_confirmation import lock_asset
+    from app.services.audited_requests import audited_retry
+    from app.services.repository_visibility import repository_visibility, set_visibility
+
+    require_manageable_asset(db, access, asset_id)
+    previous, fingerprint = audited_retry(db, access, "repository.visibility", payload, asset_id)
+    if previous:
+        return previous.after_data["result"]
+    asset = lock_asset(db, asset_id)
+    require_manageable_asset(db, access, asset_id)
+    if asset.version != payload.version:
+        raise HTTPException(409, "资料已更新，请刷新后再设置仓库可见性")
+    before = repository_visibility(db, asset_id)
+    set_visibility(db, asset_id, payload.visibility)
+    asset.version += 1
+    result = {"asset_id": str(asset_id), "version": asset.version,
+              "repository_visibility": payload.visibility}
+    db.add(AuditLog(actor_user_id=access.user.id, action="repository.visibility",
+                    object_type="asset", object_id=asset_id, request_id=str(payload.request_id),
+                    before_data={"visibility": before},
+                    after_data={"request_digest": fingerprint, "result": result}))
+    db.commit()
+    return result

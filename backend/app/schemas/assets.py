@@ -50,6 +50,11 @@ class AssetPatch(BaseModel):
         return value
 
 
+class AssetCardLink(BaseModel):
+    label: str
+    url: str
+
+
 class AssetRead(ORMModel):
     id: UUID
     asset_code: str
@@ -69,6 +74,12 @@ class AssetRead(ORMModel):
     sharing_scope: str | None = None
     source_system: str | None = None
     is_personal_subscription: bool = False
+    is_child_account: bool = False
+    parent_asset_id: UUID | None = None
+    management_href: str | None = None
+    verification_status: str | None = None
+    card_links: list[AssetCardLink] = Field(default_factory=list)
+    repository_visibility: Literal["public", "private", "unknown"] = "unknown"
     source_agent: str | None = None
     source_reference: str | None = None
     development_method: str | None = None
@@ -85,7 +96,7 @@ class AssetRead(ORMModel):
     @model_validator(mode="after")
     def personal_subscription_review_policy(self):
         # Apply the same rule to subscriptions registered before this policy change.
-        if self.is_personal_subscription:
+        if self.is_personal_subscription or self.is_child_account:
             self.review_status = "not_required"
         return self
 
@@ -132,6 +143,9 @@ class AssetAssignmentRead(BaseModel):
     ownership_scope: str
     responsible_person_id: UUID | None
     user_person_ids: list[UUID]
+    confirmed_responsible_person_id: UUID | None = None
+    responsible_status: Literal["confirmed", "proposed", "inactive", "missing"] = "missing"
+    responsibility_issue: str | None = None
 
 
 class AssetRelationCreate(BaseModel):
@@ -184,6 +198,39 @@ class AssetRelationshipViewRead(BaseModel):
 
 class RelationshipLinkUpdate(BaseModel):
     target_id: UUID
+
+
+class RelationshipTargetRead(BaseModel):
+    id: UUID
+    label: str
+    object_type: str
+    detail: str = ""
+
+
+class RelationshipChoiceRead(BaseModel):
+    key: str
+    group: Literal["ownership", "deployment", "usage", "other"]
+    relation_type: str
+    label: str
+    direction: Literal["upstream", "downstream", "peer"]
+    target_kind: Literal["asset", "platform", "legal_entity", "department"]
+    targets: list[RelationshipTargetRead]
+    description: str
+
+
+class RelationshipConnectionWrite(BaseModel):
+    request_id: UUID
+    version: int = Field(ge=1)
+    choice_key: str = Field(min_length=1, max_length=100)
+    target_id: UUID
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class PlatformIdentifierWrite(BaseModel):
+    request_id: UUID
+    version: int = Field(ge=1)
+    identifier: str | None = Field(default=None, max_length=200)
+    identifier_type: Literal["account_id", "uid", "organization_id", "workspace_id", "merchant_id", "other"] = "account_id"
 
 
 class AssetPlatformLinkCreate(BaseModel):

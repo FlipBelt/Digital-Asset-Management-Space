@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { ArrowLeft, Bookmark, ArrowRight } from "lucide-vue-next";
 import PageHeader from "../components/PageHeader.vue";
 import AssetAttachments from "../components/AssetAttachments.vue";
@@ -12,7 +12,7 @@ import { displayOutcomeVersion } from "../lib/assetVersions";
 import { isPersonalSubscription, subscriptionStatus } from "../lib/personalSubscriptions";
 import { assetReturnContext } from "../lib/assetNavigation";
 import { aiTypeName, isAIOutcome } from "../lib/aiDiscovery";
-const route = useRoute(); const detail = ref<HuduAssetDetail | null>(null); const asset = ref<Asset | null>(null);
+const route = useRoute(); const router = useRouter(); const detail = ref<HuduAssetDetail | null>(null); const asset = ref<Asset | null>(null);
 const canManage = ref(false); const canReview = ref(false);
 const subscription = ref<Membership | null>(null); const bookmarked = ref(false); const person = ref("");
 const error = ref(""); const loading = ref(false); const actionError = ref(""); const busy = ref(false); let sequence = 0;
@@ -25,9 +25,12 @@ const fundingLabels: Record<string, string> = { personal: "个人自费", compan
 async function load() {
   const request = ++sequence; detail.value = null; loading.value = true; error.value = "";
   try {
-    const id = String(route.params.id); const user = await api.currentSession();
-    const [value, original, saved, memberships] = await Promise.all([
-      api.huduAsset(id), api.asset(id), user.person_id ? api.spaceBookmarks() : Promise.resolve([]),
+    const id = String(route.params.id); const original = await api.asset(id);
+    if (request !== sequence) return;
+    if (original.is_child_account && original.management_href) { await router.replace(original.management_href); return; }
+    const user = await api.currentSession();
+    const [value, saved, memberships] = await Promise.all([
+      api.huduAsset(id), user.person_id ? api.spaceBookmarks() : Promise.resolve([]),
       user.person_id ? api.spaceMemberships() : Promise.resolve([]),
     ]);
     if (request === sequence) { detail.value = value; asset.value = original; person.value = user.person_id || "";

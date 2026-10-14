@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import PageHeader from "../components/PageHeader.vue";
 import { api, type Asset, type SubscriptionOption } from "../lib/api";
 const products = ref<SubscriptionOption[]>([]), error = ref(""), loading = ref(true), saving = ref(false), result = ref<Asset | null>(null);
+const route = useRoute();
+const availableProducts = computed(() => products.value.filter(item => !route.query.platform || item.platform_id === route.query.platform));
 const selectedPlan = ref(""), customPlan = ref("");
 const form = reactive({ service_product_id: "", funding_source: "personal", starts_at: "", usage_frequency: "weekly", primary_purpose: "" });
 const product = computed(() => products.value.find(item => item.id === form.service_product_id));
@@ -13,7 +16,7 @@ watch(() => form.service_product_id, () => { selectedPlan.value = ""; customPlan
 watch(plans, values => { if (selectedPlan.value !== "__custom__" && !values.includes(selectedPlan.value)) selectedPlan.value = ""; });
 async function initialize() {
   loading.value = true; error.value = "";
-  try { products.value = await api.subscriptionOptions(); if (form.service_product_id && !product.value) form.service_product_id = ""; }
+  try { products.value = await api.subscriptionOptions(); if (form.service_product_id && !product.value) form.service_product_id = ""; if (!form.service_product_id && route.query.platform && availableProducts.value.length === 1) form.service_product_id = availableProducts.value[0]!.id; }
   catch (reason) { error.value = reason instanceof Error ? reason.message : "服务目录读取失败"; }
   finally { loading.value = false; }
 }
@@ -35,8 +38,8 @@ async function submit() {
     <section v-if="result" class="fusion-empty"><h2>个人订阅已登记，无需审核</h2><p>记录默认为本人和资产管理员可见，资金来源单独记录。</p><RouterLink to="/my/subscriptions" class="primary-button">查看我的订阅</RouterLink></section>
     <form v-else class="fusion-register" :aria-busy="loading || saving" @submit.prevent="submit">
       <p v-if="loading" role="status">正在读取已审核的服务与套餐…</p>
-      <label>服务（平台/供应商）<select v-model="form.service_product_id" required :disabled="loading || saving"><option value="" disabled>请选择服务</option><option v-for="item in products" :key="item.id" :value="item.id">{{ item.name }} · {{ item.platform_name }}</option></select></label>
-      <p v-if="!loading && !products.length">暂无已审核的可选服务，请联系管理员完善平台/供应商目录。</p>
+      <label>服务（平台/供应商）<select v-model="form.service_product_id" required :disabled="loading || saving"><option value="" disabled>请选择服务</option><option v-for="item in availableProducts" :key="item.id" :value="item.id">{{ item.name }} · {{ item.platform_name }}</option></select></label>
+      <p v-if="!loading && !availableProducts.length">当前平台暂无已审核的可选服务，请联系管理员完善平台资料与套餐。</p>
       <label>套餐<select v-model="selectedPlan" required :disabled="!product || saving"><option value="" disabled>{{ product ? '请选择实际套餐' : '请先选择服务' }}</option><option v-for="name in plans" :key="name" :value="name">{{ name === 'Team' && product?.name === 'ChatGPT' ? 'Team（历史名称）' : name }}</option><option value="__custom__">其他套餐（补充实际名称）</option></select></label>
       <label v-if="selectedPlan === '__custom__'">实际套餐名称<input v-model="customPlan" required maxlength="200" :disabled="saving" placeholder="按订单或订阅页面填写" /></label>
       <p v-if="product && !plans.length">该服务的套餐目录尚待补充，可先登记实际套餐名称。</p>

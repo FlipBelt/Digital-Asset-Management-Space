@@ -9,10 +9,15 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.access import AccessContext, get_access_context, require_asset_visible
+from app.core.access import (
+    AccessContext,
+    asset_visibility_clause,
+    get_access_context,
+    require_asset_visible,
+)
 from app.core.auth import require_csrf
 from app.db.session import get_db
-from app.models import Asset, AuditLog, Person, Platform, WorkflowRequest
+from app.models import Asset, AuditLog, Person, Platform, PlatformTenant, WorkflowRequest
 from app.schemas.inventory import WorkflowRequestRead
 
 router = APIRouter(tags=["employee-requests"])
@@ -22,7 +27,7 @@ class EmployeeRequestInput(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     request_id: UUID
     request_type: Literal["seat", "platform", "account"]
-    resource_name: str = Field(min_length=1, max_length=160)
+    resource_name: str | None = Field(default=None, min_length=1, max_length=160)
     purpose: str = Field(min_length=1, max_length=2000)
     asset_id: UUID | None = None
     platform_id: UUID | None = None
@@ -84,11 +89,36 @@ def create_my_request(
     access: AccessContext = Depends(get_access_context),
 ):
     person = employee(db, access)
+    name = None
+    platform_id = payload.platform_id
+    if payload.asset_id:
+        asset = db.get(Asset, payload.asset_id)
+        if asset is None or asset.archived_at is not None:
+            raise HTTPException(404, "账号不存在或无权查看")
+        require_asset_visible(db, access, asset)
+        tenant = db.scalar(
+            select(PlatformTenant).where(
+                PlatformTenant.asset_id == asset.id, PlatformTenant.archived_at.is_(None)
+            )
+        )
+        if tenant is None or asset.ownership_scope not in {"company", "department"}:
+            raise HTTPException(422, "请选择已有公共或企业平台账号")
+        if platform_id and platform_id != tenant.platform_id:
+            raise HTTPException(422, "所选账号不属于该平台")
+        platform_id = tenant.platform_id
+        name = asset.name
+    if platform_id:
+        platform = db.get(Platform, platform_id)
+        if platform is None or platform.archived_at is not None:
+            raise HTTPException(422, "平台不可用，请重新选择")
+        name = name or platform.name
+    if name is None:
+        raise HTTPException(422, "请引用已有公共平台或企业账号，无需填写名称")
     identity = uuid5(NAMESPACE_URL, f"employee-request:{access.user.id}:{payload.request_id}")
     detail = {
-        "resource_name": payload.resource_name,
+        "resource_name": name,
         "purpose": payload.purpose,
-        "platform_id": str(payload.platform_id) if payload.platform_id else None,
+        "platform_id": str(platform_id),
     }
     existing = db.get(WorkflowRequest, identity)
     if existing:
@@ -100,21 +130,12 @@ def create_my_request(
         ):
             raise HTTPException(409, "该请求编号已用于其他申请内容")
         return existing
-    if payload.asset_id:
-        asset = db.get(Asset, payload.asset_id)
-        if asset is None or asset.archived_at is not None:
-            raise HTTPException(404, "资产不存在或无权查看")
-        require_asset_visible(db, access, asset)
-    if payload.platform_id:
-        platform = db.get(Platform, payload.platform_id)
-        if platform is None or platform.archived_at is not None:
-            raise HTTPException(422, "平台不可用，请重新选择")
     labels = {"seat": "席位申请", "platform": "平台申请", "account": "账号申请"}
     item = WorkflowRequest(
         id=identity,
         request_no=f"REQ-{identity.hex[:16].upper()}",
         request_type=payload.request_type,
-        title=f"{labels[payload.request_type]} · {payload.resource_name}",
+        title=f"{labels[payload.request_type]} · {name}",
         requester_person_id=person.id,
         asset_id=payload.asset_id,
         status="pending",
@@ -138,6 +159,39 @@ def create_my_request(
         raise HTTPException(409, "申请内容发生冲突，请重新提交") from None
     db.refresh(item)
     return item
+
+
+@router.get("/space/request-targets")
+def request_targets(
+    db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)
+):
+    employee(db, access)
+    platforms = db.scalars(
+        select(Platform).where(Platform.archived_at.is_(None)).order_by(Platform.name)
+    ).all()
+    accounts = db.execute(
+        select(Asset, PlatformTenant)
+        .join(PlatformTenant, PlatformTenant.asset_id == Asset.id)
+        .where(
+            Asset.archived_at.is_(None),
+            Asset.status != "deleted",
+            Asset.ownership_scope.in_(("company", "department")),
+            PlatformTenant.archived_at.is_(None),
+            asset_visibility_clause(access),
+        )
+    )
+    return {
+        "platforms": [{"id": str(row.id), "name": row.name} for row in platforms],
+        "accounts": [
+            {
+                "asset_id": str(asset.id),
+                "platform_id": str(tenant.platform_id),
+                "name": asset.name,
+                "asset_code": asset.asset_code,
+            }
+            for asset, tenant in accounts
+        ],
+    }
 
 
 @router.post(

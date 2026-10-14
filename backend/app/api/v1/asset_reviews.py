@@ -15,6 +15,7 @@ from app.core.auth import require_csrf
 from app.db.session import get_db
 from app.models import Asset, AuditLog
 from app.schemas.assets import AssetRead
+from app.services.account_structure import child_account_clause
 from app.services.asset_confirmation import lock_asset
 
 router = APIRouter(prefix="/asset-reviews", tags=["asset-reviews"])
@@ -42,6 +43,7 @@ def queue(
         Asset.status == "active",
         Asset.review_status == status,
         ai_outcome_clause(),
+        ~child_account_clause(),
     )
     if asset_id is not None:
         query = query.where(Asset.id == asset_id)
@@ -55,8 +57,10 @@ def queue(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
+    from app.services.asset_presentation import asset_list_reads
+
     return {
-        "data": [AssetRead.model_validate(a) for a in items],
+        "data": asset_list_reads(db, items),
         "pagination": {"page": page, "page_size": page_size, "total": total},
     }
 
@@ -79,7 +83,7 @@ def review(
     item = lock_asset(db, asset_id)
     if item is None or item.archived_at is not None or not can_govern_asset(access, item):
         raise HTTPException(404, "待审成果不存在或超出审核范围")
-    if not db.scalar(select(Asset.id).where(Asset.id == asset_id, ai_outcome_clause())):
+    if not db.scalar(select(Asset.id).where(Asset.id == asset_id, ai_outcome_clause(), ~child_account_clause())):
         raise HTTPException(404, "该资产不属于AI成果审核范围")
     if (
         item.version != payload.version

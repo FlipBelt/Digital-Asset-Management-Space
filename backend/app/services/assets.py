@@ -14,6 +14,9 @@ from app.models import (
     AssetResponsibility,
     AssetType,
     AuditLog,
+    PlatformAccountRegistrationIdentity,
+    PlatformTenant,
+    RegistrationIdentityProfile,
 )
 from app.repositories.assets import asset_repository
 from app.schemas.assets import (
@@ -59,8 +62,18 @@ class AssetService:
             raise HTTPException(404, "资产不存在")
         if asset.archived_at is not None:
             raise HTTPException(409, "资产已归档或删除，请刷新后重试")
+        if asset.is_child_account:
+            raise HTTPException(409, "子账号在所属公司账号内维护，状态与责任资料沿用父账号")
         if asset.version != payload.version:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="记录已被其他用户修改")
+        identity = db.scalar(select(RegistrationIdentityProfile).where(
+            RegistrationIdentityProfile.asset_id == asset_id,
+            RegistrationIdentityProfile.archived_at.is_(None),
+        ))
+        if identity and "name" in payload.model_fields_set:
+            if payload.name != identity.identifier_value:
+                raise HTTPException(422, "标识即为名称，请在注册与登录标识的‘修改资料’中更正标识内容")
+            payload.name = identity.identifier_value[:200]
         before = self._snapshot(asset)
         changes = {
             field: value
@@ -123,6 +136,27 @@ class AssetService:
             return asset
         if asset.version != version:
             raise HTTPException(409, "记录已被其他用户修改，请刷新资产列表后重试")
+        if db.scalar(select(RegistrationIdentityProfile.id).where(
+            RegistrationIdentityProfile.asset_id == asset.id,
+            RegistrationIdentityProfile.archived_at.is_(None),
+        )):
+            from app.core.access import active_period
+
+            referenced = db.scalar(select(PlatformAccountRegistrationIdentity.id)
+                .join(PlatformTenant, PlatformTenant.id == PlatformAccountRegistrationIdentity.platform_tenant_id)
+                .join(Asset, Asset.id == PlatformTenant.asset_id)
+                .where(PlatformAccountRegistrationIdentity.registration_identity_asset_id == asset.id,
+                       PlatformAccountRegistrationIdentity.status == "active",
+                       active_period(PlatformAccountRegistrationIdentity),
+                       PlatformTenant.archived_at.is_(None), Asset.archived_at.is_(None)))
+            related = db.scalar(select(AssetRelation.id).where(
+                ((AssetRelation.source_asset_id == asset.id) | (AssetRelation.target_asset_id == asset.id)),
+                AssetRelation.archived_at.is_(None),
+                AssetRelation.source_asset_id.in_(select(Asset.id).where(Asset.archived_at.is_(None))),
+                AssetRelation.target_asset_id.in_(select(Asset.id).where(Asset.archived_at.is_(None))),
+            ))
+            if referenced or related:
+                raise HTTPException(409, "此标识仍被账号或资产引用，请先在查看引用中解除关联，再移入回收站")
         before = self._snapshot(asset)
         asset.archived_at = datetime.now(UTC)
         asset.status = "deleted"
@@ -150,15 +184,18 @@ class AssetService:
             raise HTTPException(409, "资产未归档或删除，无需恢复")
         before = self._snapshot(asset)
         asset.archived_at = None
+        registration_identity = db.scalar(select(RegistrationIdentityProfile.id).where(
+            RegistrationIdentityProfile.asset_id == asset.id)) is not None
         asset.status = (
             "draft" if asset.sharing_scope is not None and not asset.is_personal_subscription
+            and not registration_identity
             else "active"
         )
         if asset.sharing_scope is not None:
             asset.confirmed_at = None
             asset.confirmed_by_person_id = None
             asset.review_status = (
-                "not_required" if asset.is_personal_subscription else "pending_review"
+                "not_required" if asset.is_personal_subscription or registration_identity else "pending_review"
             )
         asset.version += 1
         db.flush()

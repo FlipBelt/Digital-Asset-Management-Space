@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.access import AccessContext, get_access_context, require_asset_write
+from app.core.access import (
+    AccessContext,
+    get_access_context,
+    require_asset_visible,
+    require_asset_write,
+)
 from app.db.session import get_db
 from app.models import Asset, AuditLog, ConnectorDefinition, ProviderConnection, ServiceInstance
 from app.schemas.usage import (
@@ -16,6 +21,7 @@ from app.schemas.usage import (
     UsageConnectionUpdate,
     UsageEventCreate,
 )
+from app.services.personal_subscription_policy import personal_subscription_connection_clause
 from app.services.usage_connectors import (
     PLATFORM_CATALOG,
     ensure_usage_catalog,
@@ -29,15 +35,24 @@ from app.services.usage_connectors import (
 router = APIRouter(prefix="/usage-connections", tags=["usage-connections"])
 
 
-def _connection(db: Session, connection_id: UUID) -> tuple[ProviderConnection, str]:
+def _connection(
+    db: Session, connection_id: UUID, access: AccessContext
+) -> tuple[ProviderConnection, str]:
     item = db.get(ProviderConnection, connection_id)
     if item is None or item.archived_at is not None:
+        raise HTTPException(status_code=404, detail="用量连接不存在")
+    if not access.is_global_manager and not db.scalar(
+        select(ProviderConnection.id).where(
+            ProviderConnection.id == connection_id,
+            personal_subscription_connection_clause(access.person_id),
+        )
+    ):
         raise HTTPException(status_code=404, detail="用量连接不存在")
     return item, platform_code_for(item, db)
 
 
 def _validate_instance(
-    db: Session, service_instance_id: UUID | None, legal_entity_id: UUID
+    db: Session, service_instance_id: UUID | None, legal_entity_id: UUID, access: AccessContext
 ) -> None:
     if service_instance_id is None:
         return
@@ -45,7 +60,10 @@ def _validate_instance(
     if instance is None or instance.archived_at is not None:
         raise HTTPException(status_code=422, detail="服务实例不存在")
     asset = db.get(Asset, instance.asset_id)
-    if asset is not None and asset.legal_entity_id not in (None, legal_entity_id):
+    if asset is None or asset.archived_at is not None:
+        raise HTTPException(status_code=422, detail="服务实例不存在")
+    require_asset_visible(db, access, asset)
+    if asset.legal_entity_id not in (None, legal_entity_id):
         raise HTTPException(status_code=422, detail="服务实例不属于所选公司主体")
 
 
@@ -79,7 +97,7 @@ def usage_catalog(
 
 @router.get("", response_model=list[UsageConnectionRead])
 def list_usage_connections(
-    db: Session = Depends(get_db), _: AccessContext = Depends(get_access_context)
+    db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)
 ) -> list[dict]:
     ensure_usage_catalog(db)
     rows = list(
@@ -89,6 +107,9 @@ def list_usage_connections(
             .where(
                 ProviderConnection.archived_at.is_(None),
                 ConnectorDefinition.code.in_(PLATFORM_CATALOG),
+                True
+                if access.is_global_manager
+                else personal_subscription_connection_clause(access.person_id),
             )
             .order_by(ProviderConnection.created_at.desc())
         )
@@ -100,9 +121,9 @@ def list_usage_connections(
 def get_usage_connection(
     connection_id: UUID,
     db: Session = Depends(get_db),
-    _: AccessContext = Depends(get_access_context),
+    access: AccessContext = Depends(get_access_context),
 ) -> dict:
-    item, platform_code = _connection(db, connection_id)
+    item, platform_code = _connection(db, connection_id, access)
     return serialize_connection(item, platform_code)
 
 
@@ -113,7 +134,7 @@ def create_usage_connection(
     access: AccessContext = Depends(require_asset_write),
 ) -> dict:
     ensure_usage_catalog(db)
-    _validate_instance(db, payload.service_instance_id, payload.legal_entity_id)
+    _validate_instance(db, payload.service_instance_id, payload.legal_entity_id, access)
     if payload.platform_code == "deepseek" and payload.key_type is not None:
         raise HTTPException(status_code=422, detail="DeepSeek 不需要选择 MiniMax Key 类型")
     if payload.platform_code == "minimax" and payload.key_type not in (None, "token_plan"):
@@ -175,8 +196,8 @@ def update_usage_connection(
     db: Session = Depends(get_db),
     access: AccessContext = Depends(require_asset_write),
 ) -> dict:
-    item, platform_code = _connection(db, connection_id)
-    _validate_instance(db, payload.service_instance_id, item.legal_entity_id)
+    item, platform_code = _connection(db, connection_id, access)
+    _validate_instance(db, payload.service_instance_id, item.legal_entity_id, access)
     changes = payload.model_dump(exclude_unset=True)
     configuration = dict(item.configuration or {})
     for field in (
@@ -216,9 +237,9 @@ def update_usage_connection(
 def test_usage_connection(
     connection_id: UUID,
     db: Session = Depends(get_db),
-    _: AccessContext = Depends(require_asset_write),
+    access: AccessContext = Depends(require_asset_write),
 ) -> dict:
-    item, platform_code = _connection(db, connection_id)
+    item, platform_code = _connection(db, connection_id, access)
     return test_connection(item, platform_code)
 
 
@@ -226,9 +247,9 @@ def test_usage_connection(
 def sync_usage_connection(
     connection_id: UUID,
     db: Session = Depends(get_db),
-    _: AccessContext = Depends(require_asset_write),
+    access: AccessContext = Depends(require_asset_write),
 ) -> dict:
-    item, platform_code = _connection(db, connection_id)
+    item, platform_code = _connection(db, connection_id, access)
     if item.status != "enabled":
         return {"status": "disabled", "message": "该连接已停用", "metrics_written": 0}
     return sync_connection(db, item, platform_code)
@@ -239,9 +260,9 @@ def create_usage_event(
     connection_id: UUID,
     payload: UsageEventCreate,
     db: Session = Depends(get_db),
-    _: AccessContext = Depends(require_asset_write),
+    access: AccessContext = Depends(require_asset_write),
 ) -> dict:
-    item, _ = _connection(db, connection_id)
+    item, _ = _connection(db, connection_id, access)
     written = record_usage_event(
         db,
         item,

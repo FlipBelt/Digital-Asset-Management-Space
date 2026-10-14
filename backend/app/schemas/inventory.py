@@ -268,6 +268,13 @@ class InternalSystemProfileRead(ORMModel):
     deployment_guide_url: str | None
     recovery_guide_url: str | None
     backup_description: str | None
+    repository_visibility: Literal["public", "private", "unknown"] = "unknown"
+
+
+class RepositoryVisibilityInput(BaseModel):
+    version: int = Field(ge=1)
+    request_id: UUID
+    visibility: Literal["public", "private", "unknown"]
 
 
 class ConnectorDefinitionRead(ORMModel):

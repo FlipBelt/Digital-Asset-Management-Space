@@ -3,9 +3,11 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { Building2, ChevronDown, ChevronRight, Crown, FolderTree, Plus, RefreshCw, Save, Search, TriangleAlert, UserRound, Users } from "lucide-vue-next";
 import PageHeader from "../components/PageHeader.vue";
 import StatusBadge from "../components/StatusBadge.vue";
+import EmployeeLifecyclePanel from "../components/EmployeeLifecyclePanel.vue";
+import PermissionManagementPanel from "../components/PermissionManagementPanel.vue";
 import {
   api, type Department, type DepartmentMembership, type DingTalkOrganization, type DingTalkProfile,
-  type LegalEntity, type LegalEntityIdentifier, type LegalEntityProfile, type Person,
+  type LegalEntity, type LegalEntityIdentifier, type LegalEntityProfile, type OrganizationCompanyMapping, type Person,
 } from "../lib/api";
 import { currentDirectoryScope, organizationScope } from "../lib/organizationScope";
 import { companyVerificationLabel, organizationStructure } from "../lib/organizationStructure";
@@ -13,12 +15,15 @@ import { companyVerificationLabel, organizationStructure } from "../lib/organiza
 type TreeRow = Department & { depth: number; hasChildren: boolean };
 const loading = ref(true);
 const globalManager = ref(false);
+const systemAdmin = ref(false);
+const mappingCompanies = ref(false);
+const mappingConflicts = ref<OrganizationCompanyMapping[]>([]);
 const syncingDingtalk = ref(false);
 const refreshingCompanies = ref(false);
 const error = ref("");
 const success = ref("");
 const search = ref("");
-const organizationView = ref<"companies" | "departments">("companies");
+const organizationView = ref<"companies" | "departments" | "employees" | "permissions">("companies");
 const selectedCompanyId = ref("");
 const selectedDepartmentId = ref("");
 const expandedDepartmentIds = ref<string[]>([]);
@@ -43,7 +48,7 @@ let companyProfileRequest = 0;
 
 const organizationEntity = computed(() => organizationBinding.value?.status === "bound"
   ? entities.value.find((item) => item.id === organizationBinding.value?.legal_entity_id) : undefined);
-const allScoped = computed(() => organizationScope(organizationEntity.value?.id, departments.value, people.value, memberships.value));
+const allScoped = computed(() => organizationScope(organizationEntity.value?.id, departments.value, people.value.filter(person => person.employment_status !== "departed"), memberships.value));
 const scoped = computed(() => currentDirectoryScope(allScoped.value, [...dingtalkProfiles.value.map(item => item.person_id), ...(organizationBinding.value?.directory_snapshot?.current_person_ids ?? []), ...(organizationBinding.value?.directory_snapshot?.historical_person_ids ?? [])], organizationBinding.value?.directory_snapshot?.current_person_ids));
 const historicalPeople = computed(() => allScoped.value.people.filter(item => !scoped.value.people.some(current => current.id === item.id)));
 const structure = computed(() => organizationStructure(organizationEntity.value, entities.value, scoped.value,
@@ -121,10 +126,13 @@ async function load() {
   try {
     const session = await api.currentSession();
     globalManager.value = session.roles.some(role => ["system_admin", "asset_manager"].includes(role));
+    systemAdmin.value = session.roles.includes("system_admin");
     if (!globalManager.value) organizationView.value = "departments";
     [entities.value, departments.value, people.value, memberships.value, dingtalkProfiles.value, organizationBinding.value] = await Promise.all([
       api.legalEntities(), api.departments(), api.people(), api.departmentMemberships(), globalManager.value ? api.dingtalkProfiles() : Promise.resolve([]), api.dingtalkOrganization(),
     ]);
+    mappingConflicts.value = globalManager.value
+      ? (await api.organizationCompanyMappings()).companies.filter(item => item.conflict_reason) : [];
     if (!structure.value.companies.some((item) => item.id === selectedCompanyId.value) && !pendingCompanySelected.value) {
       selectedCompanyId.value = structure.value.companies[0]?.id ?? "";
     }
@@ -138,6 +146,16 @@ async function load() {
     expandedDepartmentIds.value = [...new Set([...expandedDepartmentIds.value, ...rootDepartments.value.map((item) => item.id)])];
   } catch (reason) { error.value = reason instanceof Error ? reason.message : "组织数据加载失败"; }
   finally { loading.value = false; }
+}
+async function mapCompanies() {
+  mappingCompanies.value = true; error.value = ""; success.value = "";
+  try {
+    const snapshot = await api.organizationCompanyMappings();
+    const result = await api.mapOrganizationCompanies({ fingerprint: snapshot.fingerprint, request_id: crypto.randomUUID() });
+    await load();
+    success.value = `新增 ${result.mapped_count} 个公司来源映射${result.conflicts.length ? `，${result.conflicts.length} 个公司待核实` : ''}。通讯录成员和部门挂靠保留，工商资料可在主体档案中补充。`;
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : "集团公司映射失败"; }
+  finally { mappingCompanies.value = false; }
 }
 async function loadCompanyProfile() {
   const request = ++companyProfileRequest;
@@ -265,7 +283,17 @@ watch(showLegalProfile, async (visible) => {
     <div class="organization-view-tabs" role="group" aria-label="组织查看方式">
       <button v-if="globalManager" :class="{ active: organizationView === 'companies' }" :aria-pressed="organizationView === 'companies'" @click="organizationView = 'companies'"><Building2 :size="17" />公司<span>{{ structure.companies.length }}</span></button>
       <button :class="{ active: organizationView === 'departments' }" :aria-pressed="organizationView === 'departments'" @click="organizationView = 'departments'"><FolderTree :size="17" />部门<span>{{ structure.departments.length }}</span></button>
+      <button v-if="globalManager" :class="{ active: organizationView === 'employees' }" :aria-pressed="organizationView === 'employees'" @click="organizationView = 'employees'"><UserRound :size="17" />离职员工</button>
+      <button v-if="systemAdmin" :class="{ active: organizationView === 'permissions' }" :aria-pressed="organizationView === 'permissions'" @click="organizationView = 'permissions'">权限管理</button>
     </div>
+    <EmployeeLifecyclePanel v-if="organizationView === 'employees' && globalManager" @changed="load" />
+    <PermissionManagementPanel v-if="organizationView === 'permissions' && systemAdmin" :client="api" />
+    <div v-if="organizationView === 'companies' && globalManager" class="organization-review-note"><span>集团公司来源与业务归属共用映射；工商核验在主体档案中维护。</span><button class="secondary-button" :disabled="mappingCompanies || loading" @click="mapCompanies">{{ mappingCompanies ? '映射中…' : '映射集团公司' }}</button></div>
+    <section v-if="organizationView === 'companies' && globalManager && mappingConflicts.length" class="message-panel" role="status" aria-label="待核实的公司映射">
+      <strong>{{ mappingConflicts.length }} 个公司映射待核实</strong>
+      <p v-for="company in mappingConflicts" :key="company.id">{{ company.name }}：{{ company.conflict_reason }}</p>
+      <p>其他公司可正常映射。历史档案会保留，确认后再处理该公司的归属。</p>
+    </section>
     <section v-if="organizationView === 'companies'" class="content-panel organization-workspace">
       <aside class="organization-tree">
         <div class="tree-heading"><div><strong>公司</strong><span>成员按钉钉公司主体字段分组</span></div></div>
@@ -313,7 +341,7 @@ watch(showLegalProfile, async (visible) => {
       </main>
     </section>
 
-    <section v-else class="content-panel organization-workspace">
+    <section v-else-if="organizationView === 'departments'" class="content-panel organization-workspace">
       <aside class="organization-tree">
         <div class="tree-heading"><div><strong>部门</strong><span>{{ structure.departments.length }} 个部门及小组 · 数字为直接成员</span></div></div>
         <div class="tree-root"><FolderTree :size="16" /><span>部门协作架构</span></div>

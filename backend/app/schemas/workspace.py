@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -45,6 +46,9 @@ class RegistrationIdentityCreate(BaseModel):
     custodian_person_id: UUID | None = None
     verification_status: str = "pending"
     note: str | None = None
+    owner_department_id: UUID | None = None
+    registration_blocked: bool = False
+    request_id: UUID | None = None
 
 
 class RegistrationIdentityRead(BaseModel):
@@ -52,12 +56,40 @@ class RegistrationIdentityRead(BaseModel):
     asset_id: UUID
     asset_code: str
     legal_entity_id: UUID | None
-    name: str
+    name: str = Field(description="标识内容的兼容展示值，与 identifier 相同；不单独维护")
     identity_type: str
     identifier: str
     source_nature: str
     custodian_person_id: UUID | None
     verification_status: str
+    version: int = 1
+    owner_department_id: UUID | None = None
+    note: str | None = None
+    registration_blocked: bool = False
+
+
+class ContactReconcileRow(RegistrationIdentityCreate):
+    expected_version: int | None = Field(default=None, ge=1)
+    verification_status: Literal["pending", "documented"] = "documented"
+
+
+class ContactReconcileRequest(BaseModel):
+    request_id: UUID
+    source_note: str = Field(default="", max_length=2000)
+    rows: list[ContactReconcileRow] = Field(min_length=1, max_length=100)
+
+
+class RegistrationIdentityNameWrite(BaseModel):
+    request_id: UUID
+    version: int = Field(ge=1)
+    name: str = Field(min_length=1, max_length=200)
+
+
+class RegistrationIdentityWrite(ContactReconcileRow):
+    request_id: UUID
+    expected_version: int = Field(ge=1)
+    identity_type: Literal["phone", "email", "username", "wechat", "other"]
+    source_note: str = Field(default="", max_length=2000)
 
 
 class CompanyPlatformAccountCreate(BaseModel):
@@ -76,6 +108,7 @@ class CompanyPlatformAccountCreate(BaseModel):
     owner_department_id: UUID | None = None
     responsible_person_id: UUID | None = None
     user_person_ids: list[UUID] = Field(default_factory=list)
+    request_id: UUID | None = None
 
 
 class IntakeLinkRead(BaseModel):
@@ -131,6 +164,8 @@ class PlatformAccountChildCreate(BaseModel):
     mfa_status: str = "unknown"
     privilege_level: str = "normal"
     parent_account_id: UUID | None = None
+    primary_person_id: UUID | None = None
+    request_id: UUID | None = None
     note: str | None = Field(default=None, max_length=2000)
 
 

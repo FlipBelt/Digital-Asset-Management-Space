@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models import Permission, Role, RolePermission, User, UserSession
+from app.models import Permission, Person, Role, RolePermission, User, UserSession
 from app.services.organization_leadership import resolved_role_scopes
 
 _password_hasher = PasswordHasher()
@@ -35,6 +35,7 @@ def token_hash(token: str) -> str:
 
 
 def create_session(db: Session, user: User, device_summary: str | None) -> tuple[str, UserSession]:
+    require_current_employee(db, user)
     settings = get_settings()
     token = token_urlsafe(48)
     session = UserSession(
@@ -81,6 +82,12 @@ def session_token_from_request(request: Request) -> tuple[str | None, str | None
     return cookie_token, "cookie" if cookie_token else None
 
 
+def require_current_employee(db: Session, user: User) -> None:
+    person = db.get(Person, user.person_id) if user.person_id else None
+    if person and person.employment_status == "departed":
+        raise HTTPException(status_code=403, detail="员工已离职，本系统登录已停用")
+
+
 def get_current_session(
     request: Request, db: Session = Depends(get_db)
 ) -> tuple[User, UserSession]:
@@ -101,6 +108,7 @@ def get_current_session(
     user = db.get(User, session.user_id)
     if user is None or not user.is_active or user.archived_at is not None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="user is inactive")
+    require_current_employee(db, user)
     # The explicit session header is not automatically attached by a browser to
     # cross-site form submissions.  Cookie compatibility remains protected by
     # CSRF validation for every state-changing API request.

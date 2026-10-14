@@ -17,6 +17,7 @@ from app.core.access import (
 )
 from app.db.session import get_db
 from app.models import Asset, AssetType, Department, LegalEntity
+from app.services.account_structure import asset_library_exclusion_clause
 
 router = APIRouter(tags=["data-transfer"])
 
@@ -154,9 +155,9 @@ def commit_import(
 
 
 @router.get("/exports/assets.xlsx")
-def export_assets(db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)) -> StreamingResponse:
+def export_assets(library_only: bool = False, db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)) -> StreamingResponse:
     assets = list(
-        db.scalars(select(Asset).where(Asset.archived_at.is_(None), asset_visibility_clause(access)).order_by(Asset.asset_code))
+        db.scalars(select(Asset).where(Asset.archived_at.is_(None), asset_visibility_clause(access), ~asset_library_exclusion_clause() if library_only else Asset.id.is_not(None)).order_by(Asset.asset_code))
     )
     types = {item.id: item.code for item in db.scalars(select(AssetType))}
     entities = {item.id: item.code for item in db.scalars(select(LegalEntity))}
@@ -165,6 +166,8 @@ def export_assets(db: Session = Depends(get_db), access: AccessContext = Depends
     sheet = workbook.active
     sheet.title = "资产底库"
     sheet.append(["资产编号", *HEADERS, "最后更新"])
+    from app.services.repository_visibility import hide_repository_urls, visibility_map
+    visibility = visibility_map(db, [asset.id for asset in assets])
     for asset in assets:
         sheet.append(
             [
@@ -175,7 +178,7 @@ def export_assets(db: Session = Depends(get_db), access: AccessContext = Depends
                 departments.get(asset.owner_department_id, ""),
                 asset.status,
                 asset.criticality,
-                asset.description or "",
+                (asset.description or "") if visibility[asset.id] == "public" else hide_repository_urls(asset.description or ""),
                 asset.updated_at.isoformat(),
             ]
         )

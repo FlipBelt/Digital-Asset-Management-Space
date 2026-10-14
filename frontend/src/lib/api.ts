@@ -1,3 +1,5 @@
+import type { PermissionCatalog, PermissionRequest, PermissionUser, PermissionUserSummary } from "../components/PermissionManagementPanel.vue";
+
 export interface HealthStatus { status: string; database: string }
 export interface ScenarioSummary {
   code: string; name: string; description: string;
@@ -54,12 +56,17 @@ export interface Asset {
   owner_department_id: string | null; ownership_scope: string; status: string; criticality: string; confidentiality: string;
   sharing_scope?: string | null; source_system?: string | null; source_agent?: string | null; source_reference?: string | null; development_method?: string | null;
   is_personal_subscription?: boolean;
+  is_child_account?: boolean; parent_asset_id?: string | null; management_href?: string | null;
+  verification_status?: string | null; card_links?: { label: string; url: string }[];
+  repository_visibility?: "public" | "private" | "unknown";
   source_type: string; started_at: string | null; expires_at: string | null; last_verified_at: string | null;
   description: string | null; version: number; outcome_version?: number; created_at: string; updated_at: string; archived_at: string | null;
   created_by_person_id?: string | null; confirmed_by_person_id?: string | null; confirmed_at?: string | null; review_status?: string;
 }
 export interface AssetListResponse { data: Asset[]; pagination: { page: number; page_size: number; total: number } }
 export interface HuduAssetItem {
+  responsible_person_id?: string | null; responsible_person_name?: string | null; responsibility_issue?: string | null;
+  pending_child_count?: number; management_href?: string;
   id: string; asset_code: string; name: string; status: string; review_status: string;
   criticality: string; confidentiality: string; ownership_scope: string;
   is_personal_subscription?: boolean;
@@ -83,7 +90,13 @@ export interface HuduAssetsResponse {
 export interface HuduResponsibility { id: string; role_type: string; is_primary: boolean; person_id: string | null; person_name: string | null; department_id: string | null; department_name: string | null; starts_at: string | null; ends_at: string | null }
 export interface HuduRelation { id: string; relation_type: string; note: string | null; direction: string; related_asset_id: string; related_name: string; related_asset_code: string; related_type_name: string; related_category_name: string }
 export interface HuduAssetDetail { asset: HuduAssetItem; responsibilities: HuduResponsibility[]; relations: HuduRelation[]; identifiers: { id: string; namespace: string; identifier_type: string; identifier_value: string; is_primary: boolean; verification_status: string }[]; profile: { kind: string; data: Record<string, string | null> } | null; account_context: { login_identifier: string; account_type: string; mfa_status: string; privilege_level: string; platform_name: string | null; tenant_identifier: string | null } | null; history: { id: string; action: string; created_at: string | null; after_data: Record<string, unknown> | null }[] }
-export interface HuduExpirationsResponse { items: HuduAssetItem[]; total: number; window_days: number }
+export interface HuduFollowupItem extends HuduAssetItem {
+  followup_kind?: "account" | "subscription" | "asset";
+  group_key?: string; group_label?: string; group_section?: "accounts" | "assets";
+  group_href?: string | null; platform_name?: string | null; parent_account_name?: string | null;
+  plan_name?: string | null; proposed_responsible_name?: string | null;
+}
+export interface HuduExpirationsResponse { items: HuduFollowupItem[]; total: number; window_days: number; due_before?: string }
 export interface Responsibility { id: string; asset_id: string; person_id: string | null; department_id: string | null; role_type: string; is_primary: boolean; starts_at: string | null; ends_at: string | null; archived_at: string | null }
 export interface AssetRelation { id: string; source_asset_id: string; target_asset_id: string; relation_type: string; source_type: string; note: string | null; archived_at: string | null }
 export type RelationshipSection = "structure" | "business" | "responsibility";
@@ -91,11 +104,21 @@ export type RelationshipDirection = "upstream" | "downstream" | "peer" | "respon
 export interface RelationshipNode { id: string; layer: number; label: string; object_type: string; kind: string; asset_id: string | null; status: string | null; href: string | null }
 export interface RelationshipEdge { id: string; source: string; target: string; label: string; section: RelationshipSection; direction: RelationshipDirection; source_model: string; editable: boolean; relation_id: string | null; note: string | null; edit_kind: string | null; edit_target_id: string | null }
 export interface AssetRelationshipView { current_node: RelationshipNode; nodes: RelationshipNode[]; edges: RelationshipEdge[] }
+export type RelationshipGroup = "ownership" | "deployment" | "usage" | "other";
+export interface RelationshipChoice { key: string; group: RelationshipGroup; relation_type: string; label: string; direction: "upstream" | "downstream" | "peer"; target_kind: "asset" | "platform" | "legal_entity" | "department"; targets: { id: string; label: string; object_type: string; detail: string }[]; description: string }
 export interface AssetPlatformLink { id: string; asset_id: string; platform_id: string; relation_type: string; source_type: string; source_import_record_id: string | null; review_status: string; confirmed_by_person_id: string | null; confirmed_at: string | null; note: string | null; archived_at: string | null }
 export interface Provider { id: string; code: string; name: string; website: string | null }
 export interface Platform { id: string; provider_id: string | null; code: string; name: string; category: string; website: string | null; review_status: string; description: string | null; submitted_by_person_id: string | null }
 export interface PlatformTenant { id: string; asset_id: string; platform_id: string; legal_entity_id: string; tenant_identifier: string | null; external_identifier_type: string | null; ownership_nature: string; account_scope: string; verification_status: string; evidence_note: string | null }
 export interface Account { id: string; asset_id: string; platform_tenant_id: string; login_identifier: string; account_type: string; registration_identity_type: string; registration_person_id: string | null; mfa_status: string; privilege_level: string; parent_account_id: string | null; account_kind: string; login_method: string; account_role: string; primary_person_id: string | null; legacy_source_id: string | null; legacy_metadata: Record<string, unknown> }
+export interface HierarchyAccount extends Account { version: number; person_name: string | null; employment_status: string | null }
+export interface HierarchyTenant extends Partial<PlatformTenant> { asset_id: string; name: string; asset_code: string; version?: number; company_name?: string | null; has_owner?: boolean; responsible_person_name?: string | null; children: HierarchyAccount[]; is_subscription?: boolean; plan_name?: string | null; person_name?: string | null }
+export interface PendingIdentity { asset_id: string; name: string; asset_code: string; verification_status: string }
+export interface ServiceReference { asset_id: string; name: string; asset_code: string }
+export interface PlatformHierarchy { id: string; name: string; category: string; website: string | null; review_status: string; company_accounts: HierarchyTenant[]; personal_accounts: HierarchyTenant[]; pending_identities: PendingIdentity[]; registration_identities: PendingIdentity[]; service_references: ServiceReference[] }
+export interface AccountHierarchy { platforms: PlatformHierarchy[]; unlinked_identities: PendingIdentity[]; service_references: ServiceReference[] }
+export interface HandoverReference { asset_id: string; name: string; href: string; account_id?: string; login_identifier?: string; grant_id?: string; grant_role?: string }
+export interface EmployeeLifecycle extends Person { updated_at: string; last_event: { evidence_note: string; departed_on: string | null; recorded_at: string } | null; handover: { accounts: HandoverReference[]; responsibilities: HandoverReference[]; grants: HandoverReference[]; local_login_enabled: boolean } }
 export interface CredentialReference { id: string; account_id: string | null; asset_id: string | null; provider: string; item_id: string; secure_url: string | null; last_rotated_at: string | null; last_verified_at: string | null }
 export interface ServiceProduct { id: string; provider_id: string; platform_id: string | null; code: string; name: string; service_category: string; billing_mode: string; plan_options: string[] }
 export interface PlatformDirectoryEntry { id: string; kind: "platform" | "provider"; provider_id: string | null; provider_name: string | null; name: string; category: string; website: string | null; description: string | null; review_status: string; revision: string; review_note: string | null; source_url: string | null; services: ServiceProduct[] }
@@ -148,11 +171,11 @@ export interface DingTalkProfile {
 }
 export interface DingTalkIdentity { person_id: string; display_name: string; department_id: string | null; job_title: string | null; is_department_manager: boolean; is_group_leader?: boolean }
 export interface DingTalkSession { user: CurrentUser; identity: DingTalkIdentity; expires_at: string }
-export interface AssetAssignment { owner_department_id: string | null; ownership_scope: string; responsible_person_id: string | null; user_person_ids: string[] }
+export interface AssetAssignment { owner_department_id: string | null; ownership_scope: string; responsible_person_id: string | null; user_person_ids: string[]; confirmed_responsible_person_id?: string | null; responsible_status?: "confirmed" | "proposed" | "inactive" | "missing"; responsibility_issue?: string | null }
 export interface AssetIdentifier { id: string; asset_id: string; namespace: string; identifier_type: string; identifier_value: string; is_primary: boolean; verification_status: string; confidentiality: string; source_import_record_id: string | null; archived_at: string | null }
 export interface RelationDefinition { id: string; relation_type: string; source_type_code: string; target_type_code: string; forward_label: string; inverse_label: string; category: string; source_max_count: number | null; target_max_count: number | null; is_system: boolean }
 export interface RelationOption { relation_type: string; label: string; target_type_codes: string[]; direction: "upstream" | "downstream" | "peer" }
-export interface RegistrationIdentity { id: string; asset_id: string; asset_code: string; legal_entity_id: string | null; name: string; identity_type: string; identifier: string; source_nature: string; custodian_person_id: string | null; verification_status: string }
+export interface RegistrationIdentity { id: string; asset_id: string; asset_code: string; legal_entity_id: string | null; name: string; identity_type: string; identifier: string; source_nature: string; custodian_person_id: string | null; verification_status: string; version: number; owner_department_id: string | null; note: string | null; registration_blocked: boolean }
 export interface LayerRecord { id: string; layer: number; name: string; object_type: string; legal_entity_name: string | null; platform_name: string | null; category: string | null; ownership_nature: string | null; account_count: number; status: string; asset_id: string | null; updated_at: string }
 export interface IntakeLink { kind: string; label: string; relation: string; asset_id: string | null }
 export interface IntakeNextAction { key: string; label: string; description: string; target: string; required: boolean }
@@ -201,7 +224,7 @@ export function resetPmSessionCache() {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) { super(message) }
+  constructor(public status: number, message: string, public detail: unknown = null) { super(message) }
 }
 
 export async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 12000): Promise<T> {
@@ -228,8 +251,9 @@ export async function request<T>(path: string, init: RequestInit = {}, timeoutMs
   }
   if (!response.ok) {
     let message = `请求失败：${response.status}`;
-    try { const body = await response.json(); message = Array.isArray(body.detail) ? body.detail.map((item: { msg?: string }) => item.msg || "输入有误").join("；") : body.detail ?? body.message ?? message } catch { /* keep generic */ }
-    throw new ApiError(response.status, message);
+    let detail: unknown = null;
+    try { const body = await response.json(); detail = body.detail; message = Array.isArray(body.detail) ? body.detail.map((item: { msg?: string }) => item.msg || "输入有误").join("；") : typeof body.detail === "string" ? body.detail : body.detail?.message ?? body.message ?? message } catch { /* keep generic */ }
+    throw new ApiError(response.status, message, detail);
   }
   if (response.status === 204) return undefined as T;
   if (response.headers.get("content-type")?.startsWith("application/zip") || response.headers.get("content-type")?.startsWith("image/")) return await response.blob() as T;
@@ -244,6 +268,9 @@ export function apiPath(path: string): string {
 }
 
 const json = (method: string, body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) });
+
+export interface OrganizationCompanyMapping { id: string; name: string; source: string; mapped: boolean; conflict_reason: string | null }
+export interface OrganizationCompanyMappings { fingerprint: string; companies: OrganizationCompanyMapping[] }
 
 export const api = {
   spaceSummary: () => request<SpaceSummary>("/api/v1/space/summary"),
@@ -296,6 +323,8 @@ export const api = {
   spaceGroups: (params: Record<string, string>) => request<SpaceGroups>(`/api/v1/space/groups?${new URLSearchParams(params)}`),
   myRequests: () => request<WorkflowRequest[]>("/api/v1/space/requests"),
   createMyRequest: (body: Record<string, unknown>) => request<WorkflowRequest>("/api/v1/space/requests", json("POST", body)),
+  requestTargets: () => request<{ platforms: { id: string; name: string }[]; accounts: { asset_id: string; platform_id: string; name: string; asset_code: string }[] }>("/api/v1/space/request-targets"),
+  saveRepositoryVisibility: (id: string, body: Record<string, unknown>) => request<{ version: number; repository_visibility: "public" | "private" | "unknown" }>(`/api/v1/assets/${id}/repository-visibility`, json("PUT", body)),
   cancelMyRequest: (id: string, version: number) => request<WorkflowRequest>(`/api/v1/space/requests/${id}/cancel`, json("POST", { version })),
   spaceAssets: (params: Record<string, string>) => request<{data: Asset[]; pagination: {page: number; page_size: number; total: number}}>(`/api/v1/space/assets?${new URLSearchParams(params)}`),
   aiRegistrationTypes: () => request<AIRegistrationType[]>("/api/v1/space/registration-types"),
@@ -340,6 +369,10 @@ export const api = {
   },
   huduAsset: (id: string) => request<HuduAssetDetail>(`/api/v1/hudu/assets/${id}`),
   huduExpirations: () => request<HuduExpirationsResponse>("/api/v1/hudu/expirations"),
+  accountHierarchy: () => request<AccountHierarchy>("/api/v1/account-hierarchy"),
+  employeeLifecycle: () => request<{ items: EmployeeLifecycle[] }>("/api/v1/employee-lifecycle"),
+  changeEmployeeLifecycle: (id: string, body: Record<string, unknown>) => request<Person>(`/api/v1/people/${id}/lifecycle`, json("POST", body)),
+  bindAccountEmployee: (assetId: string, accountId: string, body: Record<string, unknown>) => request<Account>(`/api/v1/workspace/platform-accounts/${assetId}/child-accounts/${accountId}/employee`, json("PATCH", body)),
   asset: (id: string) => request<Asset>(`/api/v1/assets/${id}`),
   assetIdentifiers: (id: string) => request<AssetIdentifier[]>(`/api/v1/assets/${id}/identifiers`),
   createAssetIdentifier: (id: string, body: Record<string, unknown>) => request<AssetIdentifier>(`/api/v1/assets/${id}/identifiers`, json("POST", body)),
@@ -356,6 +389,10 @@ export const api = {
   relations: (id: string) => request<AssetRelation[]>(`/api/v1/assets/${id}/relations`),
   relationNeighborhood: (id: string) => request<AssetRelation[]>(`/api/v1/assets/${id}/relation-neighborhood`),
   relationshipView: (id: string) => request<AssetRelationshipView>(`/api/v1/assets/${id}/relationship-view`),
+  relationshipChoices: (id: string) => request<RelationshipChoice[]>(`/api/v1/assets/${id}/relationship-choices`),
+  archivePlatformLink: (assetId: string, id: string) => request(`/api/v1/assets/${assetId}/platform-links/${id}/archive`, json("POST")),
+  createRelationshipConnection: (id: string, body: Record<string, unknown>) => request<AssetRelationshipView>(`/api/v1/assets/${id}/relationship-connections`, json("POST", body)),
+  savePlatformIdentifier: (id: string, body: Record<string, unknown>) => request<Asset>(`/api/v1/assets/${id}/platform-identifier`, json("PUT", body)),
   updateRelationshipLink: (id: string, kind: string, target_id: string) => request<AssetRelationshipView>(`/api/v1/assets/${id}/relationship-links/${kind}`, json("PUT", { target_id })),
   addRelation: (id: string, body: Record<string, unknown>) => request<AssetRelation>(`/api/v1/assets/${id}/relations`, json("POST", body)),
   archiveRelation: (assetId: string, id: string) => request(`/api/v1/assets/${assetId}/relations/${id}/archive`, json("POST")),
@@ -421,7 +458,19 @@ export const api = {
   resolveRisk: (id: string, version: number) => request<RiskFinding>(`/api/v1/risk-findings/${id}/resolve?version=${version}`, json("POST")),
   previewImport: (file: File) => { const form = new FormData(); form.append("file", file); return request<ImportPreview>("/api/v1/imports/preview", { method: "POST", body: form }) },
   commitImport: (body: ImportPreview) => request("/api/v1/imports/commit", json("POST", body)),
-  registrationIdentities: () => request<RegistrationIdentity[]>("/api/v1/workspace/registration-identities"),
+  registrationIdentities: (deletedOnly = false) => request<RegistrationIdentity[]>(`/api/v1/workspace/registration-identities${deletedOnly ? '?deleted_only=true' : ''}`),
+  updateRegistrationIdentity: (id: string, body: Record<string, unknown>) => request<RegistrationIdentity>(`/api/v1/workspace/registration-identities/${id}`, json("PATCH", body)),
+  organizationCompanyMappings: () => request<OrganizationCompanyMappings>("/api/v1/organization/company-mappings"),
+  mapOrganizationCompanies: (body: { fingerprint: string; request_id: string }) => request<OrganizationCompanyMappings & { mapped_count: number; conflicts: { id: string; name: string; reason: string }[] }>("/api/v1/organization/company-mappings", json("POST", body)),
+  permissionCatalog: () => request<PermissionCatalog>("/api/v1/permission-management/catalog"),
+  permissionUsers: (keyword = "") => request<{ items: PermissionUserSummary[]; total: number }>(`/api/v1/permission-management/users?keyword=${encodeURIComponent(keyword)}`),
+  permissionUser: (id: string) => request<PermissionUser>(`/api/v1/permission-management/users/${id}`),
+  grantPermissionRole: (id: string, body: PermissionRequest & { role_code: string; department_id: string | null }) => request<PermissionUser>(`/api/v1/permission-management/users/${id}/roles`, json("POST", body)),
+  revokePermissionRole: (id: string, assignment: string, body: PermissionRequest) => request<PermissionUser>(`/api/v1/permission-management/users/${id}/roles/${assignment}/revoke`, json("POST", body)),
+  setPermissionAccess: (id: string, body: PermissionRequest & { enabled: boolean }) => request<PermissionUser>(`/api/v1/permission-management/users/${id}/access`, json("POST", body)),
+  grantPermissionResource: (id: string, body: PermissionRequest & { asset_id: string; starts_at: string | null; ends_at: string | null }) => request<PermissionUser>(`/api/v1/permission-management/users/${id}/resource-grants`, json("POST", body)),
+  revokePermissionResource: (id: string, grant: string, body: PermissionRequest) => request<PermissionUser>(`/api/v1/permission-management/users/${id}/resource-grants/${grant}/revoke`, json("POST", body)),
+  reconcileContacts: (body: Record<string, unknown>) => request<RegistrationIdentity[]>("/api/v1/workspace/registration-identities/reconcile", json("POST", body)),
   layerRecords: (layer: number) => request<LayerRecord[]>(`/api/v1/workspace/layer-records?layer=${layer}`),
   createRegistrationIdentity: (body: Record<string, unknown>) => request<RegistrationIdentity>("/api/v1/workspace/registration-identities", json("POST", body)),
   assetPlatformLinks: (assetId: string) => request<AssetPlatformLink[]>(`/api/v1/assets/${assetId}/platform-links`),

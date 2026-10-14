@@ -326,6 +326,15 @@ class Asset(UUIDPrimaryKeyMixin, TimestampMixin, ArchiveMixin, VersionMixin, Bas
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     @property
+    def is_child_account(self) -> bool:
+        session = object_session(self)
+        if session is None:
+            return False
+        from sqlalchemy import select
+
+        return session.scalar(select(Account.id).where(Account.asset_id == self.id)) is not None
+
+    @property
     def is_personal_subscription(self) -> bool:
         # Source labels on AI drafts are user supplied; they cannot exempt AI reviews.
         if self.source_system != "membership-registration":

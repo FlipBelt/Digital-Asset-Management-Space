@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.access import AccessContext, get_access_context, require_asset_write
@@ -23,13 +23,37 @@ from app.schemas.usage_alerts import (
     UsageNotificationScheduleRead,
     UsageNotificationScheduleWrite,
 )
+from app.services.personal_subscription_policy import personal_subscription_connection_clause
 from app.services.usage_connectors import PLATFORM_CATALOG, platform_code_for
 from app.services.usage_notifications import run_monitoring_cycle
 
 router = APIRouter(prefix="/usage-monitoring", tags=["usage-monitoring"])
 
 
-def _connection(db: Session, connection_id: UUID) -> ProviderConnection:
+def _hidden_connection_ids(db: Session, access: AccessContext) -> set[UUID]:
+    if access.is_global_manager:
+        return set()
+    return set(
+        db.scalars(
+            select(ProviderConnection.id).where(
+                ~personal_subscription_connection_clause(access.person_id)
+            )
+        )
+    )
+
+
+def _require_connection_privacy(db: Session, connection_id: UUID, access: AccessContext) -> None:
+    if not access.is_global_manager and db.scalar(
+        select(ProviderConnection.id).where(
+            ProviderConnection.id == connection_id,
+            ~personal_subscription_connection_clause(access.person_id),
+        )
+    ):
+        raise HTTPException(status_code=404, detail="平台连接不存在")
+
+
+def _connection(db: Session, connection_id: UUID, access: AccessContext) -> ProviderConnection:
+    _require_connection_privacy(db, connection_id, access)
     item = db.get(ProviderConnection, connection_id)
     if item is None or item.archived_at is not None:
         raise HTTPException(status_code=422, detail="平台连接不存在")
@@ -79,7 +103,9 @@ def _schedule_read(item: UsageNotificationSchedule) -> dict:
 
 
 @router.get("/overview")
-def overview(db: Session = Depends(get_db), _: AccessContext = Depends(get_access_context)) -> dict:
+def overview(
+    db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)
+) -> dict:
     connections = [
         item
         for item in db.scalars(
@@ -88,6 +114,9 @@ def overview(db: Session = Depends(get_db), _: AccessContext = Depends(get_acces
             .where(
                 ProviderConnection.archived_at.is_(None),
                 ConnectorDefinition.code.in_(PLATFORM_CATALOG),
+                True
+                if access.is_global_manager
+                else personal_subscription_connection_clause(access.person_id),
             )
             .order_by(ProviderConnection.name)
         )
@@ -114,13 +143,16 @@ def overview(db: Session = Depends(get_db), _: AccessContext = Depends(get_acces
 
 @router.get("/rules", response_model=list[UsageAlertRuleRead])
 def list_rules(
-    db: Session = Depends(get_db), _: AccessContext = Depends(get_access_context)
+    db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)
 ) -> list[dict]:
     return [
         _rule_read(item)
         for item in db.scalars(
             select(UsageAlertRule)
-            .where(UsageAlertRule.archived_at.is_(None))
+            .where(
+                UsageAlertRule.archived_at.is_(None),
+                UsageAlertRule.provider_connection_id.not_in(_hidden_connection_ids(db, access)),
+            )
             .order_by(UsageAlertRule.created_at.desc())
         )
     ]
@@ -130,9 +162,9 @@ def list_rules(
 def create_rule(
     payload: UsageAlertRuleWrite,
     db: Session = Depends(get_db),
-    _: AccessContext = Depends(require_asset_write),
+    access: AccessContext = Depends(require_asset_write),
 ) -> dict:
-    _connection(db, payload.provider_connection_id)
+    _connection(db, payload.provider_connection_id, access)
     _validate_recipients(db, payload.recipient_person_ids)
     data = payload.model_dump()
     data["recipient_person_ids"] = [str(item) for item in payload.recipient_person_ids]
@@ -148,12 +180,13 @@ def update_rule(
     rule_id: UUID,
     payload: UsageAlertRuleWrite,
     db: Session = Depends(get_db),
-    _: AccessContext = Depends(require_asset_write),
+    access: AccessContext = Depends(require_asset_write),
 ) -> dict:
     item = db.get(UsageAlertRule, rule_id)
     if item is None or item.archived_at is not None:
         raise HTTPException(status_code=404, detail="告警规则不存在")
-    _connection(db, payload.provider_connection_id)
+    _require_connection_privacy(db, item.provider_connection_id, access)
+    _connection(db, payload.provider_connection_id, access)
     _validate_recipients(db, payload.recipient_person_ids)
     data = payload.model_dump()
     data["recipient_person_ids"] = [str(item) for item in payload.recipient_person_ids]
@@ -166,8 +199,9 @@ def update_rule(
 
 @router.get("/schedules", response_model=list[UsageNotificationScheduleRead])
 def list_schedules(
-    db: Session = Depends(get_db), _: AccessContext = Depends(get_access_context)
+    db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)
 ) -> list[dict]:
+    hidden = {str(item) for item in _hidden_connection_ids(db, access)}
     return [
         _schedule_read(item)
         for item in db.scalars(
@@ -175,6 +209,7 @@ def list_schedules(
             .where(UsageNotificationSchedule.archived_at.is_(None))
             .order_by(UsageNotificationSchedule.created_at.desc())
         )
+        if not hidden.intersection(item.connection_ids)
     ]
 
 
@@ -184,10 +219,10 @@ def list_schedules(
 def create_schedule(
     payload: UsageNotificationScheduleWrite,
     db: Session = Depends(get_db),
-    _: AccessContext = Depends(require_asset_write),
+    access: AccessContext = Depends(require_asset_write),
 ) -> dict:
     for connection_id in payload.connection_ids:
-        _connection(db, connection_id)
+        _connection(db, connection_id, access)
     _validate_recipients(db, payload.recipient_person_ids)
     data = payload.model_dump()
     data["connection_ids"] = [str(item) for item in payload.connection_ids]
@@ -204,13 +239,16 @@ def update_schedule(
     schedule_id: UUID,
     payload: UsageNotificationScheduleWrite,
     db: Session = Depends(get_db),
-    _: AccessContext = Depends(require_asset_write),
+    access: AccessContext = Depends(require_asset_write),
 ) -> dict:
     item = db.get(UsageNotificationSchedule, schedule_id)
     if item is None or item.archived_at is not None:
         raise HTTPException(status_code=404, detail="定时发送规则不存在")
+    hidden = {str(identity) for identity in _hidden_connection_ids(db, access)}
+    if hidden.intersection(item.connection_ids):
+        raise HTTPException(status_code=404, detail="定时发送规则不存在")
     for connection_id in payload.connection_ids:
-        _connection(db, connection_id)
+        _connection(db, connection_id, access)
     _validate_recipients(db, payload.recipient_person_ids)
     data = payload.model_dump()
     data["connection_ids"] = [str(item) for item in payload.connection_ids]
@@ -224,17 +262,48 @@ def update_schedule(
 
 @router.get("/logs", response_model=list[UsageNotificationLogRead])
 def list_logs(
-    db: Session = Depends(get_db), _: AccessContext = Depends(get_access_context)
+    db: Session = Depends(get_db), access: AccessContext = Depends(get_access_context)
 ) -> list[UsageNotificationLog]:
+    hidden = _hidden_connection_ids(db, access)
+    hidden_strings = {str(identity) for identity in hidden}
+    hidden_rules = select(UsageAlertRule.id).where(
+        UsageAlertRule.provider_connection_id.in_(hidden)
+    )
+    hidden_schedules = {
+        identity
+        for identity, connection_ids in db.execute(
+            select(UsageNotificationSchedule.id, UsageNotificationSchedule.connection_ids)
+        )
+        if hidden_strings.intersection(connection_ids)
+    }
     return list(
         db.scalars(
-            select(UsageNotificationLog).order_by(UsageNotificationLog.created_at.desc()).limit(100)
+            select(UsageNotificationLog)
+            .where(
+                or_(
+                    UsageNotificationLog.provider_connection_id.is_(None),
+                    UsageNotificationLog.provider_connection_id.not_in(hidden),
+                ),
+                or_(
+                    UsageNotificationLog.usage_alert_rule_id.is_(None),
+                    UsageNotificationLog.usage_alert_rule_id.not_in(hidden_rules),
+                ),
+                or_(
+                    UsageNotificationLog.usage_notification_schedule_id.is_(None),
+                    UsageNotificationLog.usage_notification_schedule_id.not_in(hidden_schedules),
+                ),
+            )
+            .order_by(UsageNotificationLog.created_at.desc())
+            .limit(100)
         )
     )
 
 
 @router.post("/run")
 def run_now(
-    db: Session = Depends(get_db), _: AccessContext = Depends(require_asset_write)
+    db: Session = Depends(get_db), access: AccessContext = Depends(require_asset_write)
 ) -> dict[str, int]:
+    # The existing monitoring cycle is global and cannot safely run on a filtered subset.
+    if _hidden_connection_ids(db, access):
+        raise HTTPException(status_code=403, detail="包含无权查看的个人订阅，请由管理员执行监控")
     return run_monitoring_cycle(db)

@@ -59,11 +59,16 @@ from app.schemas.assets import (
     AssetResponsibilityCreate,
     AssetResponsibilityRead,
     IntelligentRelationCreate,
+    PlatformIdentifierWrite,
     RelationOptionRead,
+    RelationshipChoiceRead,
+    RelationshipConnectionWrite,
     RelationshipLinkUpdate,
 )
 from app.schemas.common import ListResponse, Pagination
+from app.services.asset_presentation import asset_list_reads
 from app.services.assets import asset_service
+from app.services.contact_resources import require_identity_reference
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -80,6 +85,7 @@ def list_assets(
     criticality: str | None = None,
     include_archived: bool = False,
     deleted_only: bool = False,
+    library_only: bool = False,
     keyword: str | None = None,
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
@@ -99,11 +105,12 @@ def list_assets(
         criticality=criticality,
         include_archived=include_archived,
         deleted_only=deleted_only,
+        library_only=library_only,
         keyword=keyword,
         visibility_filter=asset_visibility_clause(access),
     )
     return ListResponse[AssetRead](
-        data=[AssetRead.model_validate(item) for item in items],
+        data=asset_list_reads(db, items),
         pagination=Pagination(page=page, page_size=page_size, total=total),
     )
 
@@ -127,10 +134,12 @@ def get_asset(
     asset_id: UUID,
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
-) -> Asset:
+) -> AssetRead:
     asset = asset_service.require(db, asset_id)
     require_asset_visible(db, access, asset)
-    return asset
+    from app.services.asset_presentation import asset_detail_read
+
+    return asset_detail_read(db, asset, access)
 
 
 @router.get("/{asset_id}/identifiers", response_model=list[AssetIdentifierRead])
@@ -258,6 +267,7 @@ def archive_platform_link(
 
         raise HTTPException(status_code=404, detail="平台关联不存在")
     item.archived_at = datetime.now(UTC)
+    asset.version += 1
     db.add(
         AuditLog(
             actor_user_id=access.user.id,
@@ -301,6 +311,7 @@ def create_identifier(
     from app.services.asset_confirmation import lock_asset
     from app.services.registrar_details import touch_web_details
     asset = lock_asset(db, asset_id)
+    require_asset_visible(db, access, asset)
     if asset.archived_at is not None or not can_manage_asset(db, access, asset):
         raise HTTPException(403, "当前已无权修改该资产资料")
     touch_web_details(asset, access)
@@ -335,7 +346,15 @@ def patch_asset(
         access, asset
     ):
         raise HTTPException(status_code=403, detail="归属与状态只能由部门负责人或资产管理员修改")
-    return asset_service.update(db, asset_id, payload)
+    from app.services.asset_presentation import asset_detail_read
+    from app.services.repository_visibility import GITHUB_URL, repository_visibility
+
+    if payload.description and "[仓库地址未公开]" in payload.description and repository_visibility(db, asset_id) != "public":
+        hidden_urls = iter(match.group(0) for match in GITHUB_URL.finditer(asset.description or ""))
+        import re
+        payload.description = re.sub(r"\[仓库地址未公开\]", lambda _: next(hidden_urls, ""), payload.description)
+    item = asset_service.update(db, asset_id, payload)
+    return asset_detail_read(db, item, access)
 
 
 @router.post("/{asset_id}/archive", response_model=AssetRead)
@@ -393,9 +412,12 @@ def list_responsibilities(
 ) -> list[AssetResponsibilityRead]:
     asset = asset_service.require(db, asset_id)
     require_asset_visible(db, access, asset)
+    from app.services.asset_presentation import governance_origin
+
+    asset = governance_origin(db, asset, access)
     return [
         AssetResponsibilityRead.model_validate(item)
-        for item in asset_repository.list_responsibilities(db, asset_id)
+        for item in asset_repository.list_responsibilities(db, asset.id)
     ]
 
 
@@ -458,6 +480,7 @@ def _relationship_relation_label(relation_type: str) -> str:
         "registered_by": "注册身份",
         "purchased_via": "购买 / 开通",
         "deployed_on": "部署于",
+        "mounted_on": "挂载到",
         "calls": "调用",
         "uses": "使用",
         "depends_on": "依赖",
@@ -465,6 +488,7 @@ def _relationship_relation_label(relation_type: str) -> str:
         "contains": "包含",
         "stored_in": "存储于",
         "replaces": "替代",
+        "related_to": "关联协作",
     }.get(relation_type.lower(), relation_type)
 
 
@@ -478,7 +502,7 @@ def _relationship_direction(
     Keeping this rule server-side prevents each page from guessing direction
     from source_asset_id alone.
     """
-    if relation_type.lower() == "replaces":
+    if relation_type.lower() in {"replaces", "related_to"}:
         return "peer"
     downstream_source_relations = {"manages", "contains"}
     source_is_downstream = relation_type.lower() in downstream_source_relations
@@ -514,6 +538,9 @@ def get_relationship_view(
     assets_by_id = {item.id: item for item in assets}
     if current.id not in assets_by_id:
         assets_by_id[current.id] = current
+    from app.services.asset_presentation import registration_name_map
+
+    identity_names = registration_name_map(db, list(assets_by_id))
     asset_types = {
         item.id: item
         for item in db.scalars(select(AssetType).where(AssetType.archived_at.is_(None)))
@@ -625,7 +652,7 @@ def get_relationship_view(
             nodes[key] = {
                 "id": key,
                 "layer": _relationship_layer(asset_type.code if asset_type else None),
-                "label": item.name,
+                "label": identity_names.get(item.id, item.name),
                 "object_type": asset_type.name if asset_type else "资产",
                 "kind": asset_type.code if asset_type else "asset",
                 "asset_id": item.id,
@@ -756,9 +783,9 @@ def get_relationship_view(
         if entity_key:
             add_edge(
                 edge_id=f"asset-entity:{current.id}",
-                source=entity_key,
-                target=current_key,
-                label="所属主体",
+                source=current_key,
+                target=entity_key,
+                label="归属公司",
                 section="structure",
                 direction="upstream",
                 source_model="Asset.legal_entity_id",
@@ -768,14 +795,21 @@ def get_relationship_view(
                 dedupe_key=("legal_entity", current.id),
             )
 
+    if current.owner_department_id:
+        department_key = add_subject_node(None, current.owner_department_id)
+        if department_key:
+            add_edge(edge_id=f"asset-department:{current.id}", source=current_key,
+                     target=department_key, label="归属部门", section="structure",
+                     direction="upstream", source_model="Asset.owner_department_id")
+
     tenant = tenant_by_asset_id.get(current.id)
     if tenant:
         platform_key = add_platform_node(tenant.platform_id)
         if platform_key:
             add_edge(
                 edge_id=f"tenant-platform:{tenant.id}",
-                source=platform_key,
-                target=current_key,
+                source=current_key,
+                target=platform_key,
                 label="所属平台",
                 section="structure",
                 direction="upstream",
@@ -794,9 +828,9 @@ def get_relationship_view(
             identity_key = add_asset_node(identity)
             add_edge(
                 edge_id=f"tenant-identity:{link.id}",
-                source=identity_key,
-                target=current_key,
-                label="注册身份",
+                source=current_key,
+                target=identity_key,
+                label="注册时使用",
                 section="structure",
                 direction="upstream",
                 source_model="PlatformAccountRegistrationIdentity",
@@ -813,16 +847,21 @@ def get_relationship_view(
         if platform_key:
             add_edge(
                 edge_id=f"asset-platform:{link.id}",
-                source=platform_key,
-                target=current_key,
+                source=current_key,
+                target=platform_key,
                 label={
-                    "registered_on": "登记于平台",
-                    "uses": "关联平台",
+                    "registered_on": "历史平台注册用途（账号待关联）",
+                    "uses": "使用平台服务",
+                    "deployed_on": "部署在平台",
+                    "mounted_on": "挂载到平台",
                     "provided_by": "由平台提供",
                 }.get(link.relation_type.lower(), link.relation_type),
-                section="structure",
-                direction="upstream",
+                section="business" if link.relation_type.lower() in {"uses", "deployed_on", "mounted_on"} else "structure",
+                direction="downstream" if link.relation_type.lower() == "registered_on" else "upstream",
                 source_model="AssetPlatformLink",
+                editable=can_manage_asset(db, access, current),
+                relation_id=link.id,
+                note=link.note,
                 dedupe_key=("platform", current.id, link.platform_id, link.relation_type.lower()),
             )
 
@@ -955,7 +994,9 @@ def get_relationship_view(
                 edge_id=f"responsibility:{item.id}",
                 source=subject_key,
                 target=current_key,
-                label={"responsible": "负责人", "user": "使用人员"}.get(
+                label={"responsible": "负责人", "user": "使用人员",
+                       "proposed_responsible": "建议负责人（待确认）",
+                       "proposed_user": "建议协同人员（待确认）"}.get(
                     item.role_type, item.role_type
                 ),
                 section="responsibility",
@@ -1060,9 +1101,7 @@ def update_relationship_link(
             or identity.asset_type_id != identity_type.id
         ):
             raise HTTPException(status_code=422, detail="所选对象不是有效的注册身份")
-        require_asset_visible(db, access, identity)
-        if identity.legal_entity_id != asset.legal_entity_id:
-            raise HTTPException(status_code=422, detail="注册身份与平台账号必须属于同一公司")
+        require_identity_reference(db, access, identity, asset.legal_entity_id)
         active_link = db.scalar(
             select(PlatformAccountRegistrationIdentity).where(
                 PlatformAccountRegistrationIdentity.platform_tenant_id == tenant.id,
@@ -1159,6 +1198,8 @@ def list_relation_options(
             if direction in {"upstream", "peer"}
             else definition.inverse_label
         )
+        if definition.relation_type.lower() == "registered_by":
+            label = "注册时使用的手机号 / 邮箱" if direction == "upstream" else "使用此资源注册的平台账号"
         target_code = (
             definition.target_type_code
             if direction in {"upstream", "peer"}
@@ -1174,6 +1215,33 @@ def list_relation_options(
         )
         for (relation_type, label), target_codes in grouped.items()
     ]
+
+
+@router.get("/{asset_id}/relationship-choices", response_model=list[RelationshipChoiceRead])
+def list_relationship_choices(asset_id: UUID, db: Session = Depends(get_db),
+                              access: AccessContext = Depends(get_access_context)):
+    from app.services.relationship_choices import relationship_choices
+    current = asset_service.require(db, asset_id)
+    require_asset_visible(db, access, current)
+    return relationship_choices(db, access, current)
+
+
+@router.post("/{asset_id}/relationship-connections", response_model=AssetRelationshipViewRead)
+def create_relationship_connection(asset_id: UUID, payload: RelationshipConnectionWrite,
+                                   db: Session = Depends(get_db),
+                                   access: AccessContext = Depends(require_asset_write)):
+    from app.services.relationship_choices import create_connection
+    create_connection(db, access, asset_id, payload)
+    return get_relationship_view(asset_id, db, access)
+
+
+@router.put("/{asset_id}/platform-identifier", response_model=AssetRead)
+def update_platform_identifier(asset_id: UUID, payload: PlatformIdentifierWrite,
+                               db: Session = Depends(get_db),
+                               access: AccessContext = Depends(require_asset_write)):
+    from app.services.relationship_choices import save_platform_identifier
+    save_platform_identifier(db, access, asset_id, payload)
+    return get_asset(asset_id, db, access)
 
 
 @router.post(
@@ -1313,7 +1381,13 @@ def list_field_values(
 ) -> list[AssetFieldValue]:
     asset = asset_service.require(db, asset_id)
     require_asset_visible(db, access, asset)
-    return list(db.scalars(select(AssetFieldValue).where(AssetFieldValue.asset_id == asset_id)))
+    from app.services.repository_visibility import hide_repository_urls, repository_visibility
+
+    rows = db.scalars(select(AssetFieldValue).where(AssetFieldValue.asset_id == asset_id))
+    return [AssetFieldValueRead.model_validate(row).model_copy(update={
+        "value": row.value if repository_visibility(db, asset_id) == "public"
+        else hide_repository_urls(row.value)
+    }) for row in rows]
 
 
 @router.put("/{asset_id}/field-values", response_model=list[AssetFieldValueRead])
@@ -1378,7 +1452,12 @@ def get_assignment(
 ) -> AssetAssignmentRead:
     asset = asset_service.require(db, asset_id)
     require_asset_visible(db, access, asset)
-    rows = asset_repository.list_responsibilities(db, asset_id)
+    from app.services.asset_presentation import governance_origin
+
+    asset = governance_origin(db, asset, access)
+    rows = asset_repository.list_responsibilities(db, asset.id)
+    from app.services.account_structure import owner_facts, responsibility_map
+    owner = owner_facts(responsibility_map(db), asset.id)
     responsible_person_id = next(
         (row.person_id for row in rows if row.role_type == "responsible"), None
     ) or next(
@@ -1389,6 +1468,11 @@ def get_assignment(
         owner_department_id=asset.owner_department_id,
         ownership_scope=asset.ownership_scope,
         responsible_person_id=responsible_person_id,
+        confirmed_responsible_person_id=owner["responsible_person_id"] if owner["has_owner"] else None,
+        responsible_status=("confirmed" if owner["has_owner"] else "inactive"
+                            if owner["responsible_person_id"] else "proposed"
+                            if responsible_person_id else "missing"),
+        responsibility_issue=None if owner["has_owner"] else owner["responsibility_issue"],
         user_person_ids=[
             row.person_id for row in rows if row.role_type == user_role and row.person_id
         ],
@@ -1405,8 +1489,12 @@ def save_assignment(
     from fastapi import HTTPException
 
     asset = asset_service.require(db, asset_id)
+    if asset.is_child_account:
+        require_asset_visible(db, access, asset)
+        raise HTTPException(409, "子账号的归属与责任沿用父账号，请维护所属公司账号")
     from app.services.asset_confirmation import lock_asset
     asset = lock_asset(db, asset_id)
+    require_asset_visible(db, access, asset)
     if asset.archived_at is not None:
         raise HTTPException(409, "资产已归档或删除，请先恢复")
     if asset.version != payload.version:
@@ -1451,11 +1539,12 @@ def save_assignment(
         raise HTTPException(status_code=422, detail="只有部门级资产可以设置归属部门")
     if payload.owner_department_id:
         department = db.get(Department, payload.owner_department_id)
+        from app.services.organization_mapping import department_compatible
         if (
             asset.legal_entity_id is None
             or
             department is None
-            or department.legal_entity_id != asset.legal_entity_id
+            or not department_compatible(db, department, asset.legal_entity_id)
             or department.archived_at is not None
         ):
             raise HTTPException(status_code=422, detail="归属部门不属于当前公司")
@@ -1526,13 +1615,4 @@ def save_assignment(
         )
     asset.version += 1
     db.commit()
-    return AssetAssignmentRead(
-        owner_department_id=asset.owner_department_id,
-        ownership_scope=asset.ownership_scope,
-        responsible_person_id=payload.responsible_person_id,
-        user_person_ids=[
-            person_id
-            for person_id in dict.fromkeys(payload.user_person_ids)
-            if person_id != payload.responsible_person_id
-        ],
-    )
+    return get_assignment(asset_id, db, access)

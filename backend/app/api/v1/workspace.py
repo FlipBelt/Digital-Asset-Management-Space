@@ -12,11 +12,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from openpyxl import load_workbook
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.access import (
     AccessContext,
+    active_period,
     asset_visibility_clause,
+    can_manage_asset,
     get_access_context,
     require_asset_visible,
     require_asset_write,
@@ -60,6 +63,7 @@ from app.schemas.workspace import (
     BossPilotImportResult,
     BossPilotRollbackResult,
     CompanyPlatformAccountCreate,
+    ContactReconcileRequest,
     FlexibleImportPreview,
     FlexibleImportStage,
     FlexibleImportStageResult,
@@ -84,15 +88,27 @@ from app.schemas.workspace import (
     PlatformAccountChildCreate,
     PlatformAccountContextRead,
     RegistrationIdentityCreate,
+    RegistrationIdentityNameWrite,
     RegistrationIdentityRead,
+    RegistrationIdentityWrite,
     ResourceCreate,
 )
+from app.services.account_binding import require_active_employee
 from app.services.aliyun_colleague_import import (
     commit_aliyun_colleague_import,
     reclassify_aliyun_colleague_as_l4_accounts,
     rollback_aliyun_colleague_import,
 )
+from app.services.asset_confirmation import lock_asset
 from app.services.assets import allocate_asset_code, ensure_internal_identifier
+from app.services.audited_requests import audited_retry
+from app.services.contact_resources import (
+    contact_read,
+    normalize_contact_catalog,
+    normalize_identifier,
+    require_identity_reference,
+    save_contact,
+)
 from app.services.import_commit import commit_reviewed_import_batch
 from app.services.import_planning import (
     AI_ANALYZER_VERSION,
@@ -193,34 +209,104 @@ def infer_identity_type(value: str) -> str:
 
 @router.get("/workspace/registration-identities", response_model=list[RegistrationIdentityRead])
 def list_registration_identities(
+    deleted_only: bool = False,
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
 ) -> list[RegistrationIdentityRead]:
+    if deleted_only and not access.is_global_manager:
+        raise HTTPException(403, "回收站需要资产管理员权限")
     rows = db.execute(
         select(RegistrationIdentityProfile, Asset)
         .join(Asset, Asset.id == RegistrationIdentityProfile.asset_id)
         .where(
             RegistrationIdentityProfile.archived_at.is_(None),
-            Asset.archived_at.is_(None),
+            Asset.status == "deleted" if deleted_only else Asset.archived_at.is_(None),
             asset_visibility_clause(access),
         )
-        .order_by(Asset.name)
+        .order_by(RegistrationIdentityProfile.identifier_value, Asset.id)
     ).all()
     return [
-        RegistrationIdentityRead(
-            id=profile.id,
-            asset_id=asset.id,
-            asset_code=asset.asset_code,
-            legal_entity_id=asset.legal_entity_id,
-            name=asset.name,
-            identity_type=profile.identity_type,
-            identifier=profile.identifier_value,
-            source_nature=profile.source_nature,
-            custodian_person_id=profile.custodian_person_id,
-            verification_status=profile.verification_status,
-        )
+        contact_read(db, profile, asset)
         for profile, asset in rows
     ]
+
+
+@router.patch("/workspace/registration-identities/{asset_id}/name", response_model=RegistrationIdentityRead, deprecated=True)
+def rename_registration_identity(
+    asset_id: UUID,
+    payload: RegistrationIdentityNameWrite,
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(require_asset_write),
+):
+    if not access.is_global_manager:
+        raise HTTPException(403, "修改标识名称需要资产管理员权限")
+    asset = lock_asset(db, asset_id)
+    profile = db.scalar(select(RegistrationIdentityProfile).where(
+        RegistrationIdentityProfile.asset_id == asset_id, RegistrationIdentityProfile.archived_at.is_(None),
+    ))
+    if profile is None or asset.archived_at:
+        raise HTTPException(404, "注册与登录标识不存在或已删除")
+    require_asset_visible(db, access, asset)
+    if asset.version != payload.version:
+        raise HTTPException(409, "标识资料已有更新，请刷新后再保存")
+    raise HTTPException(422, "标识即为名称，请在注册与登录标识的‘修改资料’中更正标识内容")
+
+
+@router.post("/workspace/registration-identities/reconcile", response_model=list[RegistrationIdentityRead])
+def reconcile_contacts(
+    payload: ContactReconcileRequest,
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(require_asset_write),
+):
+    if not access.is_global_manager:
+        raise HTTPException(403, "通讯资源资料核对需要资产管理员权限")
+    previous, fingerprint = audited_retry(db, access, "contact.reconcile", payload, "contacts")
+    if previous:
+        return [{**row, "name": row["identifier"]} for row in previous.after_data["result"]]
+    values = [normalize_identifier(row.identifier)[0] for row in payload.rows]
+    if len(set(values)) != len(values):
+        raise HTTPException(422, "同一批次不能重复登记同一个手机号或邮箱")
+    asset_type = normalize_contact_catalog(db)
+    result = [save_contact(db, access, row, asset_type, payload.source_note.strip()) for row in payload.rows]
+    db.add(AuditLog(actor_user_id=access.user.id, action="contact.reconcile", object_type="contacts",
+        request_id=str(payload.request_id), after_data={"request_digest": fingerprint,
+            "result": [row.model_dump(mode="json") for row in result]}))
+    db.commit()
+    return result
+
+
+@router.patch("/workspace/registration-identities/{asset_id}", response_model=RegistrationIdentityRead)
+def update_registration_identity(
+    asset_id: UUID,
+    payload: RegistrationIdentityWrite,
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(require_asset_write),
+):
+    if not access.is_global_manager:
+        raise HTTPException(403, "修改注册与登录标识需要资产管理员权限")
+    previous, fingerprint = audited_retry(db, access, "registration_identity.update", payload, asset_id)
+    if previous:
+        asset = lock_asset(db, asset_id)
+        profile = db.scalar(select(RegistrationIdentityProfile).where(
+            RegistrationIdentityProfile.asset_id == asset_id, RegistrationIdentityProfile.archived_at.is_(None),
+        ))
+        if asset is None or profile is None or asset.archived_at or asset.status == "deleted":
+            raise HTTPException(404, "注册与登录标识不存在或已删除")
+        if asset.version != previous.after_data.get("version"):
+            raise HTTPException(409, "标识资料已有变化，请重新读取")
+        return contact_read(db, profile, asset)
+    try:
+        result = save_contact(db, access, payload, None, payload.source_note.strip(), asset_id=asset_id)
+        db.add(AuditLog(actor_user_id=access.user.id, action="registration_identity.update",
+            object_type="asset", object_id=asset_id, request_id=str(payload.request_id),
+            after_data={"request_digest": fingerprint, "version": result.version}))
+        db.commit()
+    except IntegrityError as cause:
+        db.rollback()
+        if getattr(cause.orig, "sqlstate", None) != "23505":
+            raise
+        raise HTTPException(409, "该标识已登记或资料已有变化，请刷新后核对") from None
+    return result
 
 
 @router.get("/workspace/my-assets", response_model=list[AssetRead])
@@ -236,14 +322,18 @@ def list_my_assets(
         .join(AssetResponsibility, AssetResponsibility.asset_id == Asset.id)
         .where(
             Asset.archived_at.is_(None),
+            asset_visibility_clause(access),
             AssetResponsibility.person_id == access.person_id,
             AssetResponsibility.role_type.in_(["responsible", "user"]),
             AssetResponsibility.archived_at.is_(None),
+            active_period(AssetResponsibility),
         )
         .distinct()
         .order_by(Asset.updated_at.desc(), Asset.id)
     )
-    return [AssetRead.model_validate(item) for item in rows]
+    from app.services.asset_presentation import asset_list_reads
+
+    return asset_list_reads(db, rows)
 
 
 @router.get("/workspace/layer-records", response_model=list[LayerRecordRead])
@@ -285,6 +375,7 @@ def list_layer_records(
             .where(
                 Account.platform_tenant_id.in_([item.id for item in tenants]),
                 Account.archived_at.is_(None),
+                Account.asset_id.in_(visible_asset_ids),
             )
             .group_by(Account.platform_tenant_id)
         )
@@ -507,6 +598,8 @@ def create_registration_identity(
         ):
             raise HTTPException(status_code=422, detail="当前保管人不属于所选公司")
     value = payload.identifier.strip()
+    if not value or any(ord(character) < 32 for character in value):
+        raise HTTPException(422, "请填写有效的标识内容")
     fingerprint = hashlib.sha256(value.lower().encode("utf-8")).hexdigest()
     existing = db.scalar(
         select(RegistrationIdentityProfile).where(
@@ -520,7 +613,7 @@ def create_registration_identity(
     asset_type = require_asset_type(db, "registration_identity")
     asset = create_asset(
         db,
-        name=f"{identity_type_label(identity_type)} · {value}",
+        name=value[:200],
         asset_type_id=asset_type.id,
         legal_entity_id=payload.legal_entity_id,
         status_value="draft",
@@ -555,18 +648,7 @@ def create_registration_identity(
     add_discovery_audit(db, access, asset, "registration_identity")
     db.commit()
     db.refresh(profile)
-    return RegistrationIdentityRead(
-        id=profile.id,
-        asset_id=asset.id,
-        asset_code=asset.asset_code,
-        legal_entity_id=asset.legal_entity_id,
-        name=asset.name,
-        identity_type=profile.identity_type,
-        identifier=profile.identifier_value,
-        source_nature=profile.source_nature,
-        custodian_person_id=profile.custodian_person_id,
-        verification_status=profile.verification_status,
-    )
+    return contact_read(db, profile, asset)
 
 
 def identity_type_label(identity_type: str) -> str:
@@ -625,18 +707,7 @@ def get_platform_account_context(
         verification_status=tenant.verification_status,
         evidence_note=tenant.evidence_note,
         registration_identities=[
-            RegistrationIdentityRead(
-                id=profile.id,
-                asset_id=identity_asset.id,
-                asset_code=identity_asset.asset_code,
-                legal_entity_id=identity_asset.legal_entity_id,
-                name=identity_asset.name,
-                identity_type=profile.identity_type,
-                identifier=profile.identifier_value,
-                source_nature=profile.source_nature,
-                custodian_person_id=profile.custodian_person_id,
-                verification_status=profile.verification_status,
-            )
+            contact_read(db, profile, identity_asset)
             for _, profile, identity_asset in identity_rows
         ],
     )
@@ -677,6 +748,9 @@ def list_platform_account_children(
             .where(
                 Account.platform_tenant_id == tenant.id,
                 Account.archived_at.is_(None),
+                Account.asset_id.in_(select(Asset.id).where(
+                    Asset.archived_at.is_(None), Asset.status != "deleted", asset_visibility_clause(access)
+                )),
             )
             .order_by(Account.created_at)
         )
@@ -694,7 +768,24 @@ def create_platform_account_child(
     db: Session = Depends(get_db),
     access: AccessContext = Depends(require_asset_write),
 ) -> Account:
+    previous, fingerprint = audited_retry(
+        db, access, "platform_account.child_account.create", payload, asset_id
+    ) if payload.request_id else (None, None)
+    lock_asset(db, asset_id)
     parent_asset, tenant = require_platform_tenant_asset(db, access, asset_id)
+    if not can_manage_asset(db, access, parent_asset):
+        raise HTTPException(403, "无权维护该公司平台账号")
+    if previous:
+        child = db.get(Account, previous.object_id)
+        if not child or child.archived_at or child.platform_tenant_id != tenant.id:
+            raise HTTPException(409, "账号明细已改变，请重新读取")
+        child_asset = db.get(Asset, child.asset_id)
+        snapshot = {"primary_person_id": str(child.primary_person_id) if child.primary_person_id else None,
+                    "asset_version": child_asset.version if child_asset else None}
+        if not child_asset or child_asset.archived_at or child_asset.status == "deleted" or snapshot != previous.after_data.get("snapshot"):
+            raise HTTPException(409, "账号明细已改变，请重新读取")
+        return child
+    require_active_employee(db, payload.primary_person_id, tenant.legal_entity_id)
     normalized = payload.login_identifier.strip().lower()
     duplicate = db.scalar(
         select(Account).where(
@@ -720,16 +811,20 @@ def create_platform_account_child(
         name=f"{parent_asset.name} · {payload.display_name}",
         asset_type_id=account_type.id,
         legal_entity_id=tenant.legal_entity_id,
-        status_value="draft",
+        status_value=parent_asset.status,
         description=(
             "L4公司平台账号下的登录账号/席位明细；不属于六层独立对象，不保存密码。"
             + (f"\n来源说明：{payload.note}" if payload.note else "")
         ),
-        criticality="important" if payload.privilege_level in {"admin", "root"} else "normal",
+        owner_department_id=parent_asset.owner_department_id,
+        ownership_scope=parent_asset.ownership_scope,
+        criticality=parent_asset.criticality,
         source_type="manual",
         created_by_person_id=access.person_id,
-        review_status="pending_review",
+        review_status="not_required",
     )
+    for key in ("confidentiality", "sharing_scope", "started_at", "expires_at", "last_verified_at"):
+        setattr(account_asset, key, getattr(parent_asset, key))
     item = Account(
         asset_id=account_asset.id,
         platform_tenant_id=tenant.id,
@@ -743,8 +838,10 @@ def create_platform_account_child(
         account_kind=payload.account_kind,
         login_method=payload.login_method,
         account_role=payload.account_role,
+        primary_person_id=payload.primary_person_id,
     )
     db.add(item)
+    db.flush()
     db.add(
         AuditLog(
             actor_user_id=access.user.id,
@@ -756,8 +853,12 @@ def create_platform_account_child(
                 "login_identifier": item.login_identifier,
                 "account_kind": item.account_kind,
                 "account_role": item.account_role,
+                "primary_person_id": str(item.primary_person_id) if item.primary_person_id else None,
+                "request_digest": fingerprint,
+                "snapshot": {"primary_person_id": str(item.primary_person_id) if item.primary_person_id else None,
+                             "asset_version": account_asset.version},
             },
-            request_id="workspace-platform-account-child",
+            request_id=str(payload.request_id) if payload.request_id else "workspace-platform-account-child",
         )
     )
     db.commit()
@@ -773,12 +874,31 @@ def create_platform_account_child(
 def create_company_platform_account(
     payload: CompanyPlatformAccountCreate,
     db: Session = Depends(get_db),
-    access: AccessContext = Depends(get_access_context),
+    access: AccessContext = Depends(require_asset_write),
 ) -> IntakeResultRead:
+    previous, fingerprint = (audited_retry(db, access, "platform_account.create", payload, payload.platform_id)
+        if payload.request_id else (None, None))
+    if previous:
+        return previous.after_data["result"]
     require_legal_entity(db, payload.legal_entity_id)
     platform = db.get(Platform, payload.platform_id)
-    if platform is None:
+    if platform is None or platform.archived_at:
         raise HTTPException(status_code=422, detail="所选平台不存在")
+    native_id = (payload.external_identifier_value or "").strip() or None
+    if not native_id and not (payload.evidence_note or "").strip():
+        raise HTTPException(422, "填写平台账号 ID，或在未提供 ID 时说明账号来源")
+    duplicate_key = f"{payload.platform_id}:{payload.legal_entity_id}"
+    if db.bind.dialect.name == "postgresql":
+        db.execute(select(func.pg_advisory_xact_lock(int(hashlib.sha256(duplicate_key.encode()).hexdigest()[:15], 16))))
+    duplicate = db.scalar(select(Asset).join(PlatformTenant, PlatformTenant.asset_id == Asset.id).where(
+        PlatformTenant.platform_id == payload.platform_id,
+        PlatformTenant.legal_entity_id == payload.legal_entity_id,
+        PlatformTenant.archived_at.is_(None), Asset.archived_at.is_(None),
+        (PlatformTenant.tenant_identifier == native_id) if native_id else
+        (func.lower(Asset.name) == payload.internal_name.strip().lower()),
+    ))
+    if duplicate:
+        raise HTTPException(409, f"此账号已经登记：{duplicate.name}（{duplicate.asset_code}），请到平台与账号查看已有记录")
     if payload.ownership_scope not in {"company", "department", "pending"}:
         raise HTTPException(status_code=422, detail="归属范围无效")
     if payload.ownership_scope == "department" and not payload.owner_department_id:
@@ -796,7 +916,7 @@ def create_company_platform_account(
     asset_type = require_asset_type(db, "platform_tenant")
     asset = create_asset(
         db,
-        name=payload.internal_name,
+        name=payload.internal_name.strip(),
         asset_type_id=asset_type.id,
         legal_entity_id=payload.legal_entity_id,
         owner_department_id=payload.owner_department_id,
@@ -808,7 +928,7 @@ def create_company_platform_account(
         asset_id=asset.id,
         platform_id=payload.platform_id,
         legal_entity_id=payload.legal_entity_id,
-        tenant_identifier=payload.external_identifier_value,
+        tenant_identifier=native_id,
         external_identifier_type=payload.external_identifier_type,
         ownership_nature=payload.ownership_nature,
         account_scope=payload.account_scope,
@@ -818,20 +938,11 @@ def create_company_platform_account(
     db.add(tenant)
     db.flush()
     identity_asset: Asset | None = None
-    identity_profile: RegistrationIdentityProfile | None = None
     if payload.registration_identity_asset_id:
         identity_asset = db.get(Asset, payload.registration_identity_asset_id)
         if identity_asset is None:
             raise HTTPException(status_code=422, detail="所选注册身份不存在")
-        require_asset_visible(db, access, identity_asset)
-        if identity_asset.legal_entity_id != payload.legal_entity_id:
-            raise HTTPException(status_code=422, detail="注册身份与平台账号必须属于同一公司")
-        identity_profile = db.scalar(
-            select(RegistrationIdentityProfile).where(
-                RegistrationIdentityProfile.asset_id == identity_asset.id,
-                RegistrationIdentityProfile.archived_at.is_(None),
-            )
-        )
+        identity_profile = require_identity_reference(db, access, identity_asset, payload.legal_entity_id)
         db.add(
             PlatformAccountRegistrationIdentity(
                 platform_tenant_id=tenant.id,
@@ -850,10 +961,6 @@ def create_company_platform_account(
         )
 
     responsible_person_id = payload.responsible_person_id
-    if responsible_person_id is None and identity_profile is not None:
-        responsible_person_id = identity_profile.custodian_person_id
-    if responsible_person_id is None:
-        responsible_person_id = access.person_id
     proposed_person_ids = {
         person_id
         for person_id in [responsible_person_id, *payload.user_person_ids]
@@ -865,9 +972,11 @@ def create_company_platform_account(
         )
     )
     if len({person.id for person in people}) != len(proposed_person_ids) or any(
-        person.legal_entity_id != payload.legal_entity_id for person in people
+        person.employment_status != "active" or person.person_type != "employee"
+        or (person.legal_entity_id != payload.legal_entity_id and not access.is_global_manager)
+        for person in people
     ):
-        raise HTTPException(status_code=422, detail="负责人和使用人员必须属于所选公司")
+        raise HTTPException(status_code=422, detail="请选择在职员工；跨公司协同资料由资产管理员登记")
     if responsible_person_id:
         db.add(
             AssetResponsibility(
@@ -889,7 +998,6 @@ def create_company_platform_account(
             )
     asset.ownership_scope = payload.ownership_scope
     add_discovery_audit(db, access, asset, "platform_account")
-    db.commit()
     links = [
         IntakeLinkRead(kind="platform", label=platform.name, relation="所属平台"),
     ]
@@ -897,7 +1005,7 @@ def create_company_platform_account(
         links.append(
             IntakeLinkRead(
                 kind="registration_identity",
-                label=identity_asset.name,
+                label=identity_profile.identifier_value,
                 relation="主要注册身份",
                 asset_id=identity_asset.id,
             )
@@ -913,7 +1021,7 @@ def create_company_platform_account(
     completion = 55 + 15 + (15 if identity_asset else 0) + (10 if responsible_person_id else 0)
     if tenant.tenant_identifier:
         completion += 5
-    return IntakeResultRead(
+    result = IntakeResultRead(
         id=tenant.id,
         asset_id=asset.id,
         asset_code=asset.asset_code,
@@ -943,6 +1051,12 @@ def create_company_platform_account(
             ),
         ],
     )
+    if payload.request_id:
+        db.add(AuditLog(actor_user_id=access.user.id, action="platform_account.create",
+            object_type="asset", object_id=asset.id, request_id=str(payload.request_id),
+            after_data={"request_digest": fingerprint, "result": result.model_dump(mode="json")}))
+    db.commit()
+    return result
 
 
 @router.post(
@@ -1160,6 +1274,8 @@ def create_access_grant(
     if target is None or target.archived_at is not None:
         raise HTTPException(status_code=422, detail="授权必须明确指向一个有效资产")
     require_asset_visible(db, access, target)
+    if target.is_personal_subscription:
+        raise HTTPException(422, "个人订阅仅本人和管理员可见，不能授权给其他人员或部门")
     if payload.person_id:
         person = db.get(Person, payload.person_id)
         if person is None or person.archived_at is not None:
@@ -1364,7 +1480,7 @@ def get_asset_map(
                     relation="使用平台",
                 ),
             )
-        if service_instance.purchase_tenant_asset_id:
+        if service_instance.purchase_tenant_asset_id in visible_asset_ids:
             edge_id = f"tenant-service:{service_instance.id}"
             edges[edge_id] = MapEdge(
                 id=edge_id,
@@ -1424,6 +1540,7 @@ def get_asset_map(
 
     if include_people:
         add_people_to_map(db, nodes, edges, visible_asset_ids)
+    edges = {key: edge for key, edge in edges.items() if edge.source in nodes and edge.target in nodes}
     if platform_id is not None:
         nodes, edges = scope_asset_map_to_platform(nodes, edges, platform_id)
     referenced = {edge.source for edge in edges.values()} | {edge.target for edge in edges.values()}

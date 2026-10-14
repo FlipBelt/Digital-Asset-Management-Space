@@ -66,11 +66,13 @@ const emptyAction = computed(() => {
   return { to: "/register", label: "登记 AI 成果" };
 });
 const emptyTitle = computed(() => {
+  if (category.value === "subscriptions" && !hasFilters.value) return "你还没有订阅记录";
   if (isWorkflow.value) return hasFilters.value ? "没有找到匹配的工作流" : activeWorkflowView.value === "created" ? "你还没有登记 AI 工作流" : activeWorkflowView.value === "bookmarks" ? "你还没有收藏工作流" : "这里还没有可见的工作流";
   if (isAIDiscovery.value) return keyword.value.trim() || type.value ? "没有找到匹配的 AI 成果" : selectedAIGroup.value ? `${selectedAIGroup.value.label}暂时没有可见成果` : "还没有可见的 AI 成果";
   return hasFilters.value ? "没有找到匹配的资产" : "这里还没有匹配的资产";
 });
 const emptyDescription = computed(() => {
+  if (category.value === "subscriptions" && !hasFilters.value) return "登记正在使用的服务和套餐，之后可在这里查看与维护。";
   if (isAIDiscovery.value && group.value !== "all" && !keyword.value.trim() && !type.value) return "可浏览其他分类，或登记已经形成的 AI 成果，补充实际用法与共享范围。";
   if (hasFilters.value) return "调整关键词或类型，也可以清空筛选重新查找。";
   if (category.value === "bookmarks") return "在资产详情或卡片上收藏，之后可在这里找到。";

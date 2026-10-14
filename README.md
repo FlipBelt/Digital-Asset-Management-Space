@@ -1,4 +1,4 @@
-# FlipBelt 资产中心
+# FlipBelt 数字中心
 
 以账号为重要入口的公司账号与数字资产统一资产库。当前本地版本已经具备真实数据保存、查询、编辑、归档、关系、责任、服务指标、Excel导入导出、流程风险、审计、连接器预留和统一界面框架。新版规范采用白色侧栏、荧黄选中态，见 [设计规范](docs/ASSET-CENTER-DESIGN-SYSTEM.md)。
 
@@ -48,7 +48,7 @@ V1.3 以统一 Asset 底库融合个人空间、成果发现、订阅与探索�
 
 ### 隔离测试环境
 
-服务器测试环境使用独立的 `account_center_test` 数据库、`account-center-test.service`（回环端口 `8200`）和 `/var/www/account-center-test` 静态目录。生产仍使用 `/` 与 `/api/`，测试只通过 `/test/` 与 `/test-api/` 访问。环境切换入口仅位于“管理区 → 系统设置 → 环境管理”，由已认证的 `system_admin` 查看；顶部与侧栏不提供环境切换或环境标签。两套环境使用不同会话 Cookie，互不串会话；测试侧可通过“返回资产中心”回到 `/`，本地预览不提供切换。入口显隐不改变服务端 RBAC 或限制已有测试地址的直接访问。测试库首次创建前的生产快照保存在服务器备份目录，后续新方案、新迁移和版本升级先在测试环境验证，再安排生产发布。
+服务器测试环境使用独立的 `account_center_test` 数据库、`account-center-test.service`（回环端口 `8200`）和 `/var/www/account-center-test` 静态目录。生产仍使用 `/` 与 `/api/`，测试只通过 `/test/` 与 `/test-api/` 访问。环境切换入口仅位于“管理区 → 系统设置 → 环境管理”，由已认证的 `system_admin` 查看；顶部与侧栏不提供环境切换或环境标签。两套环境使用不同会话 Cookie，互不串会话；测试侧可通过“返回数字中心”回到 `/`，本地预览不提供切换。入口显隐不改变服务端 RBAC 或限制已有测试地址的直接访问。测试库首次创建前的生产快照保存在服务器备份目录，后续新方案、新迁移和版本升级先在测试环境验证，再安排生产发布。
 
 测试环境部署单元见 [`deploy/account-center-test.service`](./deploy/account-center-test.service)，Nginx 路由见 [`deploy/account-center.https.nginx.conf`](./deploy/account-center.https.nginx.conf)。测试环境沿用现有钉钉内部应用身份配置。钉钉内支持免登；普通浏览器的 `/login` 提供钉钉网页扫码入口，启用前需完成[网页登录配置](docs/DINGTALK_WEB_LOGIN.md)。未配置时入口显示原因并保持禁用，也可使用管理员已开通的系统账号。测试服务与生产使用相同 RBAC 逻辑；`APP_ENV=test` 不授予额外操作权限。中心/职能部门主管可管理自己的部门及下级，小组组长仅管理本组，系统设置仍只向已明确授权的系统管理员开放。
 

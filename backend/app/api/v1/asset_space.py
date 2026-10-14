@@ -36,7 +36,10 @@ from app.models import (
 from app.schemas.assets import AssetRead
 from app.schemas.catalog import AssetTypeRead
 from app.schemas.common import ListResponse, Pagination
+from app.services.account_structure import child_account_clause, communication_resource_clause
+from app.services.asset_presentation import asset_list_reads
 from app.services.assets import allocate_asset_code, ensure_internal_identifier
+from app.services.personal_subscription_policy import personal_subscription_clause
 
 router = APIRouter(tags=["asset-space"])
 AI_ASSISTED_CODES = ("internal_system", "automation_script")
@@ -152,14 +155,7 @@ def personal_scope(person_id, department_id, category):
     if category == "using":
         return or_(responsible, using, granted)
     if category == "drafts":
-        personal_subscription = and_(
-            Asset.source_system.is_not(None),
-            Asset.source_system == "membership-registration",
-            Asset.asset_type_id.in_(
-                select(AssetType.id).where(AssetType.code == "saas_subscription")
-            ),
-        )
-        return and_(created, Asset.status == "draft", ~personal_subscription)
+        return and_(created, Asset.status == "draft", ~personal_subscription_clause())
     if category == "subscriptions":
         return and_(
             mine,
@@ -198,9 +194,12 @@ def space_assets(
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
 ):
-    conditions = [Asset.archived_at.is_(None), asset_visibility_clause(access)]
+    conditions = [Asset.archived_at.is_(None), asset_visibility_clause(access),
+                  ~child_account_clause(), ~communication_resource_clause()]
     person = db.get(Person, access.person_id) if access.person_id else None
     if scope == "mine":
+        if category == "all":
+            conditions.append(~personal_subscription_clause())
         conditions.append(
             personal_scope(access.person_id, person.department_id if person else None, category)
             if access.person_id
@@ -248,7 +247,7 @@ def space_assets(
         .limit(page_size)
     )
     return ListResponse[AssetRead](
-        data=[AssetRead.model_validate(a) for a in rows],
+        data=asset_list_reads(db, rows),
         pagination=Pagination(page=page, page_size=page_size, total=total),
     )
 
@@ -260,7 +259,8 @@ def space_groups(
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
 ):
-    conditions = [Asset.archived_at.is_(None), asset_visibility_clause(access)]
+    conditions = [Asset.archived_at.is_(None), asset_visibility_clause(access),
+                  ~child_account_clause(), ~communication_resource_clause()]
     if scope == "team":
         person = db.get(Person, access.person_id) if access.person_id else None
         selected = department_id or (person.department_id if person else None)
@@ -522,6 +522,8 @@ def space_summary(
                 .select_from(Asset)
                 .where(
                     Asset.archived_at.is_(None),
+                    ~child_account_clause(),
+                    ~communication_resource_clause(),
                     asset_visibility_clause(access),
                     personal_scope(access.person_id, None, category),
                 )

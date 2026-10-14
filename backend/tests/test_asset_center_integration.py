@@ -557,11 +557,14 @@ def test_concurrent_cancel_and_confirm_have_one_outcome(actors):
 
 # Discovery and self-service applications must not weaken the registration boundary.
 def employee_request_payload(**fields):
+    with SessionLocal() as db:
+        platform_id = str(db.scalar(select(Platform.id).where(Platform.archived_at.is_(None))))
     body = dict(
         request_id=str(uuid4()),
         request_type="seat",
         resource_name="隔离测试工具",
         purpose="仅用于隔离申请验证",
+        platform_id=platform_id,
     )
     body.update(fields)
     return body

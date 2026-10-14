@@ -175,6 +175,7 @@ const navigationContext = computed(() => route.path.startsWith("/discover/")
   ? assetReturnContext(route.query.returnTo)
   : { path: route.path, category: route.query.category === "workflows" ? "workflows" : "all" });
 function isNavActive(to: string) {
+  if (to === "/my/subscriptions") return route.path === "/my/subscriptions" || route.path === "/memberships/new";
   if (to === "/workflows") {
     return navigationContext.value.path === "/workflows" || (navigationContext.value.path === "/discover" && navigationContext.value.category === "workflows");
   }
@@ -458,13 +459,13 @@ onBeforeUnmount(() => { window.clearTimeout(searchTimer); ++searchSequence; wind
   <div class="app-shell new-shell" :class="{ 'login-shell': route.path === '/login' }">
     <button v-if="mobileOpen" class="fusion-nav-backdrop" aria-label="关闭导航" @click="mobileOpen = false" />
     <aside id="asset-navigation" class="primary-sidebar" :class="{ 'mobile-open': mobileOpen }"
-      :role="mobileOpen ? 'dialog' : undefined" :aria-modal="mobileOpen ? true : undefined" aria-label="资产中心导航">
+      :role="mobileOpen ? 'dialog' : undefined" :aria-modal="mobileOpen ? true : undefined" aria-label="数字中心导航">
       <button v-if="mobileOpen" class="icon-button fusion-nav-close" aria-label="关闭侧栏" @click="mobileOpen = false"><X :size="20" aria-hidden="true" /></button>
       <RouterLink to="/my" class="brand-block" @click="mobileOpen = false">
         <img :src="logoUrl" alt="FlipBelt" class="fusion-brand-logo" />
-        <span>飞比特 · 资产中心</span>
+        <span>飞比特 · 数字中心</span>
       </RouterLink>
-      <nav class="primary-nav" aria-label="资产中心导航">
+      <nav class="primary-nav" aria-label="数字中心导航">
         <section class="nav-group" aria-labelledby="personal-nav-heading">
           <h2 id="personal-nav-heading" class="nav-section-label">我的空间</h2>
           <RouterLink v-for="item in personalNav" :key="item.to" :to="item.to" class="nav-item"

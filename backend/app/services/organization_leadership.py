@@ -19,6 +19,7 @@ from app.models import (
 
 POLICY_KEY = "dingtalk_leadership_policy"
 LEADERSHIP_ROLES = {"department_manager", "group_leader"}
+MANUAL_PERMISSION_POLICY_KEY = "permission_management_policy"
 
 
 def leadership_policy(db: Session) -> dict:
@@ -42,12 +43,14 @@ def department_leadership_role(department: Department, policy: dict) -> str | No
 def resolved_role_scopes(db: Session, user_id: UUID) -> list[tuple[str, str, UUID | None]]:
     rows = list(
         db.execute(
-            select(Role.code, UserRoleScope.scope_type, UserRoleScope.scope_id)
+            select(Role.code, UserRoleScope.scope_type, UserRoleScope.scope_id, UserRoleScope.id)
             .join(UserRoleScope, UserRoleScope.role_id == Role.id)
             .where(UserRoleScope.user_id == user_id)
         ).all()
     )
     policy = leadership_policy(db)
+    manual_setting = db.scalar(select(AppSetting).where(AppSetting.key == MANUAL_PERMISSION_POLICY_KEY))
+    manual_ids = set((manual_setting.value or {}).get("manual_role_scope_ids", [])) if manual_setting else set()
     user = db.get(User, user_id)
     person = db.get(Person, user.person_id) if user and user.person_id else None
     profile = (
@@ -61,7 +64,7 @@ def resolved_role_scopes(db: Session, user_id: UUID) -> list[tuple[str, str, UUI
         or not profile
         or str(person.legal_entity_id) != policy["legal_entity_id"]
     ):
-        return [tuple(row) for row in rows]
+        return [tuple(row[:3]) for row in rows]
     source_departments = {
         d.id: d
         for d in db.scalars(
@@ -73,14 +76,15 @@ def resolved_role_scopes(db: Session, user_id: UUID) -> list[tuple[str, str, UUI
     # Preserve stored grants for rollback. For linked DingTalk units the current
     # membership and confirmed unit kind determine their effective leadership.
     effective = {
-        tuple(row)
+        tuple(row[:3])
         for row in rows
         if not (
             row[0] in LEADERSHIP_ROLES and row[1] == "department" and row[2] in source_departments
+            and str(row[3]) not in manual_ids
         )
     }
     if (profile.profile_data or {}).get("directory_status") == "not_in_current_directory":
-        return [tuple(row) for row in rows]
+        return [tuple(row[:3]) for row in rows]
     for membership in db.scalars(
         select(DepartmentMembership).where(
             DepartmentMembership.person_id == person.id,
