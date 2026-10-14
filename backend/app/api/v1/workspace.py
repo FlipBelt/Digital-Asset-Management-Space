@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from openpyxl import load_workbook
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.access import (
@@ -89,6 +90,7 @@ from app.schemas.workspace import (
     RegistrationIdentityCreate,
     RegistrationIdentityNameWrite,
     RegistrationIdentityRead,
+    RegistrationIdentityWrite,
     ResourceCreate,
 )
 from app.services.account_binding import require_active_employee
@@ -286,6 +288,40 @@ def reconcile_contacts(
         request_id=str(payload.request_id), after_data={"request_digest": fingerprint,
             "result": [row.model_dump(mode="json") for row in result]}))
     db.commit()
+    return result
+
+
+@router.patch("/workspace/registration-identities/{asset_id}", response_model=RegistrationIdentityRead)
+def update_registration_identity(
+    asset_id: UUID,
+    payload: RegistrationIdentityWrite,
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(require_asset_write),
+):
+    if not access.is_global_manager:
+        raise HTTPException(403, "修改注册与登录标识需要资产管理员权限")
+    previous, fingerprint = audited_retry(db, access, "registration_identity.update", payload, asset_id)
+    if previous:
+        asset = lock_asset(db, asset_id)
+        profile = db.scalar(select(RegistrationIdentityProfile).where(
+            RegistrationIdentityProfile.asset_id == asset_id, RegistrationIdentityProfile.archived_at.is_(None),
+        ))
+        if asset is None or profile is None or asset.archived_at or asset.status == "deleted":
+            raise HTTPException(404, "注册与登录标识不存在或已删除")
+        if asset.version != previous.after_data.get("version"):
+            raise HTTPException(409, "标识资料已有变化，请重新读取")
+        return contact_read(db, profile, asset)
+    try:
+        result = save_contact(db, access, payload, None, payload.source_note.strip(), asset_id=asset_id)
+        db.add(AuditLog(actor_user_id=access.user.id, action="registration_identity.update",
+            object_type="asset", object_id=asset_id, request_id=str(payload.request_id),
+            after_data={"request_digest": fingerprint, "version": result.version}))
+        db.commit()
+    except IntegrityError as cause:
+        db.rollback()
+        if getattr(cause.orig, "sqlstate", None) != "23505":
+            raise
+        raise HTTPException(409, "该标识已登记或资料已有变化，请刷新后核对") from None
     return result
 
 

@@ -85,6 +85,13 @@ class RegistrationIdentityNameWrite(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class RegistrationIdentityWrite(ContactReconcileRow):
+    request_id: UUID
+    expected_version: int = Field(ge=1)
+    identity_type: Literal["phone", "email", "username", "wechat", "other"]
+    source_note: str = Field(min_length=1, max_length=2000)
+
+
 class CompanyPlatformAccountCreate(BaseModel):
     platform_id: UUID
     legal_entity_id: UUID

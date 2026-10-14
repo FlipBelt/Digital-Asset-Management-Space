@@ -108,18 +108,45 @@ def require_identity_reference(db, access, identity, company_id):
     return profile
 
 
-def save_contact(db, access, row, asset_type, source_note):
-    value, kind = normalize_identifier(row.identifier)
-    fingerprint = hashlib.sha256(value.encode()).hexdigest()
+def save_contact(db, access, row, asset_type, source_note, *, asset_id=None):
+    if asset_id is not None and row.identity_type not in ("phone", "email"):
+        value, kind = row.identifier.strip(), row.identity_type
+        if not value or any(ord(char) < 32 for char in value):
+            raise HTTPException(422, "请填写有效的用户名或账号标识")
+    else:
+        value, kind = normalize_identifier(row.identifier)
+        if asset_id is not None and kind != row.identity_type:
+            raise HTTPException(422, "标识内容与所选类型不一致，请核对手机号或邮箱格式")
+    if not source_note.strip():
+        raise HTTPException(422, "请注明核对资料的来源")
+    fingerprint = hashlib.sha256(value.lower().encode()).hexdigest()
     if db.bind.dialect.name == "postgresql":
         db.execute(select(func.pg_advisory_xact_lock(int(fingerprint[:15], 16))))
+    asset = None
+    if asset_id is not None:
+        asset = db.scalar(select(Asset).where(Asset.id == asset_id).with_for_update()
+                          .execution_options(populate_existing=True))
     profile = db.scalar(
         select(RegistrationIdentityProfile)
         .where(
-            RegistrationIdentityProfile.identifier_fingerprint == fingerprint,
+            RegistrationIdentityProfile.asset_id == asset_id if asset_id is not None
+            else RegistrationIdentityProfile.identifier_fingerprint == fingerprint,
         )
         .with_for_update()
     )
+    if asset_id is not None:
+        if profile is None or asset is None or profile.archived_at or asset.archived_at or asset.status == "deleted":
+            raise HTTPException(404, "注册与登录标识不存在或已删除")
+        # Historical imports may store formatted numbers with a different fingerprint.
+        for candidate in db.scalars(select(RegistrationIdentityProfile).where(
+            RegistrationIdentityProfile.asset_id != asset_id,
+        )):
+            try:
+                candidate_value = normalize_identifier(candidate.identifier_value)[0]
+            except HTTPException:
+                candidate_value = candidate.identifier_value.strip()
+            if candidate.identifier_fingerprint == fingerprint or candidate_value.lower() == value.lower():
+                raise HTTPException(409, "该标识已登记，请使用已有记录；已删除的记录请先核对回收站")
     entity = db.get(LegalEntity, row.legal_entity_id) if row.legal_entity_id else None
     if row.legal_entity_id and (entity is None or entity.archived_at):
         raise HTTPException(422, "所选公司不存在")
@@ -138,11 +165,14 @@ def save_contact(db, access, row, asset_type, source_note):
         or department.legal_entity_id != row.legal_entity_id
     ):
         raise HTTPException(422, "通讯资源的使用部门不属于所选公司")
-    if not custodian and not department:
+    if not custodian and not department and (
+        asset_id is None or profile.custodian_person_id or asset.owner_department_id
+    ):
         raise HTTPException(422, "请选择保管同事，或为共用号码选择使用部门")
     before = None
     if profile:
-        asset = db.scalar(select(Asset).where(Asset.id == profile.asset_id).with_for_update())
+        if asset is None:
+            asset = db.scalar(select(Asset).where(Asset.id == profile.asset_id).with_for_update())
         if profile.archived_at or asset is None or asset.archived_at or asset.status == "deleted":
             raise HTTPException(409, "已有通讯资源已归档，请先在回收站核对")
         if not can_manage_asset(db, access, asset):
@@ -151,11 +181,21 @@ def save_contact(db, access, row, asset_type, source_note):
             raise HTTPException(409, "通讯资源已有更新，请刷新预览后再保存")
         before = {
             "version": asset.version,
+            "identifier": profile.identifier_value,
+            "identity_type": profile.identity_type,
             "custodian": str(profile.custodian_person_id),
             "company": str(asset.legal_entity_id),
             "department": str(asset.owner_department_id),
             "verification_status": profile.verification_status,
         }
+        if asset_id is not None:
+            labels = ("手机号", "邮箱", "用户名", "账号", "注册身份", "微信身份", "微信标识")
+            if asset.name in {f"{label} · {profile.identifier_value}" for label in labels}:
+                label = {"phone": "手机号", "email": "邮箱", "username": "用户名", "wechat": "微信标识"}.get(kind, "账号")
+                asset.name = f"{label} · {value}"
+            profile.identifier_value = profile.identifier_masked = value
+            profile.identifier_fingerprint = fingerprint
+            profile.identity_type = kind
         asset.version += 1
     else:
         if row.expected_version is not None:
@@ -182,8 +222,9 @@ def save_contact(db, access, row, asset_type, source_note):
     asset.owner_department_id = row.owner_department_id
     asset.ownership_scope = "department" if department else "company"
     asset.description = "\n".join(value for value in (row.note, source_note) if value)
-    asset.status = "active"
-    asset.review_status = "not_required"
+    if asset_id is None:
+        asset.status = "active"
+        asset.review_status = "not_required"
     profile.source_nature = row.source_nature
     profile.custodian_person_id = row.custodian_person_id
     profile.verification_status = row.verification_status
@@ -198,12 +239,12 @@ def save_contact(db, access, row, asset_type, source_note):
         )
     )
     # Use the explicit source holder; a shared resource is a department responsibility.
-    if responsibility:
+    if responsibility and (custodian or department):
         responsibility.person_id = row.custodian_person_id
         responsibility.department_id = None if custodian else row.owner_department_id
         responsibility.starts_at = None
         responsibility.ends_at = None
-    else:
+    elif responsibility is None and (custodian or department):
         db.add(
             AssetResponsibility(
                 asset_id=asset.id,
@@ -235,11 +276,14 @@ def save_contact(db, access, row, asset_type, source_note):
     db.add(
         AuditLog(
             actor_user_id=access.user.id,
-            action="contact.reconcile.row",
+            action="registration_identity.update.row" if asset_id is not None else "contact.reconcile.row",
             object_type="asset",
             object_id=asset.id,
             before_data=before,
             after_data={
+                "version": asset.version,
+                "identifier": profile.identifier_value,
+                "identity_type": profile.identity_type,
                 "custodian": str(row.custodian_person_id),
                 "company": str(row.legal_entity_id),
                 "department": str(row.owner_department_id),

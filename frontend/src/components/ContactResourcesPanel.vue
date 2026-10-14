@@ -9,6 +9,7 @@ defineProps<{ canManage: boolean }>();
 const rows = ref<RegistrationIdentity[]>([]), people = ref<Person[]>([]), departments = ref<Department[]>([]), companies = ref<LegalEntity[]>([]);
 const loading = ref(true), saving = ref(false), error = ref(""), message = ref(""), query = ref(""), trash = ref(false);
 const editing = ref(false), batch = ref(false), input = ref(""), source = ref(""), company = ref("");
+const editingIdentity = ref<RegistrationIdentity | null>(null), identityType = ref("phone");
 const form = reactive<ContactRow>({ identifier: "", legal_entity_id: null, custodian_person_id: null, owner_department_id: null, source_nature: "company_owned", verification_status: "documented", registration_blocked: false, expected_version: null, note: "" });
 const action = ref<"rename" | "delete" | "restore">("rename"), selected = ref<RegistrationIdentity | null>(null), name = ref(""), actionError = ref("");
 let requestId = crypto.randomUUID(), previousPayload = "", actionRequestId = crypto.randomUUID(), previousActionPayload = "";
@@ -37,6 +38,9 @@ async function load() {
 async function switchTrash() { trash.value = !trash.value; editing.value = false; query.value = ""; await load(); }
 function edit(row?: RegistrationIdentity) {
   batch.value = false; editing.value = true; source.value = ""; error.value = "";
+  editingIdentity.value = row || null;
+  identityType.value = row ? (["phone", "email", "username", "wechat", "other"].includes(row.identity_type) ? row.identity_type : "other") : "phone";
+  requestId = crypto.randomUUID(); previousPayload = "";
   Object.assign(form, { identifier: row?.identifier || "", legal_entity_id: row?.legal_entity_id || null,
     custodian_person_id: row?.custodian_person_id || null, owner_department_id: row?.owner_department_id || null,
     source_nature: row?.source_nature || "company_owned", verification_status: "documented",
@@ -64,6 +68,7 @@ async function applyAction() {
   finally { saving.value = false; }
 }
 async function save() {
+  if (saving.value) return;
   error.value = ""; message.value = "";
   if (!source.value.trim()) { error.value = "请注明核对资料的来源"; return; }
   let contacts: ContactRow[];
@@ -71,17 +76,29 @@ async function save() {
     if (!preview.value.rows.length || preview.value.errors.length) { error.value = "请先处理预览中的问题"; return; }
     contacts = preview.value.rows;
   } else {
-    const identifier = contactIdentifier(form.identifier);
-    if (!identifier) { error.value = "请填写有效手机号或邮箱；用户名等标识请使用登记标识入口。"; return; }
+    const identifier = editingIdentity.value && !["phone", "email"].includes(identityType.value)
+      ? form.identifier.trim() : contactIdentifier(form.identifier);
+    if (!identifier) { error.value = "请填写有效的标识内容，手机号与邮箱请核对格式。"; return; }
+    if (editingIdentity.value && ["phone", "email"].includes(identityType.value) && (identifier.includes("@") ? "email" : "phone") !== identityType.value) {
+      error.value = "标识内容与所选类型不一致，请核对手机号或邮箱格式。"; return;
+    }
     const existing = rows.value.find(row => contactIdentifier(row.identifier) === identifier);
     contacts = [{ ...form, identifier, expected_version: form.expected_version ?? existing?.version ?? null }];
   }
-  const body = { rows: contacts, source_note: source.value.trim() }, snapshot = JSON.stringify(body);
+  const target = !batch.value ? editingIdentity.value : null;
+  const body = target ? { ...contacts[0], identity_type: identityType.value, source_note: source.value.trim() }
+    : { rows: contacts, source_note: source.value.trim() };
+  const snapshot = JSON.stringify({ target: target?.asset_id, body });
   if (previousPayload && previousPayload !== snapshot) requestId = crypto.randomUUID();
   previousPayload = snapshot; saving.value = true;
   try {
-    const result = await api.reconcileContacts({ ...body, request_id: requestId });
-    message.value = result.length + " 条标识已登记 / 更新；已按资料核对，未进行短信或邮箱验证。";
+    if (target) {
+      await api.updateRegistrationIdentity(target.asset_id, { ...body, request_id: requestId });
+      message.value = "标识资料已保存，原记录编号和平台引用保留；未进行短信或邮箱验证。";
+    } else {
+      const result = await api.reconcileContacts({ ...body, request_id: requestId });
+      message.value = result.length + " 条标识已登记 / 更新；已按资料核对，未进行短信或邮箱验证。";
+    }
     editing.value = false; batch.value = false; input.value = ""; requestId = crypto.randomUUID(); previousPayload = "";
     await load();
   } catch (cause) { error.value = cause instanceof Error ? cause.message : "保存失败"; }
@@ -91,15 +108,19 @@ onMounted(load);
 </script>
 <template>
   <section class="content-panel contact-panel">
-    <header><div><h2>{{ trash ? '注册与登录标识回收站' : '注册与登录标识' }}</h2><p>统一维护手机号、邮箱及用户名等账号标识，先登记保管同事或使用部门，再由平台账号引用。</p></div><div v-if="canManage" class="contact-actions"><template v-if="!trash"><RouterLink class="secondary-button" to="/intake?mode=identity">登记标识</RouterLink><button class="secondary-button" @click="edit()">登记手机号 / 邮箱</button><button class="secondary-button" @click="batch = true; editing = true; error = ''; source = ''">批量登记</button></template><button class="secondary-button" :disabled="loading || saving" @click="switchTrash">{{ trash ? '返回标识管理' : '回收站' }}</button></div></header>
+    <header><div><h2>{{ trash ? '注册与登录标识回收站' : '注册与登录标识' }}</h2><p>统一维护手机号、邮箱及用户名等账号标识，先登记保管同事或使用部门，再由平台账号引用。</p></div><div v-if="canManage" class="contact-actions"><template v-if="!trash"><RouterLink class="secondary-button" to="/intake?mode=identity">登记标识</RouterLink><button class="secondary-button" :disabled="saving" @click="edit()">登记手机号 / 邮箱</button><button class="secondary-button" :disabled="saving" @click="batch = true; editing = true; error = ''; source = ''">批量登记</button></template><button class="secondary-button" :disabled="loading || saving" @click="switchTrash">{{ trash ? '返回标识管理' : '回收站' }}</button></div></header>
     <p v-if="message" class="message-panel success-message" role="status">{{ message }}</p><p v-if="error" class="message-panel error-message" role="alert">{{ error }}</p>
     <form v-if="editing && canManage" class="contact-form" @submit.prevent="save">
       <template v-if="batch"><label>归属公司（共用号码）<select v-model="company" required><option value="" disabled>选择公司</option><option v-for="row in companies" :key="row.id" :value="row.id">{{ row.name }}</option></select></label><label class="wide">粘贴手机号 / 邮箱资料<textarea v-model="input" rows="7" required placeholder="每行：手机号或邮箱〔Tab〕使用人〔Tab〕使用部门〔Tab〕说明。共用使用人填转发器、前台手机或共用。" /></label><p class="wide form-hint">人员按唯一在职姓名匹配，已有标识按原记录更新；无法匹配的行需先核对。</p><p v-for="item in preview.errors" :key="item" class="wide error-message">{{ item }}</p><div v-if="preview.rows.length" class="wide contact-table-wrap"><table><caption>保存预览 · {{ preview.rows.length }} 条</caption><thead><tr><th>标识内容</th><th>同事 / 使用部门</th><th>操作</th><th>使用限制</th></tr></thead><tbody><tr v-for="row in preview.rows" :key="row.identifier"><td>{{ row.identifier }}</td><td>{{ personName(row.custodian_person_id) }}<small>{{ departmentName(row.owner_department_id) }}</small></td><td>{{ row.expected_version ? '更新已有记录' : '新增登记' }}</td><td>{{ row.registration_blocked ? '禁止用于注册' : '未注明限制' }}</td></tr></tbody></table></div></template>
-      <template v-else><label>手机号 / 邮箱<input v-model="form.identifier" required :disabled="!!form.expected_version" /></label><label>标识归属公司<select v-model="form.legal_entity_id" required><option :value="null" disabled>选择公司</option><option v-for="row in companies" :key="row.id" :value="row.id">{{ row.name }}</option></select></label><PeoplePicker id="contact-holder" v-model:person-id="form.custodian_person_id" label="保管同事（共用可留空）" :people="people.filter(row => row.legal_entity_id === form.legal_entity_id)" :departments="departments" :disabled="saving" /><label>使用部门<select v-model="form.owner_department_id"><option :value="null">未登记部门</option><option v-for="row in departments.filter(row => row.legal_entity_id === form.legal_entity_id)" :key="row.id" :value="row.id">{{ row.name }}</option></select></label><label class="wide">说明<textarea v-model="form.note" rows="3" /></label><label class="contact-check wide"><input v-model="form.registration_blocked" type="checkbox" />禁止用于平台注册（例如法人保留号码）</label></template>
+      <template v-else>
+        <p v-if="editingIdentity" class="wide form-hint">正在修改 {{ editingIdentity.asset_code }}。更正标识后，原编号和平台引用保留；此操作不会更改外部平台的实际登录账号。</p>
+        <label v-if="editingIdentity">标识类型<select v-model="identityType" :disabled="saving"><option value="phone">手机号</option><option value="email">邮箱</option><option value="username">用户名</option><option value="wechat">微信标识</option><option value="other">账号 / 其他标识</option></select></label>
+        <label>{{ editingIdentity ? '标识内容' : '手机号 / 邮箱' }}<input v-model="form.identifier" required maxlength="500" :disabled="saving" autocomplete="off" /></label>
+        <label>标识归属公司<select v-model="form.legal_entity_id" :required="!editingIdentity" :disabled="saving"><option :value="null" :disabled="!editingIdentity">{{ editingIdentity ? '暂未登记公司' : '选择公司' }}</option><option v-for="row in companies" :key="row.id" :value="row.id">{{ row.name }}</option></select></label><PeoplePicker id="contact-holder" v-model:person-id="form.custodian_person_id" label="保管同事（共用可留空）" :people="people.filter(row => row.legal_entity_id === form.legal_entity_id)" :departments="departments" :disabled="saving" /><label>使用部门<select v-model="form.owner_department_id"><option :value="null">未登记部门</option><option v-for="row in departments.filter(row => row.legal_entity_id === form.legal_entity_id)" :key="row.id" :value="row.id">{{ row.name }}</option></select></label><label class="wide">说明<textarea v-model="form.note" rows="3" /></label><label class="contact-check wide"><input v-model="form.registration_blocked" type="checkbox" />禁止用于平台注册（例如法人保留号码）</label></template>
       <label class="wide">核对资料来源 *<input v-model="source" required placeholder="例如：公司号码使用情况表及核对日期" /></label><div class="contact-actions wide"><button type="button" class="secondary-button" :disabled="saving" @click="editing = false">取消</button><button class="primary-button" :disabled="saving || (batch && (!!preview.errors.length || !preview.rows.length))">{{ saving ? '保存中…' : '保存标识资料' }}</button></div>
     </form>
     <p v-if="loading" role="status">正在读取注册与登录标识…</p>
-    <template v-else><label class="contact-search">搜索注册与登录标识<input v-model="query" type="search" placeholder="名称、手机号、邮箱、用户名、同事或部门" /></label><div class="contact-table-wrap"><table><caption>共 {{ visible.length }} 条{{ trash ? '已删除标识' : '注册与登录标识' }} · 按员工分为 {{ employeeGroups.length }} 组</caption><thead><tr><th scope="col">名称 / 登录标识</th><th scope="col">保管同事 / 使用部门</th><th scope="col">资料状态</th><th scope="col">操作</th></tr></thead><tbody v-for="group in employeeGroups" :key="group.id"><tr class="employee-group-heading"><td colspan="4"><button class="employee-group-toggle" :aria-expanded="!collapsedGroups.includes(group.id)" @click="toggleGroup(group.id)"><ChevronRight v-if="collapsedGroups.includes(group.id)" :size="16" aria-hidden="true" /><ChevronDown v-else :size="16" aria-hidden="true" /><UserRound v-if="group.person" :size="18" aria-hidden="true" /><Users v-else :size="18" aria-hidden="true" /><strong>{{ group.person?.display_name || '部门共用 / 待补保管人' }}</strong><span v-if="group.person">{{ departmentName(group.person.department_id) }}{{ group.person.employment_status === 'departed' ? ' · 已离职' : '' }}</span><span class="group-count">{{ group.items.length }} 条标识</span></button></td></tr><tr v-for="row in collapsedGroups.includes(group.id) ? [] : group.items" :key="row.asset_id"><td><strong>{{ row.name }}</strong><small>{{ typeName(row) }} · {{ row.identifier }}</small><small v-if="row.registration_blocked" class="error-message">禁止用于平台注册</small></td><td>{{ personName(row.custodian_person_id) }}<small>{{ departmentName(row.owner_department_id) }}</small></td><td>{{ trash ? '已删除' : row.verification_status === 'documented' ? '已按资料登记' : row.verification_status === 'verified' ? '已核验' : '资料待核对' }}</td><td><div class="row-actions"><template v-if="canManage && !trash"><button class="secondary-button" :disabled="saving" @click="openAction(row, 'rename')">修改名称</button><button v-if="contactIdentifier(row.identifier)" class="text-button" :disabled="saving" @click="edit(row)">修改资料</button><button class="text-button deletion-button" :disabled="saving" @click="openAction(row, 'delete')">删除</button></template><button v-if="canManage && trash" class="secondary-button" :disabled="saving" @click="openAction(row, 'restore')">恢复</button><RouterLink v-if="!trash" :to="'/assets/' + row.asset_id + '?tab=relations'">查看引用</RouterLink></div></td></tr></tbody></table><p v-if="!visible.length" class="mini-empty">{{ query ? '没有匹配资料，请调整搜索。' : trash ? '回收站为空。' : '尚未登记注册或登录标识。' }}</p></div></template>
+    <template v-else><label class="contact-search">搜索注册与登录标识<input v-model="query" type="search" placeholder="名称、手机号、邮箱、用户名、同事或部门" /></label><div class="contact-table-wrap"><table><caption>共 {{ visible.length }} 条{{ trash ? '已删除标识' : '注册与登录标识' }} · 按员工分为 {{ employeeGroups.length }} 组</caption><thead><tr><th scope="col">名称 / 登录标识</th><th scope="col">保管同事 / 使用部门</th><th scope="col">资料状态</th><th scope="col">操作</th></tr></thead><tbody v-for="group in employeeGroups" :key="group.id"><tr class="employee-group-heading"><td colspan="4"><button class="employee-group-toggle" :aria-expanded="!collapsedGroups.includes(group.id)" @click="toggleGroup(group.id)"><ChevronRight v-if="collapsedGroups.includes(group.id)" :size="16" aria-hidden="true" /><ChevronDown v-else :size="16" aria-hidden="true" /><UserRound v-if="group.person" :size="18" aria-hidden="true" /><Users v-else :size="18" aria-hidden="true" /><strong>{{ group.person?.display_name || '部门共用 / 待补保管人' }}</strong><span v-if="group.person">{{ departmentName(group.person.department_id) }}{{ group.person.employment_status === 'departed' ? ' · 已离职' : '' }}</span><span class="group-count">{{ group.items.length }} 条标识</span></button></td></tr><tr v-for="row in collapsedGroups.includes(group.id) ? [] : group.items" :key="row.asset_id"><td><strong>{{ row.name }}</strong><small>{{ typeName(row) }} · {{ row.identifier }}</small><small v-if="row.registration_blocked" class="error-message">禁止用于平台注册</small></td><td>{{ personName(row.custodian_person_id) }}<small>{{ departmentName(row.owner_department_id) }}</small></td><td>{{ trash ? '已删除' : row.verification_status === 'documented' ? '已按资料登记' : row.verification_status === 'verified' ? '已核验' : '资料待核对' }}</td><td><div class="row-actions"><template v-if="canManage && !trash"><button class="secondary-button" :disabled="saving" @click="openAction(row, 'rename')">修改名称</button><button class="text-button" :disabled="saving" @click="edit(row)">修改资料</button><button class="text-button deletion-button" :disabled="saving" @click="openAction(row, 'delete')">删除</button></template><button v-if="canManage && trash" class="secondary-button" :disabled="saving" @click="openAction(row, 'restore')">恢复</button><RouterLink v-if="!trash" :to="'/assets/' + row.asset_id + '?tab=relations'">查看引用</RouterLink></div></td></tr></tbody></table><p v-if="!visible.length" class="mini-empty">{{ query ? '没有匹配资料，请调整搜索。' : trash ? '回收站为空。' : '尚未登记注册或登录标识。' }}</p></div></template>
     <ModalPanel v-if="selected" :title="action === 'rename' ? '修改标识名称' : action === 'delete' ? '删除注册与登录标识' : '恢复注册与登录标识'" trap-focus @close="closeAction">
       <p>{{ selected.name }}</p><p>{{ typeName(selected) }} · {{ selected.identifier }}</p>
       <label v-if="action === 'rename'" class="contact-search">名称<input v-model="name" maxlength="200" :disabled="saving" /></label>
