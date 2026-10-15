@@ -33,6 +33,12 @@
 
 16 个旧 P0、Sites 预览和替换前置事项统一在 [FBC-38：历史范围复核](https://linear.app/j21nianyi/issue/FBC-38) 映射为已替代、已有技术证据但待 UAT、仍有能力缺口。原历史勾选不由迁移动作更改。
 
+## 全局任务日志补充迁移
+
+核对全局任务日志后，补充 [FBC-41：历史发布包清理](https://linear.app/j21nianyi/issue/FBC-41)。该项仅保留原有等待专项授权的承诺，不执行生产删除。
+
+全局旧 ID 的活动入口统一映射：AI-PILOT-HUMANS-001 → FBC-21；FB-AIAC-WEB-LOGIN-20260928 → FBC-22；AI-CONNECTOR-UAT-001 → FBC-24；FB-AIAC-ORG-DATA-20260929 → FBC-23 / FBC-29；ASSET-LOGIN-UAT-20261010 → FBC-28；ASSET-SERVICE-CATALOG-UAT-20261010 → FBC-30。早期 START、Sites UX 和 V1.3 预览承诺统一由 FBC-38 做历史范围复核，不据旧方案重新启动开发。
+
 ## 现有 Pull Request
 
 2026-10-15 回读：以下六个 PR 均为 Draft / Open / 未合并。早期 PR 是阶段快照，不能据此推断当前线上版本。各阶段分支为累积堆叠；审查和主线收敛单独进行。
