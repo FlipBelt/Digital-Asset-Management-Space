@@ -1,5 +1,7 @@
 # 集团账号管理中台
 
+> 项目管理：活动任务统一在 [Linear：数字中心｜AI 资产中心](https://linear.app/j21nianyi/project/数字中心ai-资产中心-d8ccb7e5469f) 跟踪；GitHub 保存代码、PR 与版本证据。任务迁移、人工验收和集成边界见 [项目管理](docs/PROJECT-MANAGEMENT.md)。历史 Draft PR 的技术发布状态不等于已合并 main。
+
 以账号为重要入口的公司账号与数字资产统一底库。当前本地版本已经具备真实数据保存、查询、编辑、归档、关系、责任、服务指标、Excel导入导出、流程风险、审计、连接器预留和统一的 FlipBelt v4 视觉主题。
 
 ## 直接使用
