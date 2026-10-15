@@ -1,6 +1,6 @@
 # 平台账号补充入口与订阅用量收口
 
-关联任务：[FBC-187](https://linear.app/j21nianyi/issue/FBC-187)。本轮为本地候选，尚未推送或部署。
+关联任务：[FBC-187](https://linear.app/j21nianyi/issue/FBC-187)。用户授权后，应用 `95cf02afacb57096e193bb0ef7b81c18427857c9` 已推送并于2026-10-15按测试→正式发布；[PR #20](https://github.com/FlipBelt/Digital-Asset-Management-Space/pull/20) 保持 Draft/Open，未合并 main。人工业务验收独立。
 
 ## 用户可见行为
 
@@ -19,7 +19,7 @@
 
 ## 验证
 
-- 一次性回环 PostgreSQL 74项目标回归通过，证据 `.local/subscription-verification/07eb8d1f71/`，集群随后仅用于隔离合成页面核验。
+- 一次性回环 PostgreSQL 74项目标回归通过，证据 `.local/subscription-verification/07eb8d1f71/`；集群随后仅用于隔离合成页面核验，验证结束后已停止。
 - 平台分组、稳定排序、搜索和导航 helper 31条断言；真实 Vue 页面及真实 router 的9项前端回归通过，包含旧地址尾斜杠兼容。
 - Vue 类型/生产构建、Ruff F/I 和差异检查通过；既有包体积及 Starlette/httpx 弃用提示保留。
 - 额外旧管理框架回归8/9通过；未修改的跟进页测试仍以3个页签计数断言实际4个页签，属于既有预期失配。本轮不改无关跟进页，也不声明全套通过。
@@ -27,3 +27,16 @@
 - 补充入口5项前端回归通过：非系统管理员加载与审计权限、候选范围、失败重试/请求编号更新、保存后读回、旧调整入口迁入安全保存。
 
 修改涉及 AccountsPage、AssetDetailPage、ServicesPage、PlatformUsageDetailPage、ScenarioWorkspacePage、router、managementWorkspace、platformWorkspace、API客户端，后端 assets/inventory/workspace 及相应目标测试。人工业务验收独立。
+
+## 测试与正式发布证据
+
+- 发布前确认双环境仍运行 `abae102c66a345c26798c51fee5d26117593f20e`；预检 `t-hz0702uetg900zk` exit 0/PREFLIGHT_PASS。冻结包含3个后端文件和双环境共16个静态文件，无迁移。包 SHA-256 为 `305a38d8ecc6472fbf483f4220c236c011926e15a8b5faac51a48f727583cf11`，operator SHA-256 为 `a6d7a7a0be218256f827f2f61117520c220dcdfc6f8c203797b5f4da2c3b8da3`。
+- 测试发布 `t-hz0702vc25j9r0g` exit 0/PASS；服务 active，75张业务表完整内容保持，schema `f13f20261010` 不变。实际执行旧应用/静态回退再应用，期间正式进程和版本保持。备份目录 `/opt/account-center-test/backups/95cf02afacb5-platform-workspace-test-20261015`。
+- 测试公开字节与新页面通过后，同一应用提交进入正式。正式发布 `t-hz0702vs1fwexa8` exit 0/PASS；服务 active，75张业务表完整内容保持，无迁移。备份目录 `/opt/account-center/backups/95cf02afacb5-platform-workspace-production-20261015`。正式未执行回退或数据库恢复演练。
+- 最终独立公开回读 `python .local/verify-platform-workspace-public.py final` PASS：两环境各8个冻结文件逐字节匹配、13个SPA入口可达、13个匿名读取和责任/注册身份/三种标识写入均401，ready/database正常。应用与后端版本均为 `95cf02a`。
+- 两环境认证页面均确认平台分组/数量倒序、合并用量页、个人订阅余额卡片排除和本页补充编辑区；正式覆盖原反馈账号，可选标识正常加载。仅打开入口和候选，不保存真实资料，不调用外部余额同步。成功保存与重载由隔离合成数据覆盖，人工业务验收未代做。
+- 上传内容曾正确但名称被控制台重复输入破坏，两次前置命令分别 `t-hz0702uwiobi60w`、`t-hz0702v5e1c5reo` exit 1，均在operator运行和服务切换前停止；按六个冻结文件哈希在本次专用上传目录归位后，完整包和operator哈希重新通过。没有改变候选提交。
+
+本地安全回执位于 `.deploy-artifacts/platform-workspace/95cf02afacb5/`：`test-server-PASS.json`、`test-ui-PASS.json`、`test-public-PASS.json`、`production-server-PASS.json`、`production-ui-PASS.json` 和 `final-public-PASS.json`。冻结文件和回执不含凭据。回环API、前端预览和一次性PostgreSQL均已停止。
+
+用户补充路径：平台与账号→进入账号→概览→主要注册身份旁的“补充/修改注册与登录标识”。订阅与用量在平台与账号的同名页签。
