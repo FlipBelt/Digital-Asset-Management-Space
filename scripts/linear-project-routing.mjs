@@ -17,13 +17,7 @@ export const LOOKUP_QUERY = `query GithubSyncLookup($url: String!) {
         id identifier archivedAt trashed updatedAt
         team { id }
         project { id }
-        syncedWith {
-          id service
-          metadata {
-            __typename
-            ... on ExternalEntityInfoGithubMetadata { owner repo number }
-          }
-        }
+        syncedWith { id service }
       }
     }
     pageInfo { hasNextPage }
@@ -176,13 +170,10 @@ async function fetchAttachment(context, githubIssue) {
   }
   const sources = Array.isArray(issue.syncedWith) ?
     issue.syncedWith.filter((source) => source?.service === 'github') : [];
-  const source = sources[0];
-  const metadata = source?.metadata;
-  if (sources.length !== 1 || source.id !== githubIssue.nodeId ||
-      metadata?.__typename !== 'ExternalEntityInfoGithubMetadata' ||
-      metadata.owner !== 'FlipBelt' || metadata.repo !== 'Digital-Asset-Management-Space' ||
-      metadata.number !== githubIssue.number) {
-    fail('A matching native GitHub issue sync is required; a manual link is insufficient.');
+  const nodeIdMatch = sources[0]?.id === githubIssue.nodeId;
+  if (sources.length !== 1 || !nodeIdMatch) {
+    fail('A matching native GitHub issue sync is required; a manual link is insufficient ' +
+      `(githubSources=${sources.length}, nodeIdMatch=${nodeIdMatch}).`);
   }
   return attachment;
 }
@@ -196,7 +187,13 @@ function skipReason(attachment) {
 }
 
 function snapshot(attachment) {
-  return JSON.stringify({ attachmentId: attachment.id, ...attachment.issue });
+  const issue = attachment.issue;
+  return JSON.stringify({
+    attachmentId: attachment.id, issueId: issue.id, identifier: issue.identifier,
+    archivedAt: issue.archivedAt, trashed: issue.trashed, updatedAt: issue.updatedAt,
+    teamId: issue.team.id, projectId: issue.project?.id ?? null,
+    syncedWith: issue.syncedWith.map((source) => ({ id: source?.id, service: source?.service })),
+  });
 }
 
 export async function routeIssue({

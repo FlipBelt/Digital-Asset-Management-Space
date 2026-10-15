@@ -30,11 +30,7 @@ function attachment(overrides = {}) {
     issue: {
       id: 'linear-issue-42', identifier: 'FBC-42', archivedAt: null, trashed: false,
       updatedAt: '2026-10-15T00:00:00.000Z', team: { id: TEAM_ID }, project: null,
-      syncedWith: [{
-        id: nodeId, service: 'github',
-        metadata: { __typename: 'ExternalEntityInfoGithubMetadata', owner: 'FlipBelt',
-          repo: 'Digital-Asset-Management-Space', number },
-      }],
+      syncedWith: [{ id: nodeId, service: 'github' }],
       ...overrides,
     },
   };
@@ -89,6 +85,7 @@ test('routes only projectId after a second exact lookup and confirms readback', 
   }
   assert.match(LOOKUP_QUERY, /first: 2, includeArchived: true/);
   assert.match(LOOKUP_QUERY, /syncedWith/);
+  assert.doesNotMatch(LOOKUP_QUERY, /metadata|ExternalEntityInfoGithubMetadata/);
 });
 
 test('a present nullable trashed state can be routed and read back', async () => {
@@ -191,20 +188,45 @@ test('duplicate attachments, including the same issue twice, fail closed', async
   }
 });
 
-test('manual links or incomplete/mismatched native sync metadata are rejected', async () => {
+test('manual links and missing, foreign, duplicate or mismatched native identities are rejected', async () => {
   const correct = attachment().issue.syncedWith[0];
-  const variants = [undefined, [], [{ ...correct, service: 'jira' }],
-    [{ ...correct, id: 'another-node' }], [{ ...correct, metadata: null }],
-    [{ ...correct, metadata: { ...correct.metadata, owner: 'AnotherOrg' } }],
-    [{ ...correct, metadata: { ...correct.metadata, repo: 'CIS' } }],
-    [{ ...correct, metadata: { ...correct.metadata, number: null } }],
-    [{ ...correct, metadata: { ...correct.metadata, number: 9 } }],
+  const variants = [undefined, null, {}, [], [null], [{ ...correct, service: 'jira' }],
+    [{ ...correct, id: 'another-node' }], [{ service: 'github' }],
+    [{ ...correct, id: null }],
     [correct, correct]];
   for (const syncedWith of variants) {
     const mock = mockFetch([lookup([attachment({ syncedWith })])]);
     await assert.rejects(routeWith(mock), /matching native GitHub issue sync/);
     assert.equal(mutationCalls(mock).length, 0);
   }
+});
+
+test('optional metadata is not queried or used to determine a native synced identity', async () => {
+  const native = { id: nodeId, service: 'github' };
+  const mock = mockFetch([
+    lookup([attachment({ syncedWith: [{ ...native, metadata: null }] })]),
+    lookup([attachment({ syncedWith: [{ ...native, metadata: {
+      owner: 'AnotherOrg', repo: 'CIS', number: null,
+    } }] })]), updated(),
+    lookup([attachment({ project: { id: PROJECT_ID }, syncedWith: [native] })]),
+  ]);
+  assert.equal((await routeWith(mock)).status, 'routed');
+  assert.equal(mutationCalls(mock).length, 1);
+  assert.doesNotMatch(LOOKUP_QUERY, /metadata/);
+});
+
+test('native identity failure logs only source count and node match boolean', async () => {
+  const mock = mockFetch([lookup([attachment({ syncedWith: [{
+    id: secret, service: 'github', metadata: { owner: githubSecret },
+  }] })])]);
+  const messages = [];
+  assert.equal(await runCli({ env, fetchImpl: mock.fetchImpl,
+    readEvent: async () => JSON.stringify(event),
+    logError: (message) => messages.push(message) }), 1);
+  assert.equal(messages[0], 'A matching native GitHub issue sync is required; ' +
+    'a manual link is insufficient (githubSources=1, nodeIdMatch=false).');
+  assert.ok(!messages[0].includes(secret) && !messages[0].includes(githubSecret));
+  assert.equal(mutationCalls(mock).length, 0);
 });
 
 test('archived, trashed, mismatched URL and incomplete records cannot be routed', async () => {
