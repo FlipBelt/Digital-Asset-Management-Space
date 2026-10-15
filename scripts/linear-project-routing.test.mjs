@@ -21,7 +21,7 @@ const env = {
 const event = {
   action: 'opened',
   repository: { full_name: REPOSITORY, html_url: `https://github.com/${REPOSITORY}` },
-  issue: { number, html_url: url, node_id: nodeId },
+  issue: { id: 5859032767, number, html_url: url, node_id: nodeId },
 };
 
 function attachment(overrides = {}) {
@@ -231,8 +231,59 @@ test('native identity failure logs only source count and node match boolean', as
     readEvent: async () => JSON.stringify(event),
     logError: (message) => messages.push(message) }), 1);
   assert.equal(messages[0], 'A matching native GitHub issue sync is required; ' +
-    'a manual link is insufficient (githubSources=1, nodeIdMatch=false).');
+    'a manual link is insufficient (githubSources=1, nodeIdMatch=false, globalIdMatch=false).');
   assert.ok(!messages[0].includes(secret) && !messages[0].includes(githubSecret));
+  assert.equal(mutationCalls(mock).length, 0);
+});
+
+test('the trusted global issue ID matches exactly without a GitHub alias request', async () => {
+  const source = { id: String(event.issue.id), service: 'github' };
+  const node = attachment({ syncedWith: [source] });
+  const mock = mockFetch([lookup([node]), lookup([node]), updated(),
+    lookup([attachment({ syncedWith: [source], project: { id: PROJECT_ID } })])]);
+  const messages = [];
+  assert.equal(await runCli({ env: { ...env, GITHUB_TOKEN: '' }, fetchImpl: mock.fetchImpl,
+    readEvent: async () => JSON.stringify(event), log: (message) => messages.push(message) }), 0);
+  assert.equal(messages[0], 'GitHub issue #8: routed. ' +
+    'Native identity verified against GitHub global issue ID.');
+  assert.ok(!messages[0].includes(String(event.issue.id)) && !messages[0].includes(nodeId));
+  assert.ok(mock.calls.every((call) => call.url === 'https://api.linear.app/graphql'));
+  assert.equal(mutationCalls(mock).length, 1);
+});
+
+test('issue numbers, wrong global IDs and normalized variants are not global identity evidence', async () => {
+  for (const sourceId of [String(number), String(event.issue.id + 1),
+    `0${event.issue.id}`, `${event.issue.id} `, event.issue.id]) {
+    const mock = mockFetch([lookup([attachment({ syncedWith: [{ id: sourceId, service: 'github' }] })]),
+      { data: { synced: null, expected: null } }]);
+    await assert.rejects(routeWith(mock), /matching native GitHub issue sync/);
+    assert.equal(mutationCalls(mock).length, 0);
+  }
+});
+
+test('opened issue global IDs must be present positive safe integers', async () => {
+  for (const id of [undefined, null, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, String(event.issue.id)]) {
+    const mock = mockFetch([]);
+    await assert.rejects(routeWith(mock, { event: { ...event, issue: { ...event.issue, id } } }),
+      /GitHub global issue ID is missing or invalid/);
+    assert.equal(mock.calls.length, 0);
+  }
+});
+
+test('GraphQL identity diagnostics allow only error types and node presence booleans', async () => {
+  const mock = mockFetch([lookup([attachment({ syncedWith: [{
+    id: 'legacy-opaque-id', service: 'github',
+  }] })]), { errors: [
+    { type: 'NOT_FOUND', message: secret, path: [githubSecret] },
+    { type: `unsafe-${secret}`, message: nodeId },
+  ], data: { synced: null, expected: githubIdentity().data.expected } }]);
+  const messages = [];
+  assert.equal(await runCli({ env, fetchImpl: mock.fetchImpl,
+    readEvent: async () => JSON.stringify(event), logError: (message) => messages.push(message) }), 1);
+  assert.equal(messages[0], 'GitHub GraphQL identity lookup failed ' +
+    '(errorTypes=NOT_FOUND,unknown, syncedPresent=false, expectedPresent=true).');
+  assert.ok(!messages[0].includes(secret) && !messages[0].includes(githubSecret) &&
+    !messages[0].includes(nodeId));
   assert.equal(mutationCalls(mock).length, 0);
 });
 
