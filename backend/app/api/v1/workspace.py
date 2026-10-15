@@ -106,6 +106,7 @@ from app.services.contact_resources import (
     contact_read,
     normalize_contact_catalog,
     normalize_identifier,
+    require_contact_custodian,
     require_identity_reference,
     save_contact,
 )
@@ -586,17 +587,7 @@ def create_registration_identity(
     access: AccessContext = Depends(get_access_context),
 ) -> RegistrationIdentityRead:
     require_legal_entity(db, payload.legal_entity_id)
-    if payload.custodian_person_id:
-        custodian = db.get(Person, payload.custodian_person_id)
-        if (
-            custodian is None
-            or custodian.archived_at is not None
-            or (
-                payload.legal_entity_id is not None
-                and custodian.legal_entity_id != payload.legal_entity_id
-            )
-        ):
-            raise HTTPException(status_code=422, detail="当前保管人不属于所选公司")
+    require_contact_custodian(db, access, payload.custodian_person_id, payload.legal_entity_id)
     value = payload.identifier.strip()
     if not value or any(ord(character) < 32 for character in value):
         raise HTTPException(422, "请填写有效的标识内容")

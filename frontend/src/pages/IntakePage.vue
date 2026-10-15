@@ -7,6 +7,7 @@ import PageHeader from "../components/PageHeader.vue";
 import PeoplePicker from "../components/PeoplePicker.vue";
 import AssetStructureGuide from "../components/AssetStructureGuide.vue";
 import { registrationKinds, registrationMode, type RegistrationMode } from "../lib/managementWorkspace";
+import { contactCustodians } from "../lib/contactRegistration";
 import { api, type Account, type Asset, type AssetType, type CurrentUser, type Department, type IntakeResult, type LegalEntity, type Person, type Platform, type PlatformTenant, type Provider, type RegistrationIdentity } from "../lib/api";
 
 type Mode = RegistrationMode;
@@ -33,6 +34,7 @@ const selectedIdentity = computed(() => identities.value.find((item) => item.ass
 const selectedResponsible = computed(() => people.value.find((item) => item.id === platformAccount.responsible_person_id));
 const selectedDepartment = computed(() => departments.value.find((item) => item.id === platformAccount.owner_department_id));
 const isAccountManager = computed(() => currentUser.value?.roles.some(role => ["system_admin", "asset_manager"].includes(role)));
+const identityPeople = computed(() => contactCustodians(people.value, identity.legal_entity_id, Boolean(isAccountManager.value)));
 const accountPeople = computed(() => people.value.filter(row => isAccountManager.value || row.legal_entity_id === platformAccount.legal_entity_id));
 const duplicateAccount = computed(() => tenants.value.find(row => row.platform_id === platformAccount.platform_id && row.legal_entity_id === platformAccount.legal_entity_id && !!platformAccount.external_identifier_value.trim() && row.tenant_identifier === platformAccount.external_identifier_value.trim()));
 let accountRequestId = crypto.randomUUID(), accountPrevious = "";
@@ -188,7 +190,7 @@ onMounted(async () => { if (mode.value === 'identity') { await router.replace('/
           <label class="span-2"><span>手机号 / 邮箱 / 用户名 *</span><input v-model="identity.identifier" required placeholder="输入实际内容，系统自动识别类型" /></label>
           <label><span>归属性质 *</span><select v-model="identity.source_nature" required><option value="" disabled>请选择</option><option value="company_owned">公司所有</option><option value="personal_for_company">个人注册、公司使用</option><option value="unknown">归属待确认</option></select></label>
           <details class="intake-optional span-2"><summary>关联已有对象（选填：公司、平台）</summary><div class="optional-grid"><label><span>归属公司</span><select v-model="identity.legal_entity_id"><option value="">暂不确定</option><option v-for="item in entities" :key="item.id" :value="item.id">{{ item.name }}</option></select></label><label><span>关联平台</span><select v-model="identity.platform_id"><option value="">暂不关联</option><option v-for="item in platforms" :key="item.id" :value="item.id">{{ item.name }}</option></select></label></div></details>
-          <details class="intake-optional span-2"><summary>补充身份资料（类型、保管人、说明）</summary><div class="optional-grid"><label><span>身份类型</span><select v-model="identity.identity_type"><option value="">自动识别</option><option value="phone">手机号</option><option value="email">邮箱</option><option value="wechat">微信身份</option><option value="other">其他</option></select></label><PeoplePicker id="identity-custodian" :person-id="identity.custodian_person_id" @update:person-id="identity.custodian_person_id = $event || ''" label="当前保管人（选填）" :people="people" :departments="departments" :disabled="saving" /><label class="wide"><span>说明</span><textarea v-model="identity.note" rows="3" placeholder="例如：技术部门公共注册手机号" /></label></div></details>
+          <details class="intake-optional span-2"><summary>补充身份资料（类型、保管人、说明）</summary><div class="optional-grid"><label><span>身份类型</span><select v-model="identity.identity_type"><option value="">自动识别</option><option value="phone">手机号</option><option value="email">邮箱</option><option value="wechat">微信身份</option><option value="other">其他</option></select></label><PeoplePicker id="identity-custodian" :person-id="identity.custodian_person_id" @update:person-id="identity.custodian_person_id = $event || ''" label="当前保管人（选填）" :people="identityPeople" :departments="departments" :disabled="saving" /><label class="wide"><span>说明</span><textarea v-model="identity.note" rows="3" placeholder="例如：技术部门公共注册手机号" /></label></div></details>
         </template>
         <template v-if="mode === 'platform'">
           <label class="span-2"><span>平台/供应商名称 *</span><input v-model="platform.name" required maxlength="200" placeholder="例如：OpenAI、Anthropic、阿里云" /></label>

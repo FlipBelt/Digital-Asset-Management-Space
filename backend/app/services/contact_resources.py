@@ -71,6 +71,22 @@ def contact_read(db, profile, asset):
     )
 
 
+def require_contact_custodian(db, access, person_id, company_id):
+    if person_id is None:
+        return None
+    person = db.get(Person, person_id)
+    if person is None or person.archived_at or person.employment_status != "active":
+        raise HTTPException(422, "保管同事必须为在职且未归档的人员")
+    # A business company and its shared directory need not use the same entity UUID.
+    if (
+        company_id is not None
+        and person.legal_entity_id != company_id
+        and not access.is_global_manager
+    ):
+        raise HTTPException(422, "跨公司保管同事需由资产管理员登记")
+    return person
+
+
 def normalize_contact_catalog(db):
     # An explicit administrator reconciliation also moves the existing type, preserving UUIDs.
     category = db.scalar(
@@ -190,19 +206,12 @@ def save_contact(db, access, row, asset_type, source_note, *, asset_id=None):
     entity = db.get(LegalEntity, row.legal_entity_id) if row.legal_entity_id else None
     if row.legal_entity_id and (entity is None or entity.archived_at):
         raise HTTPException(422, "所选公司不存在")
-    custodian = db.get(Person, row.custodian_person_id) if row.custodian_person_id else None
-    if row.custodian_person_id and (
-        custodian is None
-        or custodian.archived_at
-        or custodian.employment_status != "active"
-        or custodian.legal_entity_id != row.legal_entity_id
-    ):
-        raise HTTPException(422, "请绑定通讯资源所属公司的实际在职同事")
+    custodian = require_contact_custodian(db, access, row.custodian_person_id, row.legal_entity_id)
     department = db.get(Department, row.owner_department_id) if row.owner_department_id else None
     if row.owner_department_id and (
         department is None
         or department.archived_at
-        or department.legal_entity_id != row.legal_entity_id
+        or (department.legal_entity_id != row.legal_entity_id and not access.is_global_manager)
     ):
         raise HTTPException(422, "通讯资源的使用部门不属于所选公司")
     if not custodian and not department and (
