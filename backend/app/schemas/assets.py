@@ -52,6 +52,11 @@ class AssetRead(ORMModel):
     criticality: str
     confidentiality: str
     source_type: str
+    sharing_scope: str | None = None
+    source_system: str | None = None
+    source_agent: str | None = None
+    source_reference: str | None = None
+    development_method: str | None = None
     started_at: date | None
     expires_at: date | None
     last_verified_at: datetime | None

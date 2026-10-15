@@ -7,12 +7,14 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
-from app.api.v1 import developer, dingtalk, workspace
+from app.api.v1 import developer, dingtalk, dingtalk_web, workspace
 from app.core.auth import require_authenticated
+from app.core.auth_logging import install_auth_log_redaction
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.services.usage_notifications import run_monitoring_cycle
 
+install_auth_log_redaction()
 settings = get_settings()
 logger = logging.getLogger("account_center.usage_monitoring")
 
@@ -81,6 +83,7 @@ app.include_router(developer.console_router)
 # compatibility with the micro-app contract. They expose configuration only
 # and establish an authenticated application session on successful login.
 app.include_router(dingtalk.public_router)
+app.include_router(dingtalk_web.public_router)
 # Keep the workspace router at one inclusion level. This avoids nested-router
 # matching differences across the Python runtimes used locally and in production.
 app.include_router(

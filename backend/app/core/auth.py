@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models import Permission, Role, RolePermission, User, UserRoleScope, UserSession
+from app.models import Permission, Role, RolePermission, User, UserSession
+from app.services.organization_leadership import resolved_role_scopes
 
 _password_hasher = PasswordHasher()
 
@@ -51,31 +52,20 @@ def create_session(db: Session, user: User, device_summary: str | None) -> tuple
 
 
 def get_role_codes(db: Session, user_id: UUID) -> list[str]:
-    return list(
-        db.scalars(
-            select(Role.code)
-            .join(UserRoleScope, UserRoleScope.role_id == Role.id)
-            .where(UserRoleScope.user_id == user_id)
-            .distinct()
-        )
-    )
+    return sorted({row[0] for row in resolved_role_scopes(db, user_id)})
 
 
 def get_permission_codes(db: Session, user_id: UUID) -> list[str]:
-    """Resolve permissions from the current database state on every request."""
+    """Resolve current effective roles, including source-scoped leadership."""
     roles = set(get_role_codes(db, user_id))
-    # Test operators keep their normal identity record but receive the full
-    # permission catalog in the isolated service.  This keeps the session
-    # payload consistent with the server-side AccessContext test override.
-    if get_settings().app_env.lower() == "test" or "system_admin" in roles:
+    if "system_admin" in roles:
         return list(db.scalars(select(Permission.code).order_by(Permission.code)))
     return list(
         db.scalars(
             select(Permission.code)
             .join(RolePermission, RolePermission.permission_id == Permission.id)
             .join(Role, Role.id == RolePermission.role_id)
-            .join(UserRoleScope, UserRoleScope.role_id == Role.id)
-            .where(UserRoleScope.user_id == user_id)
+            .where(Role.code.in_(roles))
             .distinct()
             .order_by(Permission.code)
         )
@@ -147,14 +137,7 @@ def require_csrf(
 def require_system_admin(
     current: User = Depends(require_authenticated), db: Session = Depends(get_db)
 ) -> User:
-    # The isolated test service is deliberately open to authenticated
-    # operators so testers can exercise admin/configuration APIs without
-    # changing production role assignments.  The environment is server-side
-    # configuration and cannot be enabled by request headers.
-    if (
-        get_settings().app_env.lower() != "test"
-        and "system_admin" not in get_role_codes(db, current.id)
-    ):
+    if "system_admin" not in get_role_codes(db, current.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="system administrator required"
         )
@@ -171,8 +154,6 @@ def require_developer_supervisor(
     """
     configured_username = (get_settings().developer_supervisor_username or "").strip()
     roles = set(get_role_codes(db, current.id))
-    if get_settings().app_env.lower() == "test":
-        return current
     if (
         not configured_username
         or current.username != configured_username

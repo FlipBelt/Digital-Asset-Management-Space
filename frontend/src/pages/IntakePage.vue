@@ -1,24 +1,26 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { ArrowLeft, Boxes, Building2, CheckCircle2, ChevronRight, CircleDot, KeyRound, Layers3, Network, Sparkles, UserPlus, Users } from "lucide-vue-next";
+import { ArrowLeft, Boxes, Building2, CheckCircle2, ChevronRight, CircleDot, KeyRound, Layers3, Network, Sparkles, UserPlus, Users, Truck } from "lucide-vue-next";
 import { useRoute, useRouter } from "vue-router";
 
 import PageHeader from "../components/PageHeader.vue";
-import { api, type Account, type Asset, type AssetType, type CurrentUser, type Department, type IntakeResult, type LegalEntity, type Person, type Platform, type PlatformTenant, type RegistrationIdentity } from "../lib/api";
+import { api, type Account, type Asset, type AssetType, type CurrentUser, type Department, type IntakeResult, type LegalEntity, type Person, type Platform, type PlatformTenant, type Provider, type RegistrationIdentity } from "../lib/api";
 
-type Mode = "" | "entity" | "identity" | "platform" | "platform-account" | "resource" | "grant";
+type Mode = "" | "entity" | "identity" | "platform" | "platform-account" | "resource" | "grant" | "provider";
 type Receipt = Omit<IntakeResult, "id" | "asset_id"> & { id: string; asset_id: string | null };
 
 const route = useRoute(); const router = useRouter();
+const initializing = ref(true); const optionError = ref("");
 const mode = ref<Mode>(""); const saving = ref(false); const error = ref(""); const message = ref(""); const receipt = ref<Receipt | null>(null); const currentUser = ref<CurrentUser | null>(null);
-const entities = ref<LegalEntity[]>([]); const departments = ref<Department[]>([]); const people = ref<Person[]>([]); const platforms = ref<Platform[]>([]); const identities = ref<RegistrationIdentity[]>([]); const types = ref<AssetType[]>([]); const tenants = ref<PlatformTenant[]>([]); const accounts = ref<Account[]>([]); const assets = ref<Asset[]>([]); const canAssignAccess = ref(false);
+const entities = ref<LegalEntity[]>([]); const departments = ref<Department[]>([]); const people = ref<Person[]>([]); const platforms = ref<Platform[]>([]); const providers = ref<Provider[]>([]); const identities = ref<RegistrationIdentity[]>([]); const types = ref<AssetType[]>([]); const tenants = ref<PlatformTenant[]>([]); const accounts = ref<Account[]>([]); const assets = ref<Asset[]>([]); const canAssignAccess = ref(false);
 const identity = reactive({ identifier: "", identity_type: "", legal_entity_id: "", platform_id: "", source_nature: "", custodian_person_id: "", verification_status: "pending", note: "" });
-const platform = reactive({ name: "", code: "", category: "other", website: "", description: "", review_status: "pending_review" });
+const platform = reactive({ provider_id: "", name: "", code: "", category: "other", website: "", description: "", review_status: "pending_review" });
 const platformRelation = reactive({ identity_asset_ids: [] as string[], resource_asset_ids: [] as string[] });
 const platformAccount = reactive({ platform_id: "", legal_entity_id: "", internal_name: "", registration_identity_asset_id: "", external_identifier_type: "", external_identifier_value: "", evidence_note: "", ownership_nature: "company_owned", account_scope: "primary_account", status: "active", description: "", historical_unknown: false, ownership_scope: "company", owner_department_id: "", responsible_person_id: "", user_person_ids: [] as string[] });
 const resource = reactive({ legal_entity_id: "", asset_type_id: "", resource_family: "platform_service", name: "", business_purpose: "", managed_under_account_id: "", platform_id: "", platform_relation_type: "uses", owner_department_id: "", responsible_person_id: "", user_person_ids: [] as string[], external_identifier_type: "", external_identifier_value: "", management_url: "", status: "draft", criticality: "normal" });
 const grant = reactive({ account_id: "", asset_id: "", person_id: "", department_id: "", grant_type: "seat", grant_role: "member", monthly_budget: "", currency: "CNY", renewal_day: "", note: "" });
 const entity = reactive({ name: "" });
+const provider = reactive({ code: "", name: "", website: "" });
 const entityProfile = reactive({ entity_type: "", jurisdiction: "", registration_status: "", legal_representative: "", established_on: "", registered_address: "", registered_capital: "", business_scope: "", source_note: "", verification_status: "pending" });
 const entityIdentifier = reactive({ identifier_type: "unified_social_credit_code", identifier_value: "" });
 
@@ -33,8 +35,8 @@ const resourceAssets = computed(() => {
 });
 
 async function loadOptions() {
-  const [session, entityRows, departmentRows, personRows, platformRows, identityRows, typeRows, tenantRows, accountRows, assetRows] = await Promise.all([api.currentSession(), api.legalEntities(), api.departments(), api.people(), api.platforms(), api.registrationIdentities(), api.assetTypes(), api.platformTenants(), api.accounts(), api.assets()]);
-  currentUser.value = session; entities.value = entityRows; departments.value = departmentRows; people.value = personRows; platforms.value = platformRows; identities.value = identityRows; types.value = typeRows; tenants.value = tenantRows; accounts.value = accountRows; assets.value = assetRows.data;
+  const [session, entityRows, departmentRows, personRows, platformRows, identityRows, typeRows, tenantRows, accountRows, assetRows, providerRows] = await Promise.all([api.currentSession(), api.legalEntities(), api.departments(), api.people(), api.platforms(), api.registrationIdentities(), api.assetTypes(), api.platformTenants(), api.accounts(), api.assets(), api.providers()]);
+  currentUser.value = session; entities.value = entityRows; departments.value = departmentRows; people.value = personRows; platforms.value = platformRows; identities.value = identityRows; types.value = typeRows; tenants.value = tenantRows; accounts.value = accountRows; assets.value = assetRows.data; providers.value = providerRows;
   canAssignAccess.value = session.permissions.includes("asset.write");
 }
 
@@ -48,7 +50,7 @@ function receiptFromIdentity(item: RegistrationIdentity): Receipt {
   return { id: item.id, asset_id: item.asset_id, asset_code: item.asset_code, name: item.name, object_type: "registration_identity", completion_percent: custodian ? 80 : 65, links: custodian ? [{ kind: "person", label: custodian.display_name, relation: "当前保管人", asset_id: null }] : [], next_actions: [{ key: "register_account", label: "用这个身份登记平台账号", description: "注册身份已经保存，可直接继续选择所属平台。", target: `/intake?mode=platform-account&identity=${item.asset_id}`, required: false }, { key: "view_asset", label: "查看身份资料", description: "确认保管人、来源性质和后续关联。", target: `/assets/${item.asset_id}?tab=overview`, required: false }] };
 }
 function receiptFromPlatform(item: Platform): Receipt {
-  return { id: item.id, asset_id: null, asset_code: "平台目录", name: item.name, object_type: "platform", completion_percent: 70, links: [], next_actions: [{ key: "register_account", label: "登记这个平台的公司账号", description: "继续选择注册手机号或邮箱并建立账号。", target: `/intake?mode=platform-account&platform=${item.id}`, required: false }, { key: "view_map", label: "返回资产地图", description: "平台产生账号和服务后会自动出现在地图中。", target: "/map", required: false }] };
+  return { id: item.id, asset_id: null, asset_code: "平台目录", name: item.name, object_type: "platform", completion_percent: 70, links: [], next_actions: [{ key: "register_account", label: "登记这个平台的公司账号", description: "继续选择注册手机号或邮箱并建立账号。", target: `/intake?mode=platform-account&platform=${item.id}`, required: false }, { key: "view_assets", label: "查看平台与账号", description: "继续核对平台目录和已有账号。", target: "/accounts", required: false }] };
 }
 
 async function save() {
@@ -64,12 +66,16 @@ async function save() {
       if (entityIdentifier.identifier_value.trim()) await api.createLegalEntityIdentifier(created.id, { namespace: "cn", identifier_type: entityIdentifier.identifier_type || "other", identifier_value: entityIdentifier.identifier_value.trim(), is_primary: true, verification_status: "pending", source_note: null });
       receipt.value = { id: created.id, asset_id: null, asset_code: created.code, name: created.name, object_type: "legal_entity", completion_percent: hasProfile || Boolean(entityIdentifier.identifier_value.trim()) ? 60 : 25, links: [], next_actions: [{ key: "complete_entity_profile", label: "补充主体档案", description: "法人资料和主体标识可以稍后在组织架构中继续补充。", target: "/organization", required: false }] };
     }
+    if (mode.value === "provider") {
+      const created = await api.createProvider({ code: provider.code.trim(), name: provider.name.trim(), website: provider.website.trim() || null });
+      receipt.value = { id: created.id, asset_id: null, asset_code: created.code, name: created.name, object_type: "provider", completion_percent: 100, links: [], next_actions: [{ key: "providers", label: "查看供应商目录", description: "供应商目录已保存，可供平台和服务引用。", target: "/accounts?tab=providers", required: false }] };
+    }
     if (mode.value === "identity") {
       if (!identity.source_nature) throw new Error("请选择归属性质");
       receipt.value = receiptFromIdentity(await api.createRegistrationIdentity({ ...identity, identity_type: identity.identity_type || null, legal_entity_id: identity.legal_entity_id || null, platform_id: identity.platform_id || null, custodian_person_id: identity.custodian_person_id || null }));
     }
     if (mode.value === "platform") {
-      const created = await api.createPlatform({ ...platform, code: platform.code || `USER-${Date.now()}`, provider_id: null, submitted_by_person_id: currentUser.value?.person_id ?? null });
+      const created = await api.createPlatform({ ...platform, code: platform.code || `USER-${Date.now()}`, provider_id: platform.provider_id || null, submitted_by_person_id: currentUser.value?.person_id ?? null });
       const links = [
         ...platformRelation.identity_asset_ids.map((asset_id) => ({ asset_id, relation_type: "registered_on", note: "平台登记时建立的显式关联" })),
         ...platformRelation.resource_asset_ids.map((asset_id) => ({ asset_id, relation_type: "uses", note: "平台登记时建立的显式关联" })),
@@ -79,7 +85,7 @@ async function save() {
     }
     if (mode.value === "platform-account") receipt.value = await api.createCompanyPlatformAccount({ ...platformAccount, registration_identity_asset_id: platformAccount.historical_unknown ? null : platformAccount.registration_identity_asset_id || null, external_identifier_type: platformAccount.external_identifier_type || null, external_identifier_value: platformAccount.external_identifier_value || null, evidence_note: platformAccount.evidence_note || null, owner_department_id: platformAccount.ownership_scope === "department" ? platformAccount.owner_department_id || null : null, responsible_person_id: platformAccount.responsible_person_id || null });
     if (mode.value === "resource") receipt.value = await api.createResource({ ...resource, legal_entity_id: resource.legal_entity_id || null, platform_id: resource.platform_id || null, business_purpose: resource.business_purpose || null, managed_under_account_id: resource.managed_under_account_id || null, owner_department_id: resource.owner_department_id || null, responsible_person_id: resource.responsible_person_id || null, external_identifier_type: resource.external_identifier_type || null, external_identifier_value: resource.external_identifier_value || null, management_url: resource.management_url || null });
-    if (mode.value === "grant") { if (!grant.account_id && !grant.asset_id) throw new Error("请选择被授权的账号或服务"); const created = await api.createAccessGrant({ ...grant, account_id: grant.account_id || null, asset_id: grant.asset_id || null, person_id: grant.person_id || null, department_id: null, monthly_budget: grant.monthly_budget ? Number(grant.monthly_budget) : null, renewal_day: grant.renewal_day ? Number(grant.renewal_day) : null }); const person = people.value.find((item) => item.id === grant.person_id); receipt.value = { id: created.id, asset_id: null, asset_code: "使用授权", name: person ? `${person.display_name}的使用权` : "使用权登记", object_type: "access_grant", completion_percent: 100, links: person ? [{ kind: "person", label: person.display_name, relation: "授权人员", asset_id: null }] : [], next_actions: [{ key: "workbench", label: "查看我的工作台", description: "确认授权对象已经进入人员使用清单。", target: "/my-usage", required: false }] }; }
+    if (mode.value === "grant") { if (!grant.account_id && !grant.asset_id) throw new Error("请选择被授权的账号或服务"); const created = await api.createAccessGrant({ ...grant, account_id: grant.account_id || null, asset_id: grant.asset_id || null, person_id: grant.person_id || null, department_id: null, monthly_budget: grant.monthly_budget ? Number(grant.monthly_budget) : null, renewal_day: grant.renewal_day ? Number(grant.renewal_day) : null }); const person = people.value.find((item) => item.id === grant.person_id); receipt.value = { id: created.id, asset_id: null, asset_code: "使用授权", name: person ? `${person.display_name}的使用权` : "使用权登记", object_type: "access_grant", completion_percent: 100, links: person ? [{ kind: "person", label: person.display_name, relation: "授权人员", asset_id: null }] : [], next_actions: [{ key: "workbench", label: "查看我的工作台", description: "确认授权对象已经进入人员使用清单。", target: "/my/using", required: false }] }; }
     mode.value = ""; await loadOptions(); window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (reason) { error.value = reason instanceof Error ? reason.message : "保存失败"; }
   finally { saving.value = false; }
@@ -97,7 +103,7 @@ async function openNext(target: string) {
 function finishReceipt() { receipt.value = null; mode.value = ""; void router.replace("/intake"); }
 function applyRoutePreset() {
   const requested = String(route.query.mode ?? "") as Mode;
-  if (requested) mode.value = requested;
+  if (["entity", "identity", "platform", "platform-account", "resource", "grant", "provider"].includes(requested)) mode.value = requested;
   if (route.query.platform) platformAccount.platform_id = String(route.query.platform);
   if (route.query.identity) platformAccount.registration_identity_asset_id = String(route.query.identity);
   if (route.query.account) resource.managed_under_account_id = String(route.query.account);
@@ -112,15 +118,22 @@ watch(() => platformAccount.registration_identity_asset_id, (assetId) => {
 watch(() => platformAccount.ownership_scope, (scope) => { if (scope !== "department") platformAccount.owner_department_id = ""; else if (!platformAccount.owner_department_id) platformAccount.owner_department_id = selectedResponsible.value?.department_id ?? ""; });
 watch(() => platformAccount.responsible_person_id, () => { if (platformAccount.ownership_scope === "department" && !platformAccount.owner_department_id) platformAccount.owner_department_id = selectedResponsible.value?.department_id ?? ""; });
 watch(() => route.fullPath, applyRoutePreset);
-onMounted(async () => { await loadOptions(); applyRoutePreset(); });
+async function initialize() {
+  initializing.value = true; optionError.value = ""; applyRoutePreset();
+  try { await loadOptions(); } catch (reason) { optionError.value = reason instanceof Error ? reason.message : "基础资料读取失败"; }
+  finally { initializing.value = false; }
+}
+onMounted(initialize);
 </script>
 
 <template>
   <div class="page-stack intake-page">
-    <PageHeader eyebrow="统一入口" title="登记 / 发现数字资产" description="只选择你正在做的事，系统会自动建立底层对象和关联关系。" />
+    <PageHeader eyebrow="统一入口" title="登记基础资料" description="登记已经存在的资料；需要开通或使用资源，请进入我的申请。"><RouterLink class="secondary-button" to="/manage">返回管理</RouterLink></PageHeader>
     <div v-if="message" class="message-panel success-message">{{ message }}</div><div v-if="error" class="message-panel error-message">{{ error }}</div>
 
-    <section v-if="receipt" class="intake-receipt">
+    <section v-if="initializing" class="fusion-empty" role="status">正在读取登记所需资料…</section>
+    <section v-else-if="optionError" class="fusion-empty" role="alert"><h2>暂时无法读取基础资料</h2><p>{{ optionError }}</p><button class="secondary-button" @click="initialize">重新读取</button><RouterLink to="/my/requests" class="secondary-button">我的申请</RouterLink></section>
+    <section v-else-if="receipt" class="intake-receipt">
       <header><div class="receipt-icon"><CheckCircle2 :size="34" /></div><div><span>核心登记完成</span><h2>{{ receipt.name }}</h2><p>已经保存到：资产中心 / {{ receipt.asset_code }}</p></div><div class="receipt-score"><strong>已建档</strong><small>完整资料可按需补充</small></div></header>
       <div class="receipt-summary"><article><span>系统编号</span><strong>{{ receipt.asset_code }}</strong><small>后续可直接用编号搜索和沟通</small></article><article><span>保存位置</span><strong>{{ receipt.asset_id ? '正式资产底库' : '基础目录 / 授权记录' }}</strong><small>{{ receipt.asset_id ? '关系、责任和资料统一归档' : '后续资产会引用这项记录' }}</small></article><article><span>当前状态</span><strong>{{ receipt.next_actions.some((item) => item.required) ? '已保存，待确认' : '已保存' }}</strong><small>现在可以退出，也可以继续完善</small></article></div>
       <section class="receipt-links"><div class="receipt-section-title"><Network :size="18" /><div><strong>已自动联动</strong><small>这些信息不需要去详情页重复选择</small></div></div><div v-if="receipt.links.length" class="receipt-link-grid"><article v-for="item in receipt.links" :key="`${item.kind}-${item.label}`"><CircleDot :size="16" /><span>{{ item.relation }}</span><strong>{{ item.label }}</strong></article></div><div v-else class="receipt-empty">当前对象没有必须建立的关联，后续可按需补充。</div></section>
@@ -129,18 +142,25 @@ onMounted(async () => { await loadOptions(); applyRoutePreset(); });
     </section>
 
     <section v-else-if="!mode" class="intake-choice-grid">
-      <button class="intake-choice-secondary" @click="choose('entity')"><span class="intake-choice-icon"><Building2 /></span><strong>登记公司主体</strong><small>L1 公司主体 · 先登记名称，法人资料有就补充</small></button>
-      <button class="intake-choice-primary" @click="choose('identity')"><span class="intake-choice-icon"><KeyRound /></span><strong>登记登录身份</strong><small>L2 注册身份 · 手机号、邮箱或其他登录标识</small></button>
-      <button class="intake-choice-primary" @click="choose('platform')"><span class="intake-choice-icon"><Layers3 /></span><strong>新建或发现一个平台</strong><small>L3 平台目录 · 系统里还没有的平台先提交审核</small></button>
-      <button class="intake-choice-primary" @click="choose('resource')"><span class="intake-choice-icon"><Boxes /></span><strong>登记服务、API 或资源</strong><small>L6 实体服务 · API、SaaS、ECS、OSS、域名等</small></button>
-      <button class="intake-choice-secondary" @click="choose('platform-account')"><span class="intake-choice-icon"><Building2 /></span><strong>登记公司平台账号</strong><small>L4 平台账号 · 新开或历史已有的公司账号</small></button>
-      <button class="intake-choice-secondary" @click="chooseGrant"><span class="intake-choice-icon"><UserPlus /></span><strong>分配人员使用权</strong><small>L5 人员授权 · 席位、子账号、平台权限或服务使用权</small></button>
+      <button class="intake-choice-secondary" @click="choose('provider')"><span class="intake-choice-icon"><Truck /></span><strong>登记供应商</strong><small>服务提供方与官方网站</small></button>
+      <button class="intake-choice-secondary" @click="choose('entity')"><span class="intake-choice-icon"><Building2 /></span><strong>登记公司主体</strong><small>公司名称及已核对的法人资料</small></button>
+      <button class="intake-choice-primary" @click="choose('identity')"><span class="intake-choice-icon"><KeyRound /></span><strong>登记登录身份</strong><small>手机号、邮箱或其他登录标识</small></button>
+      <button class="intake-choice-primary" @click="choose('platform')"><span class="intake-choice-icon"><Layers3 /></span><strong>新建或发现一个平台</strong><small>平台目录 · 资料先登记，随后核对</small></button>
+      <button class="intake-choice-primary" @click="choose('resource')"><span class="intake-choice-icon"><Boxes /></span><strong>登记服务、API 或资源</strong><small>API、订阅、云服务、域名等</small></button>
+      <button class="intake-choice-secondary" @click="choose('platform-account')"><span class="intake-choice-icon"><Building2 /></span><strong>登记公司平台账号</strong><small>已开通或历史已有的公司账号</small></button>
+      <button class="intake-choice-secondary" @click="chooseGrant"><span class="intake-choice-icon"><UserPlus /></span><strong>分配人员使用权</strong><small>已获批的席位、子账号或使用权</small></button>
       <RouterLink class="intake-choice-secondary" to="/imports"><span class="intake-choice-icon"><Network /></span><strong>批量导入 / 补录资料</strong><small>已有 Excel、文本或清单时，先识别再确认</small></RouterLink>
     </section>
 
     <section v-else class="intake-form-surface modern-intake-form">
       <button class="quiet-button intake-back" @click="mode = ''"><ArrowLeft :size="16" />返回选择</button>
       <form @submit.prevent="save">
+        <template v-if="mode === 'provider'">
+          <div class="intake-form-heading"><Truck /><div><h2>登记供应商</h2><p>记录真实服务提供方，供平台和服务资料引用。</p></div></div>
+          <label><span>供应商名称 *</span><input v-model="provider.name" required maxlength="200" placeholder="填写供应商名称" /></label>
+          <label><span>供应商编码 *</span><input v-model="provider.code" required maxlength="80" placeholder="填写现有编码或稳定的唯一标识" /></label>
+          <label class="span-2"><span>官方网站（选填）</span><input v-model="provider.website" type="url" placeholder="https://" /></label>
+        </template>
         <template v-if="mode === 'entity'">
           <div class="intake-form-heading"><Building2 /><div><h2>登记公司主体</h2><p>先保存一条真实存在的主体记录；其他法人资料有就补充，没有也不影响建档。</p></div></div>
           <label class="span-2"><span>公司主体名称 *</span><input v-model="entity.name" required placeholder="例如：杭州飞比特体育用品有限公司" /></label>
@@ -155,7 +175,8 @@ onMounted(async () => { await loadOptions(); applyRoutePreset(); });
           <details class="intake-optional span-2"><summary>补充身份资料（类型、保管人、说明）</summary><div class="optional-grid"><label><span>身份类型</span><select v-model="identity.identity_type"><option value="">自动识别</option><option value="phone">手机号</option><option value="email">邮箱</option><option value="wechat">微信身份</option><option value="other">其他</option></select></label><label><span>当前保管人</span><select v-model="identity.custodian_person_id"><option value="">暂不指定</option><option v-for="item in people" :key="item.id" :value="item.id">{{ item.display_name }}</option></select></label><label class="wide"><span>说明</span><textarea v-model="identity.note" rows="3" placeholder="例如：技术部门公共注册手机号" /></label></div></details>
         </template>
         <template v-if="mode === 'platform'">
-          <div class="intake-form-heading"><Layers3 /><div><h2>提交新平台</h2><p>普通同事可自由提交；保存后进入待审核状态。</p></div></div>
+          <div class="intake-form-heading"><Layers3 /><div><h2>提交新平台</h2><p>登记平台资料，保存后进入待审核状态。</p></div></div>
+          <label class="span-2"><span>服务提供方（选填）</span><select v-model="platform.provider_id"><option value="">暂不关联供应商</option><option v-for="item in providers" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
           <label class="span-2"><span>平台名称 *</span><input v-model="platform.name" required placeholder="例如：火山引擎" /></label>
           <details class="intake-optional span-2"><summary>关联已有对象（选填：注册身份、服务 / 资源）</summary><div class="optional-grid"><label><span>已有注册身份</span><select v-model="platformRelation.identity_asset_ids" multiple size="4"><option v-for="item in identities" :key="item.asset_id" :value="item.asset_id">{{ item.identifier }} · {{ item.name }}</option></select><small>按住 Ctrl 可多选；不选也可以先保存平台。</small></label><label><span>已有服务 / 资源</span><select v-model="platformRelation.resource_asset_ids" multiple size="4"><option v-for="item in resourceAssets" :key="item.id" :value="item.id">{{ item.name }}</option></select><small>只建立明确的显式关联，不会自动生成 L4。</small></label></div></details>
           <details class="intake-optional span-2"><summary>补充平台资料（类别、官网、说明）</summary><div class="optional-grid"><label><span>平台类别</span><select v-model="platform.category"><option value="cloud">云平台</option><option value="ai">大模型 / AI</option><option value="saas">SaaS / 协作</option><option value="marketing">营销 / 电商</option><option value="payment">支付</option><option value="other">其他</option></select></label><label><span>官方网站</span><input v-model="platform.website" placeholder="https://" /></label><label class="wide"><span>说明</span><textarea v-model="platform.description" rows="3" /></label></div></details>

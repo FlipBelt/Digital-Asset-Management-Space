@@ -1,12 +1,23 @@
 @import "tailwindcss";
 
-.login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--surface-soft); }
-.login-card { width: min(100%, 400px); display: grid; gap: 16px; padding: 32px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 16px 48px rgb(34 48 61 / 12%); }
-.login-brand { display: flex; align-items: center; gap: 12px; }
+.login-page { min-height: calc(100dvh - 140px); display: grid; place-items: center; padding: clamp(16px, 3vw, 32px); background: var(--surface-soft); }
+.login-card { width: min(100%, 440px); display: grid; gap: 16px; padding: clamp(20px, 3vw, 32px); border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 16px 48px rgb(34 48 61 / 12%); }
+.login-brand { display: grid; gap: 8px; margin-bottom: 8px; }
+.login-brand img { width: 180px; max-width: 100%; height: auto; }
 .login-brand small { display: block; margin-top: 3px; color: var(--muted); }
 .login-card h1, .login-card p { margin: 0; }
+.login-card h1 { font-size: clamp(22px, 2.4vw, 26px); font-weight: 750; line-height: 1.25; }
 .login-card label { display: grid; gap: 6px; color: var(--muted); font-size: 14px; }
 .login-card input { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: transparent; color: inherit; }
+.login-intro { margin-top: 8px !important; color: var(--muted); font-size: 14px; }
+.login-qr-button { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 48px; }
+.login-qr-button:disabled { cursor: not-allowed; }
+.login-help, .login-status { color: var(--muted); font-size: 13px; line-height: 1.7; }
+.login-status { padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
+.login-account { border-top: 1px solid var(--border); padding-top: 16px; }
+.login-account summary { cursor: pointer; font-size: 14px; color: var(--muted); }
+.login-account form { display: grid; gap: 14px; margin-top: 16px; }
+.login-retry { border: 0; background: transparent; color: var(--primary); text-decoration: underline; cursor: pointer; padding: 4px 8px; }
 .primary-button { border: 0; border-radius: 8px; padding: 11px 16px; color: #fff; background: var(--primary); cursor: pointer; }
 .primary-button:disabled { cursor: wait; opacity: .65; }
 .form-error { color: #c53030; font-size: 14px; }
@@ -1066,3 +1077,46 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .hudu-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.hudu-form-grid .wide { grid-column: 1 / -1; }.hudu-sidebar-nav .nav-item.router-link-active { color: #fff; background: rgb(255 255 255 / 12%); }
 @media (max-width: 1000px) { .hudu-layout, .hudu-detail-grid { grid-template-columns: 1fr; }.hudu-side-column, .hudu-detail-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }.hudu-side-column > .hudu-card:last-child, .hudu-side-column > .hudu-side-card:last-child { grid-column: 1 / -1; } }
 @media (max-width: 720px) { .hudu-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.hudu-toolbar { align-items: stretch; flex-wrap: wrap; }.hudu-search { flex-basis: 100%; }.hudu-toolbar select { flex: 1; }.hudu-page-header, .hudu-detail-hero { align-items: flex-start; flex-direction: column; }.hudu-actions { width: 100%; }.hudu-actions > * { flex: 1; justify-content: center; }.hudu-fact-grid, .hudu-profile-grid, .hudu-intake-grid, .hudu-side-column { grid-template-columns: 1fr; }.hudu-form-grid { grid-template-columns: 1fr; } }
+
+/* Company affiliation and functional departments use separate organization views. */
+.organization-view-tabs { display: flex; gap: 6px; padding: 4px; width: fit-content; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.organization-view-tabs button { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 8px 18px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.organization-view-tabs button.active { color: var(--text); background: color-mix(in srgb, var(--primary) 12%, var(--surface)); }
+.organization-view-tabs button > span { min-width: 20px; padding: 2px 5px; border-radius: 5px; background: color-mix(in srgb, var(--text) 6%, transparent); font-size: 10px; text-align: center; }
+.organization-review-note { display: flex; align-items: flex-start; gap: 9px; padding: 12px 15px; border: 1px solid #e8d7ad; border-radius: 9px; color: #7b5b22; background: #fffaf0; font-size: 12px; line-height: 1.6; }
+.organization-review-note > svg { flex: 0 0 auto; margin-top: 2px; }
+.company-node { display: grid; width: 100%; min-height: 50px; grid-template-columns: 18px minmax(0, 1fr) 24px; gap: 8px; align-items: center; padding: 10px 12px; border: 0; border-radius: 7px; color: var(--text); background: transparent; text-align: left; font: inherit; font-size: 12px; line-height: 1.6; cursor: pointer; }
+.company-node small { color: var(--muted); text-align: right; }
+.company-node:hover { background: color-mix(in srgb, var(--primary) 6%, var(--surface)); }
+.company-node.active { background: color-mix(in srgb, var(--primary) 12%, var(--surface)); font-weight: 800; }
+.pending-node { margin-top: 12px; border-top: 1px solid var(--border); color: #7b5b22; }
+.organization-workspace .organization-tree { max-height: 680px; }
+.organization-source-note { margin: -7px 0 18px; color: var(--muted); font-size: 11px; line-height: 1.8; }
+.organization-members .member-heading h2 { overflow-wrap: anywhere; }
+.organization-members .member-heading > div { min-width: 0; }
+.organization-members .table-search { flex: 0 0 auto; }
+.company-member-table { min-width: 540px; }
+.department-member-table { min-width: 630px; }
+.verification-pending { color: #7b5b22; background: #fff4de; }
+.member-verification-note { display: block; margin-top: 5px; color: #8a6725; font-size: 10px; }
+.stale-node-group { display: grid; gap: 6px; margin-top: 22px; padding-top: 15px; border-top: 1px solid var(--border); }
+.stale-node-group > strong { padding: 0 12px; color: #7b5b22; font-size: 11px; }
+.stale-node-group .tree-node { grid-template-columns: 16px minmax(0, 1fr) 44px; }
+@media (max-width: 1100px) {
+  .organization-members .member-heading { align-items: flex-start; flex-direction: column; }
+  .organization-members .table-search { width: 100%; }
+}
+@media (max-width: 860px) {
+  .organization-workspace .organization-tree { max-height: 320px; }
+  .organization-view-tabs { width: 100%; }
+  .organization-view-tabs button { flex: 1; justify-content: center; }
+}
+
+.company-statutory-panel { margin: 20px 0 16px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-soft); }
+.company-statutory-panel dl { display: flex; flex-wrap: wrap; gap: 20px 48px; margin: 0; }
+.company-statutory-panel dt { margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+.company-statutory-panel dd { margin: 0; font-size: 17px; font-weight: 700; }
+.company-statutory-panel p { margin: 14px 0 8px; color: var(--muted); font-size: 12px; line-height: 1.65; }
+.company-profile-error { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; color: #b42318; }
+
+.company-statutory-panel .text-button { display: inline-flex; min-height: 36px; align-items: center; gap: 6px; padding: 4px 0; border: 0; background: transparent; color: var(--primary); font-size: 12px; font-weight: 650; cursor: pointer; }

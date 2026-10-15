@@ -22,6 +22,7 @@ import {
 } from "lucide-vue-next";
 import { useRoute, useRouter } from "vue-router";
 
+import AssetAttachments from "../components/AssetAttachments.vue";
 import PageHeader from "../components/PageHeader.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import {
@@ -720,6 +721,7 @@ onMounted(load);
         }}
       </button>
     </PageHeader>
+    <AssetAttachments v-if="asset" :asset-id="asset.id" />
     <div v-if="message" class="message-panel success-message">
       {{ message }}
     </div>

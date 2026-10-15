@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,6 +13,7 @@ class Settings(BaseSettings):
         env_file=BACKEND_DIR / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     app_env: str = "local"
@@ -35,6 +37,9 @@ class Settings(BaseSettings):
     dingtalk_client_secret: str | None = None
     dingtalk_corp_id: str | None = None
     dingtalk_agent_id: str | None = None
+    dingtalk_web_enabled: bool = False
+    dingtalk_web_redirect_uri: str | None = None
+    dingtalk_web_frontend_url: str | None = None
     ai_import_enabled: bool = False
     ai_import_base_url: str | None = None
     ai_import_api_key: str | None = None
@@ -50,7 +55,52 @@ class Settings(BaseSettings):
     def validate_production_session_security(self) -> "Settings":
         if self.app_env == "production" and not self.session_secure_cookie:
             raise ValueError("SESSION_SECURE_COOKIE must be true in production")
+        web_urls = [self.dingtalk_web_redirect_uri, self.dingtalk_web_frontend_url]
+        for value in (url for url in web_urls if url):
+            parsed = urlsplit(value)
+            local_http = (
+                self.app_env == "local"
+                and parsed.scheme == "http"
+                and parsed.hostname in {"127.0.0.1", "localhost"}
+            )
+            if (
+                (parsed.scheme != "https" and not local_http)
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+                or "\\" in value
+                or any(ord(char) < 33 or ord(char) == 127 for char in value)
+                or "/../" in parsed.path
+                or "%" in parsed.path
+            ):
+                raise ValueError("DingTalk web URLs must be trusted HTTPS URLs without queries")
+            _ = parsed.port  # Reject malformed ports while loading configuration.
+        if self.dingtalk_web_redirect_uri and self.dingtalk_web_frontend_url:
+            callback = urlsplit(self.dingtalk_web_redirect_uri)
+            frontend = urlsplit(self.dingtalk_web_frontend_url)
+            if (
+                self.dingtalk_web_enabled
+                and callback.scheme == "https"
+                and not self.session_secure_cookie
+            ):
+                raise ValueError("SESSION_SECURE_COOKIE must be true for HTTPS web login")
+            if (callback.scheme, callback.netloc) != (frontend.scheme, frontend.netloc):
+                raise ValueError("DingTalk web callback and frontend must share the same origin")
+            if not callback.path.endswith("/api/dingtalk/web/callback"):
+                raise ValueError("DINGTALK_WEB_REDIRECT_URI must point to the web callback")
+            if not frontend.path.endswith("/"):
+                raise ValueError("DINGTALK_WEB_FRONTEND_URL must end with a slash")
         return self
+
+    def dingtalk_web_missing_settings(self) -> list[str]:
+        missing = self.dingtalk_missing_settings()
+        if not self.dingtalk_web_redirect_uri:
+            missing.append("DINGTALK_WEB_REDIRECT_URI")
+        if not self.dingtalk_web_frontend_url:
+            missing.append("DINGTALK_WEB_FRONTEND_URL")
+        return missing
 
     def dingtalk_missing_settings(self, *, require_corp_id: bool = True) -> list[str]:
         required = {

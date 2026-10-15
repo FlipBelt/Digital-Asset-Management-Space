@@ -218,7 +218,7 @@ def get_hudu_asset(asset_id: UUID, db: Session = Depends(get_db), access: Access
     relations = []
     relation_rows = db.scalars(select(AssetRelation).where(AssetRelation.archived_at.is_(None), or_(AssetRelation.source_asset_id == asset_id, AssetRelation.target_asset_id == asset_id))).all()
     related_ids = {row.target_asset_id if row.source_asset_id == asset_id else row.source_asset_id for row in relation_rows}
-    related_assets = {row.id: row for row in db.scalars(select(Asset).where(Asset.id.in_(related_ids), Asset.archived_at.is_(None)))} if related_ids else {}
+    related_assets = {row.id: row for row in db.scalars(select(Asset).where(Asset.id.in_(related_ids), Asset.archived_at.is_(None), asset_visibility_clause(access)))} if related_ids else {}
     for row in relation_rows:
         related_id = row.target_asset_id if row.source_asset_id == asset_id else row.source_asset_id
         related = related_assets.get(related_id)

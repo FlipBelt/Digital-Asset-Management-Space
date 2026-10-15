@@ -461,6 +461,8 @@ def create_service_instance(
     access: AccessContext = Depends(get_access_context),
 ) -> ServiceInstance:
     require_manageable_asset(db, access, payload.asset_id)
+    if payload.funding_source == "personal" and payload.payer_person_id != access.person_id:
+        raise HTTPException(403, "个人自费仅可登记当前员工本人")
     item = ServiceInstance(**payload.model_dump())
     db.add(item)
     return commit(db, item, "service_instance.create", "service_instance")

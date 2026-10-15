@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -160,10 +161,24 @@ class ServiceInstanceCreate(BaseModel):
     service_product_id: UUID
     purchase_platform_id: UUID | None = None
     purchase_tenant_asset_id: UUID | None = None
+    funding_source: Literal["company", "department", "personal", "free", "trial"] | None = None
+    payer_person_id: UUID | None = None
+    usage_frequency: Literal["daily", "weekly", "monthly", "rarely"] | None = None
+    primary_purpose: str | None = Field(default=None, max_length=500)
     subscription_name: str | None = None
     currency: str = Field(default="CNY", min_length=3, max_length=3)
     starts_at: date | None = None
     expires_at: date | None = None
+
+    @model_validator(mode="after")
+    def validate_funding(self):
+        if self.funding_source == "personal" and self.payer_person_id is None:
+            raise ValueError("个人自费必须关联付款人")
+        if self.funding_source != "personal" and self.payer_person_id is not None:
+            raise ValueError("非个人自费不能指定个人付款人")
+        if self.starts_at and self.expires_at and self.expires_at < self.starts_at:
+            raise ValueError("结束时间不能早于开始时间")
+        return self
 
 
 class ServiceInstanceRead(ORMModel):

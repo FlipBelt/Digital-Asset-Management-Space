@@ -78,6 +78,7 @@ async def exercise_pm_session_security() -> None:
                 if entity_id := ids.get("entity"):
                     db.execute(delete(LegalEntity).where(LegalEntity.id == entity_id))
                 if user_id := ids.get("user"):
+                    db.execute(delete(AuditLog).where(AuditLog.actor_user_id == user_id))
                     db.execute(delete(UserSession).where(UserSession.user_id == user_id))
                     db.execute(delete(UserRoleScope).where(UserRoleScope.user_id == user_id))
                     db.execute(delete(User).where(User.id == user_id))
