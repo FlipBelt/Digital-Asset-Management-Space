@@ -1,0 +1,740 @@
+{
+  "verifiedOn": "2026-10-15",
+  "pendingNames": [
+    "安捷云",
+    "易尚云",
+    "yishangcloud",
+    "预策",
+    "著作权登记系统",
+    "专利查询系统",
+    "供应商待确认"
+  ],
+  "brands": [
+    {
+      "key": "12315",
+      "names": [
+        "12315",
+        "全国12315平台"
+      ],
+      "officialPage": "https://apps.apple.com/cn/app/%E5%85%A8%E5%9B%BD12315%E5%B9%B3%E5%8F%B0/id1213288950",
+      "assetUrl": "https://is1-ssl.mzstatic.com/image/thumb/Purple114/v4/0f/57/3f/0f573ffd-06fb-8582-c17e-ed6fa0a0decc/AppIcon-0-0-1x_U007emarketing-0-0-0-5-0-0-sRGB-0-0-0-GLES2_U002c0-512MB-85-220-0-0.png/400x400ia-75.webp",
+      "file": "frontend/src/assets/platform-logos/12315.webp",
+      "sha256": "8db4d4d66a6cd45475f3b318e484277a05a04362ca9774737c3f37e8aab43fe2",
+      "verifiedAt": "2026-10-15T14:02:01+08:00",
+      "notes": "Official publisher-provided app icon from the App Store page, selecting its exact declared 400w WebP source URL. Publisher: China Cybersecurity Review, Certification And Market Regulation Big Data Center; page links to www.12315.cn and app.12315.cn. Official platform root had a redirect loop. Original CDN bytes retained; no image transformation.",
+      "status": "verified",
+      "dimensions": [
+        400,
+        400
+      ],
+      "originalDimensions": [
+        [
+          400,
+          400
+        ]
+      ],
+      "asset": "12315.webp",
+      "websiteHosts": [
+        "12315.cn"
+      ]
+    },
+    {
+      "key": "alibaba-ipp",
+      "names": [
+        "阿里知识产权保护平台",
+        "阿里巴巴知识产权保护平台",
+        "淘天知识产权保护平台"
+      ],
+      "officialPage": "https://ipp.taobao.com/home.htm#/home",
+      "assetUrl": "https://gw.alicdn.com/imgextra/i2/O1CN01qyQjdD1FrpEsmouLT_!!6000000000541-2-tps-106-106.png",
+      "file": "frontend/src/assets/platform-logos/alibaba-ipp.png",
+      "sha256": "3586c80dbcc35985c8e9c925f20c82929c97feabd6736001d6c0eb906456db5f",
+      "verifiedAt": "2026-10-15T14:00:36+08:00",
+      "notes": "Official IPP favicon, 106x106; ipp.alibabagroup.com redirects to the Taobao and Tmall Group IPP page.",
+      "status": "verified",
+      "dimensions": [
+        106,
+        106
+      ],
+      "originalDimensions": [
+        [
+          106,
+          106
+        ]
+      ],
+      "asset": "alibaba-ipp.png",
+      "websiteHosts": [
+        "ipp.taobao.com"
+      ]
+    },
+    {
+      "key": "aliyun",
+      "names": [
+        "阿里云",
+        "Aliyun",
+        "Alibaba Cloud"
+      ],
+      "officialPage": "https://www.aliyun.com/",
+      "assetUrl": "https://img.alicdn.com/tfs/TB1_ZXuNcfpK1RjSZFOXXa6nFXa-32-32.ico",
+      "file": "frontend/src/assets/platform-logos/aliyun.ico",
+      "sha256": "a79cc4c0c10ae94fb5d6a56daf3f187b869e32f20a5bba1eaddad36ac3e21328",
+      "verifiedAt": "2026-10-15T05:57:18.041817+00:00",
+      "notes": "Official Chinese homepage declares this favicon on its Alibaba CDN; original 32x32 ICO preserved.",
+      "status": "verified",
+      "contentType": "image/x-icon",
+      "bytes": 4286,
+      "dimensions": [
+        32,
+        32
+      ],
+      "icoFrameSizes": [
+        [
+          32,
+          32
+        ]
+      ],
+      "asset": "aliyun.ico",
+      "websiteHosts": [
+        "aliyun.com"
+      ]
+    },
+    {
+      "key": "anthropic",
+      "names": [
+        "Anthropic"
+      ],
+      "officialPage": "https://www.anthropic.com/",
+      "assetUrl": "https://cdn.prod.website-files.com/67ce28cfec624e2b733f8a52/67d31dd7aa394792257596c5_webclip.png",
+      "file": "frontend/src/assets/platform-logos/anthropic.png",
+      "sha256": "c91922918edeef31af5e969413c0eecf583707d14588de3fecc1d649b4303bf7",
+      "verifiedAt": "2026-10-15T05:57:17.884893+00:00",
+      "notes": "Official Anthropic homepage declares this apple-touch icon; corporate mark, not a substituted Claude product mark.",
+      "status": "verified",
+      "contentType": "image/png",
+      "bytes": 3175,
+      "dimensions": [
+        256,
+        256
+      ],
+      "asset": "anthropic.png",
+      "websiteHosts": [
+        "anthropic.com"
+      ]
+    },
+    {
+      "key": "deepseek",
+      "names": [
+        "DeepSeek",
+        "深度求索"
+      ],
+      "officialPage": "https://www.deepseek.com/",
+      "assetUrl": "https://www.deepseek.com/favicon.ico",
+      "file": "frontend/src/assets/platform-logos/deepseek.ico",
+      "sha256": "30a4420e6e4dcb17fd7de560c5004346c2bc8cd971d2d5f5ee15326603e51321",
+      "verifiedAt": "2026-10-15T05:57:17.883850+00:00",
+      "notes": "Official homepage declares this 225x225 favicon.",
+      "status": "verified",
+      "contentType": "image/vnd.microsoft.icon",
+      "bytes": 209762,
+      "dimensions": [
+        225,
+        225
+      ],
+      "icoFrameSizes": [
+        [
+          225,
+          225
+        ]
+      ],
+      "asset": "deepseek.ico",
+      "websiteHosts": [
+        "deepseek.com",
+        "platform.deepseek.com"
+      ]
+    },
+    {
+      "key": "dingtalk",
+      "names": [
+        "钉钉",
+        "DingTalk"
+      ],
+      "officialPage": "https://www.dingtalk.com/",
+      "assetUrl": "https://gw.alicdn.com/imgextra/i3/O1CN014ZbI6ZTEhdC0ttN2_!!6000000003783-2-tps-444-444.png",
+      "file": "frontend/src/assets/platform-logos/dingtalk.png",
+      "sha256": "b3fb0715857df5d23213b5265166fabcb7f7b4b290890d7b5682a027cf39c85d",
+      "verifiedAt": "2026-10-15T05:57:18.084270+00:00",
+      "notes": "Official homepage declares this 444x444 PNG favicon.",
+      "status": "verified",
+      "contentType": "image/png",
+      "bytes": 11431,
+      "dimensions": [
+        444,
+        444
+      ],
+      "asset": "dingtalk.png",
+      "websiteHosts": [
+        "dingtalk.com"
+      ]
+    },
+    {
+      "key": "douyin",
+      "names": [
+        "抖音"
+      ],
+      "officialPage": "https://trust.douyin.com/",
+      "assetUrl": "https://lf1-cdn-tos.bytegoofy.com/goofy/ies/douyin_web/public/favicon.ico",
+      "file": "frontend/src/assets/platform-logos/douyin.ico",
+      "sha256": "e67348e3ab54fa207e1ce4be78e8399d1b73a794d819a17d8656ea2b17a1109d",
+      "verifiedAt": "2026-10-15T14:00:36+08:00",
+      "notes": "Favicon explicitly declared by the official Douyin Safety and Trust Center; original 32x32 ICO. Registered entry https://ippro.bytedance.com/view/ was also checked and identifies itself as Douyin e-commerce IP protection; its HTML has no declared favicon.",
+      "status": "verified",
+      "dimensions": [
+        32,
+        32
+      ],
+      "originalDimensions": [
+        [
+          32,
+          32
+        ]
+      ],
+      "asset": "douyin.ico",
+      "websiteHosts": [
+        "ippro.bytedance.com",
+        "trust.douyin.com"
+      ]
+    },
+    {
+      "key": "google",
+      "names": [
+        "Google"
+      ],
+      "officialPage": "https://about.google/",
+      "assetUrl": "https://www.gstatic.com/marketing-cms/assets/images/33/52/d31eb4894f69969b24d075e0d33c/favicon.png=s180",
+      "file": "frontend/src/assets/platform-logos/google.png",
+      "sha256": "b5a2d723ccc14cf6b422a7e4d4665f91c4bcc37439a8bc71cd629b61597eae4d",
+      "verifiedAt": "2026-10-15T05:57:43.423108+00:00",
+      "notes": "Official About Google homepage declares this 180x180 apple-touch icon on its gstatic CDN.",
+      "status": "verified",
+      "contentType": "image/png",
+      "bytes": 14127,
+      "dimensions": [
+        180,
+        180
+      ],
+      "asset": "google.png",
+      "websiteHosts": [
+        "about.google",
+        "gemini.google.com"
+      ]
+    },
+    {
+      "key": "gs1",
+      "names": [
+        "中国物品编码中心（GS1）"
+      ],
+      "officialPage": "https://bizhall.ancc.org.cn/hall_web/",
+      "assetUrl": "https://bizhall.ancc.org.cn/hall_web/favicon.ico",
+      "file": "frontend/src/assets/platform-logos/gs1.png",
+      "sha256": "12b09d03804eb9e8dff78133f3c308a3f969d2cd4d508954e4bd733ccd16c6cb",
+      "verifiedAt": "2026-10-15T06:00:42.030738+00:00",
+      "notes": "Official page declared icon; original bytes retained.",
+      "status": "verified",
+      "dimensions": [
+        36,
+        36
+      ],
+      "bytes": 2733,
+      "asset": "gs1.png",
+      "websiteHosts": [
+        "ancc.org.cn",
+        "bizhall.ancc.org.cn",
+        "gs1cn.org"
+      ]
+    },
+    {
+      "key": "guanyi",
+      "names": [
+        "管易云",
+        "金蝶管易云"
+      ],
+      "officialPage": "https://apps.apple.com/cn/app/%E7%AE%A1%E6%98%93%E4%BA%91c-erp/id1641475064",
+      "assetUrl": "https://is1-ssl.mzstatic.com/image/thumb/Purple116/v4/f0/01/fe/f001fe99-390f-1b59-8c09-6d85a95ab9a2/AppIcon-0-0-1x_U007emarketing-0-0-0-5-0-0-sRGB-0-0-0-GLES2_U002c0-512MB-85-220-0-0.png/400x400ia-75.webp",
+      "file": "frontend/src/assets/platform-logos/guanyi.webp",
+      "sha256": "108ca348755bb403aa937088f0b2e0b13d0a4ac0353b8735637a251cad00f61f",
+      "verifiedAt": "2026-10-15T14:03:12+08:00",
+      "notes": "Official publisher-provided Guanyi Cloud C-ERP app icon; App Store developer and copyright holder are Shanghai Guanyi Cloud Computing Software Co., Ltd., and its developer website/privacy links point to https://www.guanyiyun.com/. Exact 400w WebP source URL declared by that page; original bytes retained. The registered official home/about/product pages all returned 403, so no site path was guessed.",
+      "status": "verified",
+      "dimensions": [
+        400,
+        400
+      ],
+      "originalDimensions": [
+        [
+          400,
+          400
+        ]
+      ],
+      "asset": "guanyi.webp",
+      "websiteHosts": [
+        "guanyiyun.com"
+      ]
+    },
+    {
+      "key": "jd",
+      "names": [
+        "京东",
+        "JD"
+      ],
+      "officialPage": "https://shop.jd.com/",
+      "assetUrl": "https://storage.360buyimg.com/shop-pageframe/shop.jd.com/v11/favicon/favicon.ico",
+      "file": "frontend/src/assets/platform-logos/jd.png",
+      "sha256": "bb6d6c16233e53d1a9ce858f82ab7d532dbc451125f72332448f74c414b10738",
+      "verifiedAt": "2026-10-15T14:04:39+08:00",
+      "notes": "The registered JD merchant entry redirects to the official Jingmai workbench login. Its HTML declares /jdm/favicon.ico, whose unchanged payload is a 1024x1024 PNG. This exact registered-platform icon replaces the generic consumer JD mark.",
+      "status": "verified",
+      "dimensions": [
+        1024,
+        1024
+      ],
+      "originalDimensions": [
+        [
+          1024,
+          1024
+        ]
+      ],
+      "asset": "jd.png",
+      "websiteHosts": [
+        "shop.jd.com"
+      ]
+    },
+    {
+      "key": "jushuitan",
+      "names": [
+        "聚水潭"
+      ],
+      "officialPage": "https://open.jushuitan.com/",
+      "assetUrl": "https://open.jushuitan.com/skin/logo_jst_open.png",
+      "file": "frontend/src/assets/platform-logos/jushuitan.png",
+      "sha256": "f9537b3a145cbdb1ea6462e5dac6031f30e8e6c985765522469f1cd7f7e4183d",
+      "verifiedAt": "2026-10-15T14:00:36+08:00",
+      "notes": "Official open-platform header image with alt text identifying Jushuitan Open Platform; original wide 318x80 logo including the Open Platform descriptor; contain without stretching.",
+      "status": "verified",
+      "dimensions": [
+        318,
+        80
+      ],
+      "originalDimensions": [
+        [
+          318,
+          80
+        ]
+      ],
+      "asset": "jushuitan.png",
+      "websiteHosts": [
+        "open.jushuitan.com"
+      ]
+    },
+    {
+      "key": "linear",
+      "names": [
+        "Linear"
+      ],
+      "officialPage": "https://linear.app/",
+      "assetUrl": "https://linear.app/static/favicon.svg?v=2",
+      "file": "frontend/src/assets/platform-logos/linear.svg",
+      "sha256": "6d49f8079f8cf91617657bd059ba1e186f2d3ecdcd9a4a366e0a6d5071c558e6",
+      "verifiedAt": "2026-10-15T05:57:17.884369+00:00",
+      "notes": "Official homepage declares this SVG favicon. SVG parsed; no script, foreignObject, events or external references.",
+      "status": "verified",
+      "contentType": "image/svg+xml",
+      "bytes": 697,
+      "asset": "linear.svg",
+      "websiteHosts": [
+        "linear.app"
+      ]
+    },
+    {
+      "key": "minimax",
+      "names": [
+        "MiniMax"
+      ],
+      "officialPage": "https://www.minimax.io/",
+      "assetUrl": "https://www.minimax.io/favicon.ico",
+      "file": "frontend/src/assets/platform-logos/minimax.ico",
+      "sha256": "43ce4c9b9e627b391a116cd5da09e4c062d9c4e3d585509c65a4a3d16f386256",
+      "verifiedAt": "2026-10-15T05:57:17.884893+00:00",
+      "notes": "Official homepage declares this favicon for icon, shortcut and apple-touch uses.",
+      "status": "verified",
+      "contentType": "image/x-icon",
+      "bytes": 4286,
+      "dimensions": [
+        32,
+        32
+      ],
+      "icoFrameSizes": [
+        [
+          32,
+          32
+        ]
+      ],
+      "asset": "minimax.ico",
+      "websiteHosts": [
+        "minimax.io",
+        "platform.minimax.io"
+      ]
+    },
+    {
+      "key": "netease-enterprise-mail",
+      "names": [
+        "网易企业邮箱"
+      ],
+      "officialPage": "https://qiye.163.com/",
+      "assetUrl": "https://mg.127.net/static/qiye-official/new/img/logo.23c43759.png",
+      "file": "frontend/src/assets/platform-logos/netease-enterprise-mail.png",
+      "sha256": "4979a964ae66dfd22fbe24a6c035ccdc15eee53fa491a7082657d74460aacdec",
+      "verifiedAt": "2026-10-15T14:00:36+08:00",
+      "notes": "Official header logo referenced by .g-header-loginbar-logo in the HTML-linked https://mg.127.net/static/qiye-official/new/css/common.43a85534.css; keep original aspect ratio with contain.",
+      "status": "verified",
+      "dimensions": [
+        246,
+        56
+      ],
+      "originalDimensions": [
+        [
+          246,
+          56
+        ]
+      ],
+      "asset": "netease-enterprise-mail.png",
+      "websiteHosts": [
+        "qiye.163.com"
+      ]
+    },
+    {
+      "key": "netease-mail",
+      "names": [
+        "163邮箱",
+        "网易163邮箱"
+      ],
+      "officialPage": "https://mail.163.com/",
+      "assetUrl": "https://mail.163.com/favicon.ico",
+      "file": "frontend/src/assets/platform-logos/netease-mail.png",
+      "sha256": "aaa1bc04a6989c7bd8163fd163cfbdf986d9c04758b841d97d3081314a2fc50c",
+      "verifiedAt": "2026-10-15T14:00:36+08:00",
+      "notes": "Official HTML shortcut icon; payload is original 48x48 PNG despite .ico source URL.",
+      "status": "verified",
+      "dimensions": [
+        48,
+        48
+      ],
+      "originalDimensions": [
+        [
+          48,
+          48
+        ]
+      ],
+      "asset": "netease-mail.png",
+      "websiteHosts": [
+        "mail.163.com"
+      ]
+    },
+    {
+      "key": "openai",
+      "names": [
+        "OpenAI"
+      ],
+      "officialPage": "https://developers.openai.com/",
+      "assetUrl": "https://developers.openai.com/favicon.png",
+      "file": "frontend/src/assets/platform-logos/openai.png",
+      "sha256": "8d5575ee667ff715cd3e3074d5296edc68d5aadd89720d203e13131b68b22a04",
+      "verifiedAt": "2026-10-15T05:57:42.733613+00:00",
+      "notes": "Official developer homepage declares this PNG favicon; OpenAI corporate homepage also independently verified. Root marketing homepage denies direct HTTP retrieval, so use the official developer site icon. Visual inspection confirms blue circular OpenAI blossom mark; original developer-site artwork, no recoloring.",
+      "status": "verified",
+      "contentType": "image/png",
+      "bytes": 1841,
+      "dimensions": [
+        48,
+        48
+      ],
+      "asset": "openai.png",
+      "websiteHosts": [
+        "developers.openai.com"
+      ]
+    },
+    {
+      "key": "pinduoduo",
+      "names": [
+        "拼多多"
+      ],
+      "officialPage": "https://ipp.pinduoduo.com/",
+      "assetUrl": "https://mms-static.pddpic.com/cpp/favicon.ico",
+      "file": "frontend/src/assets/platform-logos/pinduoduo.ico",
+      "sha256": "7d871344b031ccb42ae5d4bab22c4123a5c42d8a0649fb4e94998703f5a96e26",
+      "verifiedAt": "2026-10-15T14:04:39+08:00",
+      "notes": "The registered official Pinduoduo IPP entry redirects to /cpp/ and explicitly declares this icon. Original 48px ICO brand mark for the IP-protection platform; intentionally preferred over the different consumer heart-shaped Pinduoduo mark.",
+      "status": "verified",
+      "dimensions": [
+        48,
+        48
+      ],
+      "originalDimensions": [
+        [
+          48,
+          48
+        ]
+      ],
+      "asset": "pinduoduo.ico",
+      "websiteHosts": [
+        "ipp.pinduoduo.com"
+      ]
+    },
+    {
+      "key": "sina-mail",
+      "names": [
+        "新浪邮箱"
+      ],
+      "officialPage": "https://mail.sina.com.cn/",
+      "assetUrl": "https://2008mail.sina.com.cn/images/mobile/icon_touch.png",
+      "file": "frontend/src/assets/platform-logos/sina-mail.png",
+      "sha256": "d7acb33fccc724fc07961752fcd0c799775c3ce4386934382ff10defbe7e8dd5",
+      "verifiedAt": "2026-10-15T14:00:36+08:00",
+      "notes": "Official mobile-mail apple-touch-icon declaration after redirect to mail.sina.cn/?vt=4; original 114x114 PNG.",
+      "status": "verified",
+      "dimensions": [
+        114,
+        114
+      ],
+      "originalDimensions": [
+        [
+          114,
+          114
+        ]
+      ],
+      "asset": "sina-mail.png",
+      "websiteHosts": [
+        "mail.sina.com.cn"
+      ]
+    },
+    {
+      "key": "sohu-mail",
+      "names": [
+        "搜狐邮箱"
+      ],
+      "officialPage": "https://mail.sohu.com/fe/",
+      "assetUrl": "https://1cbbb2d148753.cdn.sohucs.com/e0de4a/img/favicon.66dcaa54.ico",
+      "file": "frontend/src/assets/platform-logos/sohu-mail.png",
+      "sha256": "90cc67266186bef355991ee6b20e21ceb3a2b51b7a539f5d881292b09f9181e2",
+      "verifiedAt": "2026-10-15T14:00:36+08:00",
+      "notes": "Official mail-page shortcut icon; payload is original 32x32 PNG despite .ico source URL.",
+      "status": "verified",
+      "dimensions": [
+        32,
+        32
+      ],
+      "originalDimensions": [
+        [
+          32,
+          32
+        ]
+      ],
+      "asset": "sohu-mail.png",
+      "websiteHosts": [
+        "mail.sohu.com"
+      ]
+    },
+    {
+      "key": "trademark",
+      "names": [
+        "中国商标网"
+      ],
+      "officialPage": "https://sbj.cnipa.gov.cn/",
+      "assetUrl": "https://sbj.cnipa.gov.cn/res/shangbiaoju/default/favicon.ico",
+      "file": "frontend/src/assets/platform-logos/trademark.png",
+      "sha256": "17808314a7a213e7070101d836d93fff60273f529b3519cd9ada8710e0e95254",
+      "verifiedAt": "2026-10-15T06:00:41.806466+00:00",
+      "notes": "Official page declared icon; original bytes retained.",
+      "status": "verified",
+      "dimensions": [
+        80,
+        80
+      ],
+      "bytes": 13473,
+      "asset": "trademark.png",
+      "websiteHosts": [
+        "sbj.cnipa.gov.cn"
+      ]
+    },
+    {
+      "key": "weibo",
+      "names": [
+        "微博",
+        "新浪微博"
+      ],
+      "officialPage": "https://zh.ir.weibo.com/",
+      "assetUrl": "https://zh.ir.weibo.com/favicon.ico",
+      "file": "frontend/src/assets/platform-logos/weibo.ico",
+      "sha256": "b86c00f90f8b742d1fb477034fb1916832857b8ac8a77f34a9c2904f3051194a",
+      "verifiedAt": "2026-10-15T14:00:36+08:00",
+      "notes": "Official Weibo investor-relations site favicon; original multi-frame ICO with 16x16 and 32x32 entries. Main consumer site requires visitor verification.",
+      "status": "verified",
+      "dimensions": [
+        32,
+        32
+      ],
+      "originalDimensions": [
+        [
+          32,
+          32
+        ],
+        [
+          16,
+          16
+        ],
+        [
+          32,
+          32
+        ],
+        [
+          16,
+          16
+        ],
+        [
+          32,
+          32
+        ],
+        [
+          16,
+          16
+        ]
+      ],
+      "asset": "weibo.ico",
+      "websiteHosts": [
+        "zh.ir.weibo.com"
+      ]
+    },
+    {
+      "key": "xai",
+      "names": [
+        "xAI"
+      ],
+      "officialPage": "https://grok.com",
+      "assetUrl": "https://grok.com/images/apple-touch-icon.png",
+      "file": "frontend/src/assets/platform-logos/xai.png",
+      "sha256": "a3487e9bfbe49df853c51c5bdbf980bfb3bec782bfdd398a9bf333bb648b832f",
+      "verifiedAt": "2026-10-15T06:16:16.487190+00:00",
+      "notes": "Explicit user choice: use the official Grok product identity for the existing directory entry name=xAI and website=https://grok.com. The Grok homepage actually declares /images/favicon.svg and /images/apple-touch-icon.png. The original SVG includes a foreignObject XHTML backdrop-blur element; preserve source artwork by using the official PNG alternative rather than editing the SVG or accepting foreignObject. Downloaded original 180x180 apple-touch PNG bytes unchanged. This mapping requires the matching grok.com website; do not substitute SpaceX corporate artwork or the historical xAI mark.",
+      "status": "verified",
+      "requiresWebsite": true,
+      "contentType": "image/png",
+      "bytes": 8579,
+      "dimensions": [
+        180,
+        180
+      ],
+      "asset": "xai.png",
+      "websiteHosts": [
+        "grok.com"
+      ]
+    },
+    {
+      "key": "xiaohongshu",
+      "names": [
+        "小红书"
+      ],
+      "officialPage": "https://www.xiaohongshu.com/",
+      "assetUrl": "https://picasso-static.xiaohongshu.com/fe-platform/f43dc4a8baf03678996c62d8db6ebc01a82256ff.png",
+      "file": "frontend/src/assets/platform-logos/xiaohongshu.png",
+      "sha256": "2912c4df1ab479d734ef132e9c45b4f17afa80b2aa3eaf4438acd54afc70b20a",
+      "verifiedAt": "2026-10-15T14:00:36+08:00",
+      "notes": "Official page apple-touch-icon declaration after its public login redirect; original 180x180 PNG, no login performed. Registered entry https://ipp.xiaohongshu.com/ was also checked; its HTML declares the same official Xiaohongshu consumer-domain favicon family.",
+      "status": "verified",
+      "dimensions": [
+        180,
+        180
+      ],
+      "originalDimensions": [
+        [
+          180,
+          180
+        ]
+      ],
+      "asset": "xiaohongshu.png",
+      "websiteHosts": [
+        "ipp.xiaohongshu.com",
+        "xiaohongshu.com"
+      ]
+    },
+    {
+      "key": "yingdao",
+      "names": [
+        "影刀",
+        "影刀RPA",
+        "Yingdao"
+      ],
+      "officialPage": "https://www.yingdao.com/",
+      "assetUrl": "https://winrobot-pub-a-dev-1302949341.cos.ap-shanghai.myqcloud.com/image/20260901134651/5401fcb49f712bdcf1784a2c0da52685.svg",
+      "file": "frontend/src/assets/platform-logos/yingdao.svg",
+      "sha256": "a762f487a14dd34de5eea96b37c6af64eaf2f18befaf2c72860ff31bbc355dc8",
+      "verifiedAt": "2026-10-15T05:57:18.122498+00:00",
+      "notes": "Official homepage declares this SVG shortcut icon on its Tencent COS account. SVG parsed; no script, foreignObject, events or external references.",
+      "status": "verified",
+      "contentType": "image/svg+xml",
+      "bytes": 1553,
+      "asset": "yingdao.svg",
+      "websiteHosts": [
+        "yingdao.com"
+      ]
+    },
+    {
+      "key": "yonyou",
+      "names": [
+        "用友云",
+        "用友"
+      ],
+      "officialPage": "https://www.yonyou.com/",
+      "assetUrl": "https://www.yonyou.com/favicon.png",
+      "file": "frontend/src/assets/platform-logos/yonyou.png",
+      "sha256": "d51f051d81c87a5aeb4d1e299af92ce5579e71aacbae0a1446eb7067b109c577",
+      "verifiedAt": "2026-10-15T14:00:36+08:00",
+      "notes": "Official Yonyou group home-page favicon; original square 110x110 brand mark used for the Yonyou Cloud platform family.",
+      "status": "verified",
+      "dimensions": [
+        110,
+        110
+      ],
+      "originalDimensions": [
+        [
+          110,
+          110
+        ]
+      ],
+      "asset": "yonyou.png",
+      "websiteHosts": [
+        "yonyou.com"
+      ]
+    },
+    {
+      "key": "zhichan",
+      "names": [
+        "知蝉网"
+      ],
+      "officialPage": "https://www.izhichan.com/",
+      "assetUrl": "https://www.izhichan.com/favicon.ico",
+      "file": "frontend/src/assets/platform-logos/zhichan.png",
+      "sha256": "ec18e94d6231284d2bf73a91c266ff8db153a6f684c0367909d1d39379bd5098",
+      "verifiedAt": "2026-10-15T06:00:41.670061+00:00",
+      "notes": "Official page declared icon; original bytes retained.",
+      "status": "verified",
+      "dimensions": [
+        84,
+        84
+      ],
+      "bytes": 4546,
+      "asset": "zhichan.png",
+      "websiteHosts": [
+        "izhichan.com"
+      ]
+    }
+  ]
+}

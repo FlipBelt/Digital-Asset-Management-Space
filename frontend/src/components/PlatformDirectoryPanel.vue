@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import ModalPanel from "./ModalPanel.vue";
 import StatusBadge from "./StatusBadge.vue";
+import PlatformLogo from "./PlatformLogo.vue";
 import { api, type PlatformDirectoryEntry, type ServiceProduct } from "../lib/api";
 
 const props = defineProps<{ canManage: boolean; entryId?: string }>();
@@ -57,7 +58,7 @@ onMounted(load);
     <div v-if="loading" class="mini-empty" role="status">正在读取平台/供应商目录…</div>
     <div v-else-if="!filtered.length" class="mini-empty">{{ rows.length ? '没有匹配的目录记录，请调整筛选。' : '目录暂无记录，请登记平台/供应商。' }}</div>
     <article v-for="item in loading ? [] : filtered" :key="item.id" class="directory-record">
-      <header><div><h2>{{ item.name }}</h2><p v-if="item.provider_name && item.provider_name !== item.name">服务提供方：{{ item.provider_name }}</p></div><StatusBadge :tone="item.review_status === 'approved' ? 'success' : 'warning'">{{ labels[item.review_status] || '待审核' }}</StatusBadge></header>
+      <header><div class="directory-brand"><PlatformLogo :name="item.name" :website="item.website" /><div><h2>{{ item.name }}</h2><p v-if="item.provider_name && item.provider_name !== item.name">服务提供方：{{ item.provider_name }}</p></div></div><StatusBadge :tone="item.review_status === 'approved' ? 'success' : 'warning'">{{ labels[item.review_status] || '待审核' }}</StatusBadge></header>
       <p v-if="item.description">{{ item.description }}</p><a v-if="item.website" :href="item.website" target="_blank" rel="noopener noreferrer">官方网站</a>
       <ul v-if="item.services.length" class="directory-services"><li v-for="product in item.services" :key="product.id"><div><strong>{{ product.name }}</strong><p>{{ product.plan_options.length ? product.plan_options.join(' · ') : '套餐待补充' }}</p></div><button v-if="canManage" class="secondary-button" @click="open(item, 'service', product)">维护套餐<span class="sr-only">：{{ product.name }}</span></button></li></ul>
       <p v-else>{{ item.kind === 'provider' ? '已有历史提供方记录，请完善平台/供应商登记并审核。' : '尚未维护服务和套餐。' }}</p>
@@ -82,6 +83,7 @@ onMounted(load);
 .directory-filters label { display:grid; gap:8px; flex:1 1 200px; min-width:0; }
 .directory-record { display:grid; gap:12px; padding:20px; border:1px solid var(--border); border-radius:var(--radius); min-width:0; }
 .directory-record header { display:flex; justify-content:space-between; align-items:start; gap:12px; }
+.directory-brand { display:flex; align-items:center; gap:12px; min-width:0; }
 .directory-record h2 { font-size:17px; margin:0; overflow-wrap:anywhere; }
 .directory-record footer { display:flex; flex-wrap:wrap; gap:8px; }
 .directory-services { list-style:none; padding:0; margin:0; }

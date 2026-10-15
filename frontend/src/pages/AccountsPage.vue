@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { ArrowRight, Building2, ChevronRight, Plus, RefreshCw, Search } from "lucide-vue-next";
+import { ArrowRight, ChevronRight, Plus, RefreshCw, Search } from "lucide-vue-next";
 import { useRoute, useRouter } from "vue-router";
 import PageHeader from "../components/PageHeader.vue";
 import StatusBadge from "../components/StatusBadge.vue";
+import PlatformLogo from "../components/PlatformLogo.vue";
 import WorkspaceTabs from "../components/WorkspaceTabs.vue";
 import PlatformDirectoryPanel from "../components/PlatformDirectoryPanel.vue";
 import PlatformAccountVerification from "../components/PlatformAccountVerification.vue";
@@ -100,7 +101,7 @@ onMounted(load);
       </section>
       <section v-else-if="route.query.tenant" class="content-panel mini-empty"><strong>账号资料已改变或无权读取</strong><RouterLink :to="{ query: { platform: selected.id } }" class="secondary-button">返回平台</RouterLink></section>
       <template v-else>
-        <div class="platform-heading"><div><h2>{{ selected.name }}</h2><p>{{ selected.provider_name && selected.provider_name !== selected.name ? `服务提供方：${selected.provider_name}` : '平台与服务提供方统一维护' }}</p></div><RouterLink v-if="canManage && selected.kind === 'platform'" class="primary-button" :to="{ path: '/intake', query: { mode: 'platform-account', platform: selected.id } }"><Plus :size="16" />登记此平台账号</RouterLink></div>
+        <div class="platform-heading"><div class="platform-heading-brand"><PlatformLogo :name="selected.name" :website="selected.website" /><div><h2>{{ selected.name }}</h2><p>{{ selected.provider_name && selected.provider_name !== selected.name ? `服务提供方：${selected.provider_name}` : '平台与服务提供方统一维护' }}</p></div></div><RouterLink v-if="canManage && selected.kind === 'platform'" class="primary-button" :to="{ path: '/intake', query: { mode: 'platform-account', platform: selected.id } }"><Plus :size="16" />登记此平台账号</RouterLink></div>
         <WorkspaceTabs v-model="section" :tabs="tabs" label="平台内账号分类" id-prefix="platform-section" />
         <section id="platform-section-panel" class="content-panel" role="tabpanel" :aria-labelledby="`platform-section-${section}`">
           <PlatformDirectoryPanel v-if="section === 'directory'" :entry-id="selected.id" :can-manage="canManage" @changed="load" />
@@ -110,7 +111,7 @@ onMounted(load);
           <template v-else>
             <p v-if="section === 'pending'" class="form-hint">核对账号的平台、公司归属、账号标识及依据；子账号需绑定实际在职员工，离职员工的账号进入交接。</p>
             <div v-if="section === 'personal'" class="personal-account-actions"><p class="form-hint">个人账号与个人订阅按已有可见权限展示；个人订阅登记无需审核。</p><RouterLink class="secondary-button" :to="{ path: '/memberships/new', query: { platform: selected.id } }">登记个人订阅</RouterLink><RouterLink v-if="canManage && selected.kind === 'platform'" class="secondary-button" :to="{ path: '/intake', query: { mode: 'platform-account', platform: selected.id, ownership: 'personal_for_company' } }">登记个人账号（公司使用）</RouterLink></div>
-            <ul v-if="tenantRows.length" class="platform-tenant-list"><li v-for="row in tenantRows" :key="row.asset_id"><span class="record-icon"><Building2 :size="19" /></span><div><button class="tenant-name" @click="openTenant(row)">{{ row.name }}</button><p>{{ row.is_subscription ? `${row.person_name || '个人登记'} · ${row.plan_name || '套餐待补充'}` : `${row.company_name || '个人账号'} · ${row.children.length} 个子账号` }}</p><small v-if="!row.is_subscription">负责人：{{ row.responsible_person_name || '尚未配置' }}</small></div><StatusBadge :tone="row.is_subscription || row.verification_status === 'verified' ? 'success' : 'warning'">{{ row.is_subscription ? '个人订阅 · 无需审核' : row.verification_status === 'verified' ? '已核验' : '待核验' }}</StatusBadge><button class="secondary-button" :aria-label="`管理账号 ${row.name}`" @click="openTenant(row)">{{ row.is_subscription ? '查看登记' : '管理账号' }}<ArrowRight :size="15" /></button></li></ul>
+            <ul v-if="tenantRows.length" class="platform-tenant-list"><li v-for="row in tenantRows" :key="row.asset_id"><PlatformLogo :name="selected.name" :website="selected.website" /><div><button class="tenant-name" @click="openTenant(row)">{{ row.name }}</button><p>{{ row.is_subscription ? `${row.person_name || '个人登记'} · ${row.plan_name || '套餐待补充'}` : `${row.company_name || '个人账号'} · ${row.children.length} 个子账号` }}</p><small v-if="!row.is_subscription">负责人：{{ row.responsible_person_name || '尚未配置' }}</small></div><StatusBadge :tone="row.is_subscription || row.verification_status === 'verified' ? 'success' : 'warning'">{{ row.is_subscription ? '个人订阅 · 无需审核' : row.verification_status === 'verified' ? '已核验' : '待核验' }}</StatusBadge><button class="secondary-button" :aria-label="`管理账号 ${row.name}`" @click="openTenant(row)">{{ row.is_subscription ? '查看登记' : '管理账号' }}<ArrowRight :size="15" /></button></li></ul>
             <div v-else class="mini-empty">{{ section === 'pending' ? '当前平台没有待核验或交接的账号。' : section === 'personal' ? '当前平台暂无可见的个人账号或订阅。' : '当前平台尚未登记公司账号。' }}</div>
             <ul v-if="section === 'pending' && platform?.pending_identities.length" class="pending-identity-list"><li v-for="item in platform.pending_identities" :key="item.asset_id"><div><strong>{{ item.name }}</strong><small>注册身份 · {{ item.asset_code }}</small></div><RouterLink class="secondary-button" :to="`/assets/${item.asset_id}`">核对资料</RouterLink></li></ul>
           </template>
@@ -119,7 +120,7 @@ onMounted(load);
     </template>
     <section v-else class="content-panel">
       <label class="fusion-search platform-search"><Search :size="17" aria-hidden="true" /><input v-model="query" type="search" placeholder="搜索平台或供应商" aria-label="搜索平台或供应商" /></label>
-      <template v-if="hasDirectoryResults"><section v-for="group in directoryGroups" :key="group.key" class="platform-directory-group" :aria-labelledby="`platform-group-${group.key}`"><header><h2 :id="`platform-group-${group.key}`">{{ group.label }} <span>{{ group.entries.length }}</span></h2><p>{{ group.key === 'with-accounts' ? '按公司账号与个人账号合计数量，从多到少排列。' : '平台资料已登记，尚无可见账号。' }}</p></header><div v-if="group.entries.length" class="platform-grid"><button v-for="item in group.entries" :key="item.id" class="platform-card" @click="openPlatform(item.id)"><span class="record-icon"><Building2 :size="21" /></span><strong>{{ item.name }}</strong><span>{{ structureFor(item.id)?.company_accounts.length || 0 }} 个公司账号 · {{ structureFor(item.id)?.personal_accounts.length || 0 }} 个个人账号</span><span class="platform-card-footer"><StatusBadge :tone="pendingFor(item.id) ? 'warning' : 'default'">{{ pendingFor(item.id) ? `${pendingFor(item.id)} 项待核验 / 交接` : item.review_status === 'approved' ? '目录已审核' : '目录待完善' }}</StatusBadge><ChevronRight :size="17" aria-hidden="true" /></span></button></div><p v-else class="mini-empty">{{ query ? '当前搜索在本组没有匹配平台。' : '本组暂无平台。' }}</p></section></template>
+      <template v-if="hasDirectoryResults"><section v-for="group in directoryGroups" :key="group.key" class="platform-directory-group" :aria-labelledby="`platform-group-${group.key}`"><header><h2 :id="`platform-group-${group.key}`">{{ group.label }} <span>{{ group.entries.length }}</span></h2><p>{{ group.key === 'with-accounts' ? '按公司账号与个人账号合计数量，从多到少排列。' : '平台资料已登记，尚无可见账号。' }}</p></header><div v-if="group.entries.length" class="platform-grid"><button v-for="item in group.entries" :key="item.id" class="platform-card" @click="openPlatform(item.id)"><PlatformLogo :name="item.name" :website="item.website" /><strong>{{ item.name }}</strong><span>{{ structureFor(item.id)?.company_accounts.length || 0 }} 个公司账号 · {{ structureFor(item.id)?.personal_accounts.length || 0 }} 个个人账号</span><span class="platform-card-footer"><StatusBadge :tone="pendingFor(item.id) ? 'warning' : 'default'">{{ pendingFor(item.id) ? `${pendingFor(item.id)} 项待核验 / 交接` : item.review_status === 'approved' ? '目录已审核' : '目录待完善' }}</StatusBadge><ChevronRight :size="17" aria-hidden="true" /></span></button></div><p v-else class="mini-empty">{{ query ? '当前搜索在本组没有匹配平台。' : '本组暂无平台。' }}</p></section></template>
       <div v-else class="mini-empty">{{ query ? '没有匹配的平台，请调整搜索。' : '尚未登记平台或供应商。' }}</div>
       <RouterLink v-if="data.service_references.length && !query" class="unlinked-entry" to="/accounts?section=references">平台服务记录 {{ data.service_references.length }} 项<ArrowRight :size="16" /></RouterLink>
       <RouterLink v-if="data.unlinked_identities.length && !query" class="unlinked-entry" :to="{ query: { unlinked: '1' } }">尚未被账号引用的注册与登录标识 {{ data.unlinked_identities.length }} 项<ArrowRight :size="16" /></RouterLink>
@@ -131,6 +132,7 @@ onMounted(load);
 .contact-actions { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px; }
 .account-breadcrumbs,.platform-heading,.tenant-actions,.tenant-drilldown > header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 .account-breadcrumbs { color:var(--muted); font-size:14px; } .account-breadcrumbs a { color:var(--text); }
+.platform-heading-brand { display:flex; align-items:center; gap:12px; min-width:0; }
 .platform-heading,.tenant-drilldown > header { justify-content:space-between; align-items:start; }
 h2 { font-size:23px; margin:0 0 8px; } p,small { color:var(--muted); line-height:1.6; } p { margin:0; }
 .platform-search { max-width:550px; margin-bottom:24px; }
