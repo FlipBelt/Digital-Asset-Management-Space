@@ -76,12 +76,12 @@
 
 [原生集成验收 FBC-40](https://linear.app/j21nianyi/issue/FBC-40) 与 [管理迁移验收 FBC-39](https://linear.app/j21nianyi/issue/FBC-39) 分别记录自动同步和管理入口的证据。管理文档 PR #7 已合并 main；历史业务 PR 与人工 UAT 仍按各自关口处理。
 
-## 本仓库自动项目归类（FBC-43，待授权启用）
+## 本仓库自动项目归类（FBC-43，已授权，真实验收中）
 
 现有工作区的 Loops 需要 Business / Enterprise 方案。本仓库准备 GitHub Actions 工作流 `linear-project-routing.yml`，仅补充项目归属，不替代原生 Issue Sync。
 
 - 只响应 `FlipBelt/Digital-Asset-Management-Space` 的新建 Issue。原生同步可能晚到，脚本有限等待；超时或 API 错误会明确失败，支持在 main 上用 Issue 编号手动重试。
-- 通过精确 GitHub Issue URL 查找 Linear 附件，并校验 `syncedWith` 的 GitHub node ID、仓库和编号。普通手工链接、多个匹配、归档/回收站事项、其他团队和已有任意项目均不写入。
+- 通过 GitHub 事件限定仓库和编号，以精确 Issue URL 查找 Linear 附件，并校验 `syncedWith` 中唯一 GitHub 条目的全局 node ID。官方定义为可选的补充 metadata 不作为必填身份字段。普通手工链接、多个匹配、归档/回收站事项、其他团队和已有任意项目均不写入。
 - 目标固定为 FBC 团队中的“数字中心｜AI 资产中心”（`77af2f8a-8f02-4816-abdd-ce59f3d747a2`）。写前复查、仅修改 `projectId`、写后回读；标题、描述、状态、负责人和标签不由此脚本修改。
 - CIS 与 FBC 共用团队，但脚本不扫描团队、不处理 CIS 仓库、不改 FBC 默认值；已有 CIS 项目归属会跳过。Linear 的更新接口没有项目条件写入，写前复查只能缩小人工同时分配项目的竞争窗口，不能保证原子条件更新。
 
