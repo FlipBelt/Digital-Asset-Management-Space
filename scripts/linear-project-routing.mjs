@@ -68,10 +68,13 @@ function validateGithubIssue(issue, number) {
   if (!issue || issue.number !== number || issue.html_url !== url || issue.pull_request) {
     fail('GitHub issue identity does not match the allowed canonical issue URL.');
   }
+  if (!Number.isSafeInteger(issue.id) || issue.id <= 0) {
+    fail('GitHub global issue ID is missing or invalid.');
+  }
   if (typeof issue.node_id !== 'string' || !/^[A-Za-z0-9_+/=-]+$/.test(issue.node_id)) {
     fail('GitHub issue node_id is missing or invalid.');
   }
-  return { number, url, nodeId: issue.node_id };
+  return { number, url, nodeId: issue.node_id, globalId: String(issue.id) };
 }
 
 export function validateEvent(event, env) {
@@ -163,7 +166,11 @@ async function verifyGithubAlias(context, sourceId, githubIssue) {
   }, 'GitHub GraphQL');
   if (!result || (Array.isArray(result.errors) && result.errors.length) ||
       (result.errors && !Array.isArray(result.errors)) || !result.data) {
-    fail('GitHub GraphQL identity lookup failed.');
+    const errorTypes = Array.isArray(result?.errors) ? [...new Set(result.errors.map((error) =>
+      typeof error?.type === 'string' && /^[A-Z_]{1,64}$/.test(error.type) ? error.type : 'unknown'))]
+      .slice(0, 4).join(',') || 'unknown' : 'unknown';
+    fail(`GitHub GraphQL identity lookup failed (errorTypes=${errorTypes}, ` +
+      `syncedPresent=${result?.data?.synced != null}, expectedPresent=${result?.data?.expected != null}).`);
   }
   const { synced, expected } = result.data;
   const matchesIssue = (node) => node?.__typename === 'Issue' &&
@@ -213,12 +220,15 @@ async function fetchAttachment(context, githubIssue) {
     issue.syncedWith.filter((source) => source?.service === 'github') : [];
   const nodeIdMatch = sources[0]?.id === githubIssue.nodeId;
   const sourceId = sources[0]?.id;
+  const globalIdMatch = sourceId === githubIssue.globalId;
   const nativeIdentityMatches = sources.length === 1 && typeof sourceId === 'string' &&
-    sourceId.length > 0 && (nodeIdMatch || await verifyGithubAlias(context, sourceId, githubIssue));
+    sourceId.length > 0 && (nodeIdMatch || globalIdMatch ||
+      await verifyGithubAlias(context, sourceId, githubIssue));
   if (!nativeIdentityMatches) {
     fail('A matching native GitHub issue sync is required; a manual link is insufficient ' +
-      `(githubSources=${sources.length}, nodeIdMatch=${nodeIdMatch}).`);
+      `(githubSources=${sources.length}, nodeIdMatch=${nodeIdMatch}, globalIdMatch=${globalIdMatch}).`);
   }
+  if (!nodeIdMatch && globalIdMatch) context.nativeIdentityVerifiedAgainstGlobalId = true;
   return attachment;
 }
 
@@ -255,6 +265,7 @@ export async function routeIssue({
     linearToken: requireToken(env.LINEAR_API_KEY, 'LINEAR_API_KEY'),
     githubToken: () => requireToken(env.GITHUB_TOKEN, 'GITHUB_TOKEN'),
     verifiedAliases: new Set(), nativeIdentityVerifiedViaGithub: false,
+    nativeIdentityVerifiedAgainstGlobalId: false,
   };
   if (!githubIssue.url) {
     const githubToken = context.githubToken();
@@ -301,7 +312,8 @@ export async function routeIssue({
     fail('Linear project readback did not match; inspect before retrying.');
   }
   return { status: 'routed', issueNumber: githubIssue.number,
-    ...(context.nativeIdentityVerifiedViaGithub ? { nativeIdentityVerifiedViaGithub: true } : {}) };
+    ...(context.nativeIdentityVerifiedViaGithub ? { nativeIdentityVerifiedViaGithub: true } : {}),
+    ...(context.nativeIdentityVerifiedAgainstGlobalId ? { nativeIdentityVerifiedAgainstGlobalId: true } : {}) };
 }
 
 export async function runCli({ env = process.env, readEvent = readFile, log = console.log,
@@ -315,7 +327,9 @@ export async function runCli({ env = process.env, readEvent = readFile, log = co
       fail('GitHub event file could not be read as JSON.');
     }
     const result = await routeIssue({ event, env, fetchImpl });
-    const identityNote = result.nativeIdentityVerifiedViaGithub ? ' Native identity verified via GitHub.' : '';
+    const identityNote = result.nativeIdentityVerifiedAgainstGlobalId ?
+      ' Native identity verified against GitHub global issue ID.' :
+      result.nativeIdentityVerifiedViaGithub ? ' Native identity verified via GitHub.' : '';
     log(`GitHub issue #${result.issueNumber}: ${result.status}${result.reason ? ` (${result.reason})` : ''}.${identityNote}`);
     return 0;
   } catch (error) {
