@@ -62,12 +62,16 @@
 4. 验证后在任务中记录实际命令、结果、提交和 PR；未经执行的检查不标记通过。
 5. 真实业务验收由用户或指定验收人确认，发布继续遵守现有授权和先测试后正式流程。
 
-## 原生 GitHub 集成边界
+## 原生 GitHub 集成与验收
 
-当前完成项目、任务和 PR 的链接关联。2026-10-15 设置回读：Linear 已连接的 GitHub 账号下，本仓库尚未出现在可选同步列表，GitHub issue sync 无仓库。
+2026-10-15 已由本人完成 Linear Code 的组织授权，仓库范围仅为 `FlipBelt/Digital-Asset-Management-Space`。Linear 设置已显示 FlipBelt 连接，仓库映射已保存至 Flipbelt China（FBC）。
 
-[FBC-40：连接 FlipBelt GitHub 并验证原生同步](https://linear.app/j21nianyi/issue/FBC-40) 跟踪管理员授权和验证。原生集成启用后，建议只将本仓库的 GitHub 新建 Issue 导入对应团队；不将同团队其他项目的全部 Linear 任务镜像到本公开仓库。已有同步 Issue 的字段与评论仍可能双向更新，需保持内容范围。
+- **新建方向**：GitHub → Linear。本仓库新建 Issue 自动进入 FBC；同团队其他项目的新 Linear 事项不会因此自动发布到本公开仓库。
+- **已有同步事项**：同一 Issue 的字段更新可双向同步。本轮已实际核验 GitHub → Linear 的标题、描述和关闭状态，以及 Linear → GitHub 的描述更新。
+- **项目归属**：原生映射只指定团队。验证 Issue 初次进入 FBC 时没有项目，本轮另行归入“数字中心｜AI 资产中心”。后续入站事项由 FBC 处理人分流到正确项目，不将人工归类报告为自动项目归属。
+- **讨论范围**：同步线程用于两端共同可见的信息；内部资料留在内部讨论和受控证据中。不要把凭据、员工或账号明细写入同步描述或评论。
+- **PR 原生关联**：现有 PR #1–#6 已分别关联 FBC-32–FBC-37；已读回 Linear 的原生 PR 对象、对应 linkedIssues 和 Draft 状态。
+- **真实验证回执**：[GitHub Issue #8](https://github.com/FlipBelt/Digital-Asset-Management-Space/issues/8) 自动生成 [FBC-42](https://linear.app/j21nianyi/issue/FBC-42)。创建、更新、反向描述更新及关闭状态核对通过；GitHub 为 closed/completed，Linear 为 Done，保留记录。
+- **权限边界**：用户批准的 Linear Code 权限包含代码、Actions、工作流等读写；不以安装授权替代后续代码执行、发布或业务审批授权。没有另建同步凭据、Webhook 服务或定时器。
 
-在仓库授权、映射保存和真实同步事件回读完成前，不把链接关联报告为持续自动同步。不得为此自行添加持久凭据、Webhook 服务或定时器。
-
-[管理迁移验收 FBC-39](https://linear.app/j21nianyi/issue/FBC-39)
+[原生集成验收 FBC-40](https://linear.app/j21nianyi/issue/FBC-40) 与 [管理迁移验收 FBC-39](https://linear.app/j21nianyi/issue/FBC-39) 分别记录自动同步和管理入口的证据。管理文档 PR #7 已合并 main；历史业务 PR 与人工 UAT 仍按各自关口处理。
