@@ -91,6 +91,58 @@ test('routes only projectId after a second exact lookup and confirms readback', 
   assert.match(LOOKUP_QUERY, /syncedWith/);
 });
 
+test('a present nullable trashed state can be routed and read back', async () => {
+  const mock = mockFetch([lookup([attachment({ trashed: null })]),
+    lookup([attachment({ trashed: null })]), updated(),
+    lookup([attachment({ trashed: null, project: { id: PROJECT_ID } })])]);
+  assert.deepEqual(await routeWith(mock), { status: 'routed', issueNumber: number });
+  assert.equal(mutationCalls(mock).length, 1);
+});
+
+test('missing and invalid trashed fields fail closed with value-free diagnostics', async () => {
+  const missing = attachment();
+  delete missing.issue.trashed;
+  const cases = [
+    [missing, 'missing'],
+    [attachment({ trashed: undefined }), 'undefined'],
+    [attachment({ trashed: secret }), 'string'],
+    [attachment({ trashed: 0 }), 'number'],
+    [attachment({ trashed: {} }), 'object'],
+    [attachment({ trashed: [] }), 'array'],
+  ];
+  for (const [node, type] of cases) {
+    const mock = mockFetch([lookup([node])]);
+    await assert.rejects(routeWith(mock), (error) => {
+      assert.equal(error.message,
+        `Linear attachment or issue identity is incomplete (issue.trashed=${type}).`);
+      assert.ok(!error.message.includes(secret));
+      return true;
+    });
+    assert.equal(mutationCalls(mock).length, 0);
+  }
+  const trashed = mockFetch([lookup([attachment({ trashed: true })])]);
+  await assert.rejects(routeWith(trashed), /Archived or trashed records/);
+  assert.equal(mutationCalls(trashed).length, 0);
+});
+
+test('incomplete identity diagnostics identify fixed fields and types without their values', async () => {
+  const node = attachment({ updatedAt: null, team: { id: { secret } },
+    project: secret, trashed: secret });
+  node.url = `https://example.com/${secret}`;
+  node.id = { secret };
+  delete node.issue.archivedAt;
+  const mock = mockFetch([lookup([node])]);
+  const messages = [];
+  assert.equal(await runCli({ env, fetchImpl: mock.fetchImpl,
+    readEvent: async () => JSON.stringify(event),
+    logError: (message) => messages.push(message) }), 1);
+  assert.equal(messages[0], 'Linear attachment or issue identity is incomplete ' +
+    '(attachment.url=string, attachment.id=object, issue.team.id=object, ' +
+    'issue.updatedAt=null, issue.trashed=string, issue.archivedAt=missing, issue.project=string).');
+  assert.ok(!messages[0].includes(secret));
+  assert.equal(mutationCalls(mock).length, 0);
+});
+
 test('existing CIS or any other project is preserved', async () => {
   for (const projectId of ['cis-project', 'another-project']) {
     const mock = mockFetch([lookup([attachment({ project: { id: projectId } })])]);

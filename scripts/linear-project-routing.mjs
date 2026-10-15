@@ -129,6 +129,18 @@ async function linearRequest(context, query, variables, mutation = false) {
   return result.data;
 }
 
+function hasField(record, key) {
+  return record !== null && typeof record === 'object' && Object.hasOwn(record, key);
+}
+
+function invalidField(name, record, key, accepts) {
+  if (!hasField(record, key)) return `${name}=missing`;
+  const value = record[key];
+  if (accepts(value)) return null;
+  const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
+  return `${name}=${type}`;
+}
+
 async function fetchAttachment(context, githubIssue) {
   const data = await linearRequest(context, LOOKUP_QUERY, { url: githubIssue.url });
   const connection = data.attachmentsForURL;
@@ -142,15 +154,24 @@ async function fetchAttachment(context, githubIssue) {
   if (!connection.nodes.length) return null;
   const attachment = connection.nodes[0];
   const issue = attachment?.issue;
-  if (!attachment || attachment.url !== githubIssue.url || typeof attachment.id !== 'string' ||
-      !issue || typeof issue.id !== 'string' || typeof issue.team?.id !== 'string' ||
-      typeof issue.updatedAt !== 'string' || typeof issue.trashed !== 'boolean' ||
-      !Object.hasOwn(attachment, 'archivedAt') || !Object.hasOwn(issue, 'archivedAt') ||
-      !Object.hasOwn(issue, 'project') ||
-      (issue.project !== null && typeof issue.project?.id !== 'string')) {
-    fail('Linear attachment or issue identity is incomplete.');
+  const string = (value) => typeof value === 'string';
+  const nullableString = (value) => value === null || string(value);
+  const invalid = [
+    invalidField('attachment.url', attachment, 'url', (value) => value === githubIssue.url),
+    invalidField('attachment.id', attachment, 'id', string),
+    invalidField('attachment.archivedAt', attachment, 'archivedAt', nullableString),
+    invalidField('issue.id', issue, 'id', string),
+    invalidField('issue.team.id', issue?.team, 'id', string),
+    invalidField('issue.updatedAt', issue, 'updatedAt', string),
+    invalidField('issue.trashed', issue, 'trashed', (value) => value === null || typeof value === 'boolean'),
+    invalidField('issue.archivedAt', issue, 'archivedAt', nullableString),
+    invalidField('issue.project', issue, 'project', (value) => value === null ||
+      (typeof value === 'object' && !Array.isArray(value) && typeof value.id === 'string')),
+  ].filter(Boolean);
+  if (invalid.length) {
+    fail(`Linear attachment or issue identity is incomplete (${invalid.join(', ')}).`);
   }
-  if (attachment.archivedAt !== null || issue.archivedAt !== null || issue.trashed) {
+  if (attachment.archivedAt !== null || issue.archivedAt !== null || issue.trashed === true) {
     fail('Archived or trashed records cannot be routed.');
   }
   const sources = Array.isArray(issue.syncedWith) ?
