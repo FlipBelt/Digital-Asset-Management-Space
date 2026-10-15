@@ -1,10 +1,10 @@
 # 平台官方 Logo
 
-关联任务：[FBC-215](https://linear.app/j21nianyi/issue/FBC-215)。本轮为本地实现，未推送或部署；当前线上应用仍为95cf02a。
+关联任务：[FBC-215](https://linear.app/j21nianyi/issue/FBC-215)，代码与证据：[PR #21](https://github.com/FlipBelt/Digital-Asset-Management-Space/pull/21)。用户明确授权候选 `1b216a847cee4f5d73d344510c9a09f069c32a92` 提交推送及测试→正式发布；2026-10-15 双环境已部署该应用版本，独立公开检查和认证页面回读通过。
 
 ## 范围与来源
 
-当前目录34项：27项使用核对后的官方原图；安捷云、易尚云、yishangcloud、预策、著作权登记系统、专利查询系统经用户明确保持待确认，“供应商待确认”继续中性占位。缺失图片不会按相似名称猜品牌。
+冻结品牌表34项：27项使用核对后的官方原图；安捷云、易尚云、yishangcloud、预策、著作权登记系统、专利查询系统经用户明确保持待确认，“供应商待确认”继续中性占位。正式目录回读为34张卡片；测试目录的实际差异见发布记录。缺失图片不会按相似名称猜品牌。
 
 用户另明确确认：现有“xAI”条目网址为grok.com，使用Grok官方产品图标，名称和网址不改。该匹配要求实际官网为grok.com，避免把SpaceX母公司图标或旧xAI标识混入。
 
@@ -23,7 +23,18 @@
 - 前端目标19/19通过：5项来源/映射边界、5项组件真实渲染/失败恢复、9项平台工作台与路由回归。命令：在frontend目录执行 `node --test --test-concurrency=1 tests/platformBrand.test.mjs tests/platformLogo.test.mjs tests/platformWorkspace.test.mjs`。
 - `npm run build`（含Vue类型检查）通过；另以VITE_BASE_PATH=/test/、VITE_API_BASE=/test-api执行Vite构建到隔离输出目录。两套入口前缀正确，18份外置图片与原始SHA及双环境字节一致，其余由Vite内联；既有包体积提示保留。
 - 本地只读合成页面34张卡片：27图实际加载、7中性图标、0外站Logo HTTP请求；搜索、375px窄屏、两种宽Logo比例、平台标题/账号行/资料页复用通过。Grok最终180px图标已回读；不连接真实后端，不保存业务资料。
-- 独立代码复核无阻断；diff检查通过。无后端变更，未运行数据库测试或部署；真实业务验收与后续技术发布分别记录。
+- 独立代码与发布操作器复核无阻断；diff检查通过。无后端行为变更，未新增数据库测试；技术发布和真实业务验收分别记录。
+
+## 发布与线上回读
+
+- 应用版本：`1b216a847cee4f5d73d344510c9a09f069c32a92`（实现 `b2071c9`，SVG原字节保全 `1b216a8`），从线上基线 `95cf02a` 发布；后续文档提交不改变已部署应用版本。PR保持Draft/Open，未合并main。
+- 测试：云助手 `t-hz07039boti8qgw`，exit 0 / PASS；旧应用和静态资源实际回退后重新应用同候选，保留schema，测试期间正式版本未动。
+- 正式：云助手 `t-hz07039zbn5ntvk`，exit 0 / PASS。双环境各75张业务表内容保持，schema仍为 `f13f20261010`，无数据库迁移。发布包包含3个后端文件，其新旧字节相同，无后端行为变更；服务已按发布流程重启。正式环境未执行回退演练或数据库恢复。
+- 双环境独立公开校验：各26个冻结静态文件逐字节一致，其中18个外置Logo文件，其余由构建内联；ready/database正常，13条SPA路径、13类匿名读及责任/标识/联系方式写入拒绝检查通过。首次公网读取超时后，仅在本地校验脚本加入有限网络重试，完整校验通过。
+- 测试认证页面：实际33张卡片、26图加载、7中性、0加载失败。测试缺少Linear和易尚云，yishangcloud出现两项；未修改测试业务数据。测试门禁中的27/7明确是冻结品牌表覆盖数量，不能解释为测试DOM数量；Linear另有原图SHA、公开构建字节与本地加载证据。
+- 正式认证页面：实际34张卡片、27图加载、7中性、0加载失败，模块 `/assets/index-Dk32LGoe.js`。搜索、Grok 180×180官方PNG、资料页及DeepSeek标题/账号行Logo复用通过。页面Logo的实际src均为同源或内联，官方SVG源已检查无外部引用；此项为DOM/来源检查，不宣称网络抓包。
+- 私有本地回执位于 `.deploy-artifacts/platform-logos/1b216a847cee/`：`test-server-PASS.json`、`test-public-PASS.json`、`test-ui-PASS.json`、`production-server-PASS.json`、`final-public-PASS.json`、`production-ui-PASS.json`。未保存真实业务资料，未同步外部余额，未代替人工业务验收。
+- 发布包SHA-256：`dd90d13962c3b7cb0ce8042c553bbf9643a0591e77866039b1109f40a8951231`；冻结操作器SHA-256：`9473eb34d347b3018e0e7a6076ffdd92244ba31b91b41c47a6bf83f4c99ec248`。两环境均保留发布前备份。
 
 ## 官方来源表
 
