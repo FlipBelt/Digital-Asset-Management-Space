@@ -1521,13 +1521,24 @@ def save_assignment(
 
     people_ids = {payload.responsible_person_id, *payload.user_person_ids}
     people = list(
-        db.scalars(select(Person).where(Person.id.in_(people_ids), Person.archived_at.is_(None), Person.employment_status == "active"))
+        db.scalars(
+            select(Person).where(
+                Person.id.in_(people_ids),
+                Person.archived_at.is_(None),
+                Person.employment_status == "active",
+                Person.person_type == "employee",
+            ).with_for_update()
+        )
     )
     if len({person.id for person in people}) != len(people_ids) or (
         asset.legal_entity_id is not None
+        and not access.is_global_manager
         and any(person.legal_entity_id != asset.legal_entity_id for person in people)
     ):
-        raise HTTPException(status_code=422, detail="负责人和使用人员必须是当前公司在职成员")
+        raise HTTPException(
+            status_code=422,
+            detail="负责人和使用人员必须是在职员工；跨公司协同请由资产管理员配置",
+        )
     ownership_scope = payload.ownership_scope or (
         "department" if payload.owner_department_id else "company"
     )

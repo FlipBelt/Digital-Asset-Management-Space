@@ -93,6 +93,7 @@ const repositoryVisibility = ref<"public" | "private" | "unknown">("unknown");
 const visibilityRequestId = ref(crypto.randomUUID());
 let visibilityPayload = "";
 const canReview = ref(false);
+const canAssignAcrossCompany = ref(false);
 const canUploadOutcome = ref(false);
 const proposals = ref<{person_id: string | null; role_type: string}[]>([]);
 const assignment = reactive<AssetAssignment>({
@@ -226,6 +227,10 @@ const responsibleDepartmentHint = computed(
     people.value.find((item) => item.id === assignment.responsible_person_id)
       ?.department_id ?? null,
 );
+const assignmentPeople = computed(() => people.value.filter(person =>
+  person.person_type === "employee" && person.employment_status === "active" &&
+  (canAssignAcrossCompany.value || !asset.value?.legal_entity_id || person.legal_entity_id === asset.value.legal_entity_id),
+));
 const completeness = computed(() => {
   if (platformAccountContext.value) {
     return Math.min(
@@ -407,6 +412,7 @@ async function load() {
       return;
     }
     const currentUser = await api.currentSession();
+    canAssignAcrossCompany.value = currentUser.roles.some(role => ["system_admin", "asset_manager"].includes(role));
     canReview.value = currentUser.roles.some(role => ["system_admin", "asset_manager", "department_manager", "group_leader"].includes(role));
     canUploadOutcome.value = item.created_by_person_id === currentUser.person_id || currentUser.roles.some(role => ["system_admin", "asset_manager"].includes(role));
     const [
@@ -556,6 +562,8 @@ function applyProposals() {
 async function saveAssignment() {
   if (!asset.value || !assignment.responsible_person_id) return;
   saving.value = true;
+  error.value = "";
+  message.value = "";
   try {
     Object.assign(
       assignment,
@@ -1174,12 +1182,12 @@ onMounted(load);
             }}
           </div>
           <div class="wide responsibility-people">
-            <PeoplePicker id="asset-responsible" v-model:person-id="assignment.responsible_person_id" label="负责人（必选一人）" :people="people" :departments="departments" :disabled="saving" />
+            <PeoplePicker id="asset-responsible" v-model:person-id="assignment.responsible_person_id" label="负责人（必选一人）" :people="assignmentPeople" :departments="departments" :disabled="saving" />
             <p v-if="responsibleDepartmentHint" class="responsibility-hint">负责人主部门：{{ departmentName[responsibleDepartmentHint] }}。归属范围单独确认。
               <button v-if="assignment.ownership_scope === 'pending'" type="button" class="secondary-button" :disabled="saving" @click="useResponsibleDepartment">采用该部门作为归属</button>
             </p>
           </div>
-          <PeoplePicker id="asset-users" v-model:person-ids="assignment.user_person_ids" class="wide" label="协同使用人员（选填）" :people="people" :departments="departments" multiple :excluded-ids="assignment.responsible_person_id ? [assignment.responsible_person_id] : []" :disabled="saving" hint="负责人已拥有管理和使用权限，无需重复选择；协同人员按现有规则拥有使用权限。" />
+          <PeoplePicker id="asset-users" v-model:person-ids="assignment.user_person_ids" class="wide" label="协同使用人员（选填）" :people="assignmentPeople" :departments="departments" multiple :excluded-ids="assignment.responsible_person_id ? [assignment.responsible_person_id] : []" :disabled="saving" hint="保存后负责人获得本系统资产管理与使用权限，协同人员按现有规则获得使用权限；跨公司配置由资产管理员维护，外部平台权限需单独处理。" />
           <div class="form-actions wide">
             <button
               class="primary-button"
