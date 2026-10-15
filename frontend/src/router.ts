@@ -10,7 +10,6 @@ import IntakePage from "./pages/IntakePage.vue";
 import OrganizationPage from "./pages/OrganizationPage.vue";
 import PlatformUsageDetailPage from "./pages/PlatformUsageDetailPage.vue";
 import UsageMonitoringPage from "./pages/UsageMonitoringPage.vue";
-import ServicesPage from "./pages/ServicesPage.vue";
 import ScenarioWorkspacePage from "./pages/ScenarioWorkspacePage.vue";
 import LoginPage from "./pages/LoginPage.vue";
 
@@ -24,6 +23,7 @@ import AssetEvidencePage from "./pages/AssetEvidencePage.vue";
 import AssetManagePage from "./pages/AssetManagePage.vue";
 import MyRequestsPage from "./pages/MyRequestsPage.vue";
 import { retiredWorkspaceTarget } from "./lib/managementWorkspace";
+import { legacyServiceTarget } from "./lib/platformWorkspace";
 import AssetFollowupPage from "./pages/AssetFollowupPage.vue";
 
 import AssetReviewPage from "./pages/AssetReviewPage.vue";
@@ -60,10 +60,11 @@ const router = createRouter({
     { path: "/directory/:kind(entity|platform|grant)/:id", name: "directory-detail", component: DirectoryDetailPage },
     { path: "/accounts", name: "accounts", component: AccountsPage },
     { path: "/organization", name: "organization", component: OrganizationPage },
-    { path: "/services", name: "services", component: ServicesPage },
+    { path: "/services", name: "services", redirect: to => legacyServiceTarget(to.path, to.query, to.hash)! },
     { path: "/scenarios", name: "scenarios", component: ScenarioWorkspacePage },
-    { path: "/services/alerts", name: "usage-monitoring", component: UsageMonitoringPage },
-    { path: "/services/:platformCode(deepseek|minimax|aliyun)", name: "platform-usage-detail", component: PlatformUsageDetailPage },
+    { path: "/accounts/usage/alerts", name: "usage-monitoring", component: UsageMonitoringPage },
+    { path: "/accounts/usage/:platformCode(deepseek|minimax|aliyun)", name: "platform-usage-detail", component: PlatformUsageDetailPage },
+    { path: "/services/:legacyService(alerts|deepseek|minimax|aliyun)", redirect: to => legacyServiceTarget(to.path, to.query, to.hash)! },
     { path: "/governance", name: "governance", component: GovernancePage },
     { path: "/admin", name: "admin", redirect: { path: "/manage", query: { tab: "settings" } } },
   ],

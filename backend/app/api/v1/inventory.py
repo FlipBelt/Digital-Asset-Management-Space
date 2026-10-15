@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -54,6 +55,7 @@ from app.schemas.inventory import (
     ServiceProductCreate,
     ServiceProductRead,
 )
+from app.services.personal_subscription_policy import personal_subscription_clause
 from app.services.service_catalog import validate_subscription
 
 router = APIRouter(tags=["inventory"])
@@ -453,19 +455,19 @@ def create_service_product(
 
 @router.get("/service-instances", response_model=list[ServiceInstanceRead])
 def list_service_instances(
+    scope: Literal["all", "company"] = "all",
     db: Session = Depends(get_db),
     access: AccessContext = Depends(get_access_context),
 ) -> list[ServiceInstance]:
-    return list(
-        db.scalars(
-            select(ServiceInstance)
-            .where(
-                ServiceInstance.archived_at.is_(None),
-                ServiceInstance.asset_id.in_(visible_asset_ids(access)),
-            )
-            .order_by(ServiceInstance.created_at.desc())
-        )
+    query = select(ServiceInstance).where(
+        ServiceInstance.archived_at.is_(None),
+        ServiceInstance.asset_id.in_(visible_asset_ids(access)),
     )
+    if scope == "company":
+        query = query.where(
+            ServiceInstance.asset_id.in_(select(Asset.id).where(~personal_subscription_clause()))
+        )
+    return list(db.scalars(query.order_by(ServiceInstance.created_at.desc())))
 
 
 @router.post(

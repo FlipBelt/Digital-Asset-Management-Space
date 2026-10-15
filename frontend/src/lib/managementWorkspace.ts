@@ -4,9 +4,8 @@ type Identity = Pick<CurrentUser, "roles" | "permissions"> | null;
 export const managementSections = [
   { key: "overview", to: "/manage", label: "管理概览", description: "选择登记、维护和处理事项。", group: "overview" },
   { key: "assets", to: "/assets", label: "资产", description: "查询资产、维护资料与责任，归档或恢复记录。", group: "records" },
-  { key: "accounts", to: "/accounts", label: "平台与账号", description: "统一维护平台/供应商、套餐和企业账号。", group: "records" },
+  { key: "accounts", to: "/accounts", label: "平台与账号", description: "统一维护平台、账号、订阅与公司服务用量。", group: "records" },
   { key: "organization", to: "/organization", label: "组织与授权", description: "核对公司、部门、人员与有效使用授权。", group: "records" },
-  { key: "services", to: "/services", label: "订阅与用量", description: "查看服务、费用、余额和用量记录。", group: "records" },
   { key: "reviews", to: "/manage/reviews", label: "成果审核", description: "核对责任和资料，通过或退回当前成果版本。", group: "actions" },
   { key: "followup", to: "/manage/followup", label: "到期与责任", description: "跟进即将到期和仍缺负责人的资产。", group: "actions" },
   { key: "governance", to: "/governance", label: "申请与风险", description: "处理员工申请，跟进已发现的风险。", group: "actions" },
@@ -32,6 +31,7 @@ export function managementItems(user: Identity) {
   });
 }
 export function managementSection(path: string, query: Record<string, unknown> = {}) {
+  if (path === "/services" || path.startsWith("/services/")) return "accounts";
   if (path === "/manage") return query.tab === "settings" ? "settings" : "overview";
   if (path.startsWith("/manage/reviews")) return "reviews";
   if (path.startsWith("/manage/followup")) return "followup";

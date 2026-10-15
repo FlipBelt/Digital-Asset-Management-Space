@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import {
   Archive,
   ArrowLeft,
@@ -43,6 +43,7 @@ import {
   type Person,
   type Platform,
   type PlatformAccountContext,
+  type RegistrationIdentity,
   type RelationshipChoice,
   type RelationshipGroup,
   type RelationshipEdge,
@@ -84,6 +85,15 @@ const identifierRequestId = ref(crypto.randomUUID());
 let identifierPayload = "";
 let relationPayload = "";
 const platformAccountContext = ref<PlatformAccountContext | null>(null);
+const registrationIdentityEditing = ref(false);
+const registrationIdentityLoading = ref(false);
+const registrationIdentityOptions = ref<RegistrationIdentity[]>([]);
+const registrationIdentitySelection = ref("");
+const registrationIdentityError = ref("");
+const registrationIdentityPanel = ref<HTMLElement | null>(null);
+const registrationIdentityTrigger = ref<HTMLButtonElement | null>(null);
+let registrationIdentityRequestId = crypto.randomUUID();
+let registrationIdentityPayload = "";
 const platforms = ref<Platform[]>([]);
 const serviceInstances = ref<ServiceInstance[]>([]);
 const childAccounts = ref<Account[]>([]);
@@ -93,6 +103,7 @@ const repositoryVisibility = ref<"public" | "private" | "unknown">("unknown");
 const visibilityRequestId = ref(crypto.randomUUID());
 let visibilityPayload = "";
 const canReview = ref(false);
+const canReadAuditLogs = ref(false);
 const canAssignAcrossCompany = ref(false);
 const canUploadOutcome = ref(false);
 const proposals = ref<{person_id: string | null; role_type: string}[]>([]);
@@ -165,6 +176,16 @@ const type = computed(() =>
   types.value.find((item) => item.id === asset.value?.asset_type_id),
 );
 const isPlatformTenant = computed(() => type.value?.code === "platform_tenant");
+const canEditRegistrationIdentity = computed(() => Boolean(
+  platformAccountContext.value && asset.value && !asset.value.archived_at &&
+  asset.value.status !== "deleted" && relationChoices.value.length,
+));
+const registrationIdentityCandidates = computed(() => registrationIdentityOptions.value.filter(item =>
+  !item.registration_blocked && (canAssignAcrossCompany.value || item.legal_entity_id === asset.value?.legal_entity_id),
+));
+const selectedRegistrationIdentity = computed(() => registrationIdentityCandidates.value.find(item =>
+  item.asset_id === registrationIdentitySelection.value,
+));
 const l6CoreFieldKeys: Record<string, string[]> = {
   api_service: ["api_endpoint", "auth_method", "api_key"],
   saas_subscription: ["plan", "usage_purpose"],
@@ -312,6 +333,10 @@ function relationOtherNode(edge: RelationshipEdge) {
 }
 function startRelationEdit(edge: RelationshipEdge) {
   if (!edge.edit_kind) return;
+  if (edge.edit_kind === "registration_identity") {
+    void openRegistrationIdentityEditor();
+    return;
+  }
   editingRelationId.value = edge.id;
   editingRelationTarget.value = edge.edit_target_id ?? "";
 }
@@ -412,6 +437,7 @@ async function load() {
       return;
     }
     const currentUser = await api.currentSession();
+    canReadAuditLogs.value = currentUser.roles.includes("system_admin");
     canAssignAcrossCompany.value = currentUser.roles.some(role => ["system_admin", "asset_manager"].includes(role));
     canReview.value = currentUser.roles.some(role => ["system_admin", "asset_manager", "department_manager", "group_leader"].includes(role));
     canUploadOutcome.value = item.created_by_person_id === currentUser.person_id || currentUser.roles.some(role => ["system_admin", "asset_manager"].includes(role));
@@ -437,7 +463,7 @@ async function load() {
       api.assets({ include_archived: true }),
       api.assetAssignment(id),
       api.relationshipView(id),
-      api.auditLogs(),
+      canReadAuditLogs.value ? api.auditLogs() : Promise.resolve([]),
       api.assetFields(item.asset_type_id),
       api.assetFieldValues(id),
       api.assetIdentifiers(id),
@@ -686,6 +712,74 @@ async function saveNativeIdentifier() {
   } catch (reason) { error.value = reason instanceof Error ? reason.message : "账号 ID 保存失败"; }
   finally { saving.value = false; }
 }
+async function loadRegistrationIdentityOptions() {
+  registrationIdentityLoading.value = true;
+  registrationIdentityError.value = "";
+  try {
+    registrationIdentityOptions.value = await api.registrationIdentities();
+  } catch (reason) {
+    registrationIdentityError.value = reason instanceof Error ? reason.message : "注册与登录标识读取失败";
+  } finally { registrationIdentityLoading.value = false; }
+}
+async function openRegistrationIdentityEditor() {
+  if (!canEditRegistrationIdentity.value || saving.value) return;
+  tab.value = "overview";
+  registrationIdentityEditing.value = true;
+  registrationIdentitySelection.value = platformAccountContext.value?.registration_identities[0]?.asset_id || "";
+  registrationIdentityRequestId = crypto.randomUUID();
+  registrationIdentityPayload = "";
+  await router.replace({ query: { ...route.query, tab: "overview" }, hash: "#registration-identity" });
+  await nextTick();
+  registrationIdentityPanel.value?.scrollIntoView({ block: "start" });
+  registrationIdentityPanel.value?.focus();
+  await loadRegistrationIdentityOptions();
+}
+async function closeRegistrationIdentityEditor() {
+  if (saving.value) return;
+  registrationIdentityEditing.value = false;
+  if (route.hash === "#registration-identity") await router.replace({ query: route.query, hash: "" });
+  await nextTick();
+  registrationIdentityTrigger.value?.focus();
+}
+async function refreshRegistrationIdentityEditor() {
+  await load();
+  if (!error.value) await loadRegistrationIdentityOptions();
+  await nextTick();
+  registrationIdentityPanel.value?.focus();
+}
+async function saveRegistrationIdentity() {
+  if (!asset.value || !canEditRegistrationIdentity.value || !selectedRegistrationIdentity.value || saving.value) return;
+  registrationIdentityError.value = "";
+  message.value = "";
+  const body = { version: asset.value.version, registration_identity_asset_id: selectedRegistrationIdentity.value.asset_id };
+  const snapshot = JSON.stringify(body);
+  if (registrationIdentityPayload && registrationIdentityPayload !== snapshot) registrationIdentityRequestId = crypto.randomUUID();
+  registrationIdentityPayload = snapshot;
+  saving.value = true;
+  try {
+    await api.savePlatformRegistrationIdentity(id, { ...body, request_id: registrationIdentityRequestId });
+    await load();
+    if (error.value) {
+      registrationIdentityError.value = "标识已保存，但账号资料重新读取失败，请重新读取后核对。";
+      return;
+    }
+    if (!platformAccountContext.value?.registration_identities.some(item => item.asset_id === body.registration_identity_asset_id)) {
+      registrationIdentityError.value = "重新读取的账号标识已变化，请核对当前关联后再操作。";
+      return;
+    }
+    registrationIdentityEditing.value = false;
+    registrationIdentityPayload = "";
+    registrationIdentityRequestId = crypto.randomUUID();
+    message.value = "注册与登录标识已保存，概览和关联关系已更新。";
+    if (route.hash === "#registration-identity") await router.replace({ query: route.query, hash: "" });
+  } catch (reason) {
+    registrationIdentityError.value = reason instanceof Error ? reason.message : "注册与登录标识保存失败";
+  } finally {
+    saving.value = false;
+    await nextTick();
+    if (!registrationIdentityEditing.value) registrationIdentityTrigger.value?.focus();
+  }
+}
 async function removeRelation(item: RelationshipEdge) {
   if (!item.relation_id || !item.editable) return;
   try {
@@ -726,7 +820,10 @@ watch(
     if (scope !== "department") assignment.owner_department_id = null;
   },
 );
-onMounted(load);
+onMounted(async () => {
+  await load();
+  if (route.hash === "#registration-identity") await openRegistrationIdentityEditor();
+});
 </script>
 
 <template>
@@ -886,15 +983,17 @@ onMounted(load);
               ><small>{{ platformAccountContext.platform_category }}</small>
             </article>
             <article>
-              <Smartphone :size="19" /><span>主要册册身份</span
+              <Smartphone :size="19" /><span>主要注册身份</span
               ><strong>{{
                 platformAccountContext.registration_identities[0]?.identifier ||
                 "暂不清楚"
               }}</strong
               ><small>{{
                 platformAccountContext.registration_identities[0]?.asset_code ||
-                "可稍后补充"
+                "尚未关联已登记标识"
               }}</small>
+              <button v-if="canEditRegistrationIdentity" ref="registrationIdentityTrigger" type="button" class="secondary-button registration-identity-action" :disabled="saving" aria-controls="registration-identity" :aria-expanded="registrationIdentityEditing" @click="openRegistrationIdentityEditor">{{ platformAccountContext.registration_identities.length ? '修改注册与登录标识' : '补充注册与登录标识' }}</button>
+              <small class="registration-identity-guidance">{{ canEditRegistrationIdentity ? '点击按钮，在本页选择已登记标识并保存。' : '请由该账号的负责人或有维护权限的管理员补充。' }}</small>
             </article>
             <article>
               <Tags :size="19" /><span>平台原生标识</span
@@ -920,6 +1019,17 @@ onMounted(load);
               >
             </article>
           </div>
+        </section>
+        <section v-if="platformAccountContext && registrationIdentityEditing && canEditRegistrationIdentity" id="registration-identity" ref="registrationIdentityPanel" class="identifier-panel registration-identity-panel" tabindex="-1" aria-labelledby="registration-identity-title">
+          <div><h3 id="registration-identity-title"><Smartphone :size="18" />注册与登录标识</h3><p>选择该账号实际使用的已登记手机号、邮箱或用户名；保存后同步显示到概览与关联关系。</p></div>
+          <p v-if="registrationIdentityLoading" role="status">正在读取可引用的标识…</p>
+          <form v-else class="balanced-form" :aria-busy="saving" @submit.prevent="saveRegistrationIdentity">
+            <label class="wide"><span>注册与登录标识</span><select v-model="registrationIdentitySelection" required :disabled="saving || !registrationIdentityCandidates.length"><option value="" disabled>选择已登记标识</option><option v-for="item in registrationIdentityCandidates" :key="item.asset_id" :value="item.asset_id">{{ item.identifier }} · {{ item.asset_code }}</option></select></label>
+            <p v-if="!registrationIdentityCandidates.length && !registrationIdentityError" class="wide form-hint">当前没有可引用的标识。请先登记新标识，再返回此页重新读取。</p>
+            <p class="wide form-hint"><RouterLink class="registration-identity-directory-link" :to="{ path: '/accounts', query: { section: 'contacts' } }" target="_blank" rel="noopener">{{ canAssignAcrossCompany ? '登记新的注册与登录标识（新标签页）' : '查看注册与登录标识（新标签页）' }}</RouterLink>。{{ canAssignAcrossCompany ? '' : '新标识由系统管理员或资产管理员登记；' }}登记后返回此页，点击“重新读取标识”，再选择并保存。</p>
+            <div class="form-actions wide"><button type="button" class="secondary-button" :disabled="saving" @click="loadRegistrationIdentityOptions">重新读取标识</button><button type="button" class="secondary-button" :disabled="saving" @click="closeRegistrationIdentityEditor">取消</button><button class="primary-button" :disabled="saving || !selectedRegistrationIdentity || registrationIdentitySelection === platformAccountContext.registration_identities[0]?.asset_id">{{ saving ? '正在保存…' : '保存注册与登录标识' }}</button></div>
+          </form>
+          <p v-if="registrationIdentityError" class="form-error" role="alert">{{ registrationIdentityError }} <button type="button" class="secondary-button" :disabled="saving || registrationIdentityLoading" @click="refreshRegistrationIdentityEditor">重新读取账号资料</button></p>
         </section>
         <form class="balanced-form" @submit.prevent="saveAsset">
           <label class="wide"
@@ -1359,6 +1469,7 @@ onMounted(load);
             <p>包含归属、负责人、关系和资料变更。</p>
           </div>
         </header>
+        <p v-if="!canReadAuditLogs" class="form-hint" role="status">你暂无审计记录查看权限，请联系系统管理员核对。</p>
         <div class="timeline-v2">
           <article v-for="item in logs" :key="item.id">
             <i />
@@ -1370,7 +1481,7 @@ onMounted(load);
               ><code>{{ item.after_data }}</code>
             </div>
           </article>
-          <div v-if="!logs.length" class="large-empty-panel">暂无审计记录</div>
+          <div v-if="canReadAuditLogs && !logs.length" class="large-empty-panel">暂无审计记录</div>
         </div>
       </section>
     </template>
@@ -1636,6 +1747,28 @@ onMounted(load);
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
+}
+.core-linkage-panel .registration-identity-action,
+.core-linkage-panel .registration-identity-guidance {
+  grid-column: 1 / -1;
+}
+.core-linkage-panel .registration-identity-action {
+  justify-self: start;
+  margin-top: 8px;
+  white-space: normal;
+  text-align: left;
+}
+.registration-identity-panel {
+  scroll-margin-top: 90px;
+}
+.registration-identity-panel:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+}
+.registration-identity-directory-link {
+  color: var(--primary);
+  font-weight: 700;
+  text-decoration: underline;
 }
 .balanced-form label {
   display: grid;
