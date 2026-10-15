@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { LOOKUP_QUERY, PROJECT_ID, REPOSITORY, TEAM_ID, UPDATE_MUTATION,
+import { IDENTITY_QUERY, LOOKUP_QUERY, PROJECT_ID, REPOSITORY, TEAM_ID, UPDATE_MUTATION,
   routeIssue, runCli, validateEvent } from './linear-project-routing.mjs';
 
 const secret = 'private-test-token-never-log';
@@ -44,6 +44,12 @@ function updated(success = true) {
   return { data: { issueUpdate: { success,
     issue: { id: 'linear-issue-42', team: { id: TEAM_ID }, project: { id: PROJECT_ID } },
   } } };
+}
+
+function githubIdentity() {
+  const node = { __typename: 'Issue', id: 'I_canonical8', number, url,
+    repository: { nameWithOwner: REPOSITORY } };
+  return { data: { synced: structuredClone(node), expected: structuredClone(node) } };
 }
 
 function mockFetch(responses) {
@@ -195,7 +201,8 @@ test('manual links and missing, foreign, duplicate or mismatched native identiti
     [{ ...correct, id: null }],
     [correct, correct]];
   for (const syncedWith of variants) {
-    const mock = mockFetch([lookup([attachment({ syncedWith })])]);
+    const mock = mockFetch([lookup([attachment({ syncedWith })]),
+      { data: { synced: null, expected: null } }]);
     await assert.rejects(routeWith(mock), /matching native GitHub issue sync/);
     assert.equal(mutationCalls(mock).length, 0);
   }
@@ -218,7 +225,7 @@ test('optional metadata is not queried or used to determine a native synced iden
 test('native identity failure logs only source count and node match boolean', async () => {
   const mock = mockFetch([lookup([attachment({ syncedWith: [{
     id: secret, service: 'github', metadata: { owner: githubSecret },
-  }] })])]);
+  }] })]), { data: { synced: null, expected: null } }]);
   const messages = [];
   assert.equal(await runCli({ env, fetchImpl: mock.fetchImpl,
     readEvent: async () => JSON.stringify(event),
@@ -227,6 +234,83 @@ test('native identity failure logs only source count and node match boolean', as
     'a manual link is insufficient (githubSources=1, nodeIdMatch=false).');
   assert.ok(!messages[0].includes(secret) && !messages[0].includes(githubSecret));
   assert.equal(mutationCalls(mock).length, 0);
+});
+
+test('GitHub resolves legacy and new opaque IDs to the same canonical issue once per run', async () => {
+  const source = { id: 'legacy-opaque-id', service: 'github' };
+  const node = attachment({ syncedWith: [source] });
+  const mock = mockFetch([lookup([node]), githubIdentity(), lookup([node]), updated(),
+    lookup([attachment({ syncedWith: [source], project: { id: PROJECT_ID } })])]);
+  const result = await routeWith(mock);
+  assert.deepEqual(result, { status: 'routed', issueNumber: number,
+    nativeIdentityVerifiedViaGithub: true });
+  const githubCalls = mock.calls.filter((call) => call.url === 'https://api.github.com/graphql');
+  assert.equal(githubCalls.length, 1);
+  assert.deepEqual(githubCalls[0].body, { query: IDENTITY_QUERY,
+    variables: { sourceId: source.id, expectedId: nodeId } });
+  assert.equal(githubCalls[0].options.headers['X-Github-Next-Global-ID'], '1');
+  assert.equal(githubCalls[0].options.headers.Authorization, `Bearer ${githubSecret}`);
+  assert.equal(mutationCalls(mock).length, 1);
+  for (const call of mock.calls.filter((call) => call.url === 'https://api.linear.app/graphql')) {
+    assert.equal(call.options.headers.Authorization, secret);
+  }
+});
+
+test('opaque IDs are not trusted when GitHub returns null, a different entity or mismatched identity', async () => {
+  const variants = [];
+  for (const side of ['synced', 'expected']) {
+    for (const overrides of [null, { __typename: 'PullRequest' }, { id: '' },
+      { id: 'different-canonical-id' }, { repository: { nameWithOwner: 'FlipBelt/CIS' } },
+      { url: 'https://github.com/FlipBelt/CIS/issues/8' }, { number: 9 }]) {
+      const response = githubIdentity();
+      response.data[side] = overrides === null ? null : { ...response.data[side], ...overrides };
+      variants.push(response);
+    }
+  }
+  for (const response of variants) {
+    const mock = mockFetch([lookup([attachment({ syncedWith: [{
+      id: 'legacy-opaque-id', service: 'github',
+    }] })]), response]);
+    await assert.rejects(routeWith(mock), /matching native GitHub issue sync/);
+    assert.equal(mutationCalls(mock).length, 0);
+    assert.equal(mock.calls.length, 2);
+  }
+});
+
+test('GitHub alias lookup errors fail closed without logging IDs, keys or response bodies', async () => {
+  const sourceId = 'private-opaque-source-id';
+  const responses = [
+    { errors: [{ message: `${secret} ${githubSecret} ${sourceId}` }], data: githubIdentity().data },
+    { data: {} },
+    () => ({ ok: false, status: 403, json: async () => ({ message: secret }) }),
+    () => ({ ok: true, status: 200, json: async () => { throw new Error(secret); } }),
+    new Error(`${githubSecret} ${sourceId}`),
+  ];
+  for (const response of responses) {
+    const mock = mockFetch([lookup([attachment({ syncedWith: [{ id: sourceId, service: 'github' }] })]),
+      response]);
+    const messages = [];
+    assert.equal(await runCli({ env, fetchImpl: mock.fetchImpl,
+      readEvent: async () => JSON.stringify(event),
+      logError: (message) => messages.push(message) }), 1);
+    assert.ok(messages.every((message) => !message.includes(secret) &&
+      !message.includes(githubSecret) && !message.includes(sourceId) && !message.includes(nodeId)));
+    assert.equal(mutationCalls(mock).length, 0);
+  }
+});
+
+test('GitHub token is required only when opened-issue IDs need server-side resolution', async () => {
+  const noGithubToken = { ...env, GITHUB_TOKEN: '' };
+  const direct = mockFetch([lookup(), lookup(), updated(),
+    lookup([attachment({ project: { id: PROJECT_ID } })])]);
+  assert.equal((await routeWith(direct, { env: noGithubToken })).status, 'routed');
+  assert.ok(direct.calls.every((call) => call.url === 'https://api.linear.app/graphql'));
+  const alias = mockFetch([lookup([attachment({ syncedWith: [{
+    id: 'legacy-opaque-id', service: 'github',
+  }] })])]);
+  await assert.rejects(routeWith(alias, { env: noGithubToken }), /GITHUB_TOKEN is missing/);
+  assert.equal(alias.calls.length, 1);
+  assert.equal(mutationCalls(alias).length, 0);
 });
 
 test('archived, trashed, mismatched URL and incomplete records cannot be routed', async () => {
