@@ -1,0 +1,2 @@
+# Preserve downloaded SVG bytes so source hashes survive Windows checkouts.
+frontend/src/assets/platform-logos/*.svg -text
