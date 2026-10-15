@@ -1,0 +1,41 @@
+name: Route synced GitHub issues to the asset project
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: GitHub issue number to retry after native Linear sync
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: linear-project-routing-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  route:
+    if: >-
+      github.repository == 'FlipBelt/Digital-Asset-Management-Space' &&
+      (github.event_name == 'issues' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the trusted main branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: scripts/linear-project-routing.mjs
+          sparse-checkout-cone-mode: false
+      - name: Route the native synced issue
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_PROJECT_ROUTING_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/linear-project-routing.mjs

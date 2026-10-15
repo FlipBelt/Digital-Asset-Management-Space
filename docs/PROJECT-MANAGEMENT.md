@@ -68,10 +68,28 @@
 
 - **新建方向**：GitHub → Linear。本仓库新建 Issue 自动进入 FBC；同团队其他项目的新 Linear 事项不会因此自动发布到本公开仓库。
 - **已有同步事项**：同一 Issue 的字段更新可双向同步。本轮已实际核验 GitHub → Linear 的标题、描述和关闭状态，以及 Linear → GitHub 的描述更新。
-- **项目归属**：原生映射只指定团队。验证 Issue 初次进入 FBC 时没有项目，本轮另行归入“数字中心｜AI 资产中心”。后续入站事项由 FBC 处理人分流到正确项目，不将人工归类报告为自动项目归属。
+- **项目归属**：原生映射只指定团队。验证 Issue #8 初次进入 FBC 时没有项目，另行人工归入“数字中心｜AI 资产中心”。本仓库自动归类由 [FBC-43](https://linear.app/j21nianyi/issue/FBC-43) 单独跟踪，启用与真实事件验收完成前仍需人工分流。
 - **讨论范围**：同步线程用于两端共同可见的信息；内部资料留在内部讨论和受控证据中。不要把凭据、员工或账号明细写入同步描述或评论。
 - **PR 原生关联**：现有 PR #1–#6 已分别关联 FBC-32–FBC-37；已读回 Linear 的原生 PR 对象、对应 linkedIssues 和 Draft 状态。
 - **真实验证回执**：[GitHub Issue #8](https://github.com/FlipBelt/Digital-Asset-Management-Space/issues/8) 自动生成 [FBC-42](https://linear.app/j21nianyi/issue/FBC-42)。创建、更新、反向描述更新及关闭状态核对通过；GitHub 为 closed/completed，Linear 为 Done，保留记录。
 - **权限边界**：用户批准的 Linear Code 权限包含代码、Actions、工作流等读写；不以安装授权替代后续代码执行、发布或业务审批授权。没有另建同步凭据、Webhook 服务或定时器。
 
 [原生集成验收 FBC-40](https://linear.app/j21nianyi/issue/FBC-40) 与 [管理迁移验收 FBC-39](https://linear.app/j21nianyi/issue/FBC-39) 分别记录自动同步和管理入口的证据。管理文档 PR #7 已合并 main；历史业务 PR 与人工 UAT 仍按各自关口处理。
+
+## 本仓库自动项目归类（FBC-43，待授权启用）
+
+现有工作区的 Loops 需要 Business / Enterprise 方案。本仓库准备 GitHub Actions 工作流 `linear-project-routing.yml`，仅补充项目归属，不替代原生 Issue Sync。
+
+- 只响应 `FlipBelt/Digital-Asset-Management-Space` 的新建 Issue。原生同步可能晚到，脚本有限等待；超时或 API 错误会明确失败，支持在 main 上用 Issue 编号手动重试。
+- 通过精确 GitHub Issue URL 查找 Linear 附件，并校验 `syncedWith` 的 GitHub node ID、仓库和编号。普通手工链接、多个匹配、归档/回收站事项、其他团队和已有任意项目均不写入。
+- 目标固定为 FBC 团队中的“数字中心｜AI 资产中心”（`77af2f8a-8f02-4816-abdd-ce59f3d747a2`）。写前复查、仅修改 `projectId`、写后回读；标题、描述、状态、负责人和标签不由此脚本修改。
+- CIS 与 FBC 共用团队，但脚本不扫描团队、不处理 CIS 仓库、不改 FBC 默认值；已有 CIS 项目归属会跳过。Linear 的更新接口没有项目条件写入，写前复查只能缩小人工同时分配项目的竞争窗口，不能保证原子条件更新。
+
+### 启用、验收与停用
+
+1. 用户创建专用 Linear API Key，仅勾选 Read / Create issues（该权限包含 issueUpdate）、仅允许 FBC 团队，关闭通用 Write、Admin 和 Create comments。Linear 的 Key 权限只能限制到团队，因 FBC 包含 CIS，凭据本身仍有 FBC 内其他事项的读写能力；代码护栏限制本工作流的实际操作。
+2. 用户将 Key 直接存入**本仓库** Actions Secret `LINEAR_PROJECT_ROUTING_API_KEY`，不在聊天、Issue、PR、代码或日志中粘贴。新凭据权限与存储须单独确认，既有 Linear Code 安装授权不替代这一步。
+3. 授权后合并工作流，在 GitHub 新建无业务数据的验证 Issue；独立读回原生同步对象、自动项目归属及 Actions 运行结果，并比较 CIS 事项的项目/团队/状态/更新时间。仅 mock 测试通过不等于已启用。
+4. 停用时禁用本仓库该工作流或撤回对应提交，再移除专用 Secret 并撤销 Key。原生 Issue Sync 与已归类事项可以保留；CIS 和团队默认配置不变。
+
+接口依据：[Linear Attachments](https://linear.app/developers/attachments)、[API Key 权限](https://linear.app/docs/api-and-webhooks)、[issues:create 支持 issueUpdate 的官方变更](https://linear.app/changelog/2025-12-04-openai-codex-agent)、[官方固定 GraphQL schema](https://github.com/linear/linear/blob/4789abd2d1458ec739030ddf017199def1ec8623/packages/sdk/src/schema.graphql)。
