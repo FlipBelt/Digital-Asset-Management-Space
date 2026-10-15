@@ -683,7 +683,11 @@ def get_platform_account_context(
             RegistrationIdentityProfile.archived_at.is_(None),
             Asset.archived_at.is_(None),
         )
-        .order_by(PlatformAccountRegistrationIdentity.created_at)
+        .order_by(
+            (PlatformAccountRegistrationIdentity.role == "primary").desc(),
+            PlatformAccountRegistrationIdentity.created_at,
+            PlatformAccountRegistrationIdentity.id,
+        )
     ).all()
     return PlatformAccountContextRead(
         asset_id=asset.id,

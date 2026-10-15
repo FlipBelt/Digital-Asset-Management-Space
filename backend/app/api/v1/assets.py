@@ -2,7 +2,9 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.access import (
@@ -66,8 +68,11 @@ from app.schemas.assets import (
     RelationshipLinkUpdate,
 )
 from app.schemas.common import ListResponse, Pagination
+from app.schemas.workspace import PlatformAccountContextRead
+from app.services.asset_confirmation import lock_asset
 from app.services.asset_presentation import asset_list_reads
 from app.services.assets import asset_service
+from app.services.audited_requests import audited_retry
 from app.services.contact_resources import require_identity_reference
 
 router = APIRouter(prefix="/assets", tags=["assets"])
@@ -1037,6 +1042,185 @@ def get_relationship_view(
         nodes=list(nodes.values()),
         edges=edges,
     )
+
+
+class PlatformRegistrationIdentityWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID
+    version: int = Field(ge=1)
+    registration_identity_asset_id: UUID
+
+
+def _registration_identity_binding_snapshot(db, asset, tenant, context):
+    links = db.scalars(
+        select(PlatformAccountRegistrationIdentity)
+        .where(PlatformAccountRegistrationIdentity.platform_tenant_id == tenant.id)
+        .order_by(PlatformAccountRegistrationIdentity.id)
+    )
+    relations = db.scalars(
+        select(AssetRelation)
+        .where(
+            AssetRelation.relation_type.in_(["registered_by", "REGISTERED_BY"]),
+            (AssetRelation.source_asset_id == asset.id) | (AssetRelation.target_asset_id == asset.id),
+        )
+        .order_by(AssetRelation.id)
+    )
+    return {
+        "version": asset.version,
+        "context": context.model_dump(mode="json"),
+        "links": [
+            {
+                "id": str(link.id),
+                "identity": str(link.registration_identity_asset_id),
+                "role": link.role,
+                "status": link.status,
+                "starts_at": link.starts_at.isoformat() if link.starts_at else None,
+                "ends_at": link.ends_at.isoformat() if link.ends_at else None,
+            }
+            for link in links
+        ],
+        "relations": [
+            {
+                "id": str(relation.id),
+                "source": str(relation.source_asset_id),
+                "target": str(relation.target_asset_id),
+                "type": relation.relation_type,
+                "archived_at": relation.archived_at.astimezone(UTC).isoformat() if relation.archived_at else None,
+            }
+            for relation in relations
+        ],
+    }
+
+
+@router.put("/{asset_id}/registration-identity", response_model=PlatformAccountContextRead)
+def save_platform_registration_identity(
+    asset_id: UUID,
+    payload: PlatformRegistrationIdentityWrite,
+    db: Session = Depends(get_db),
+    access: AccessContext = Depends(require_asset_write),
+) -> PlatformAccountContextRead:
+    from app.api.v1.workspace import get_platform_account_context
+
+    action = "platform_account.registration_identity.update"
+    previous, fingerprint = audited_retry(db, access, action, payload, asset_id)
+    asset = lock_asset(db, asset_id)
+    if asset is None or asset.archived_at is not None or asset.status in {"deleted", "archived"}:
+        raise HTTPException(404, "平台账号不存在或已归档")
+    if not can_manage_asset(db, access, asset):
+        raise HTTPException(403, "无权维护该平台账号的注册身份")
+    tenant = db.scalar(
+        select(PlatformTenant)
+        .where(PlatformTenant.asset_id == asset.id, PlatformTenant.archived_at.is_(None))
+        .with_for_update()
+    )
+    if tenant is None:
+        raise HTTPException(422, "当前资产不是有效的平台账号")
+    if previous:
+        context = get_platform_account_context(asset.id, db, access)
+        if _registration_identity_binding_snapshot(db, asset, tenant, context) != previous.after_data.get("snapshot"):
+            raise HTTPException(409, "平台账号或注册身份已有变化，请刷新后重新提交")
+        require_identity_reference(
+            db, access, db.get(Asset, payload.registration_identity_asset_id), tenant.legal_entity_id
+        )
+        return context
+    if asset.version != payload.version:
+        raise HTTPException(409, "平台账号资料已有更新，请刷新后再保存")
+    identity = db.get(Asset, payload.registration_identity_asset_id)
+    require_identity_reference(db, access, identity, tenant.legal_entity_id)
+    identity_type = db.get(AssetType, identity.asset_type_id)
+    if identity_type is None or identity_type.code != "registration_identity":
+        raise HTTPException(422, "所选对象不是有效的注册身份")
+
+    links = list(
+        db.scalars(
+            select(PlatformAccountRegistrationIdentity)
+            .where(PlatformAccountRegistrationIdentity.platform_tenant_id == tenant.id)
+            .with_for_update()
+        )
+    )
+    old_primary_ids = {
+        link.registration_identity_asset_id
+        for link in links
+        if link.role == "primary" and link.status == "active"
+    }
+    before = {"version": asset.version, "primary_identity_ids": sorted(map(str, old_primary_ids))}
+    chosen = next(
+        (link for link in links if link.role == "primary" and link.registration_identity_asset_id == identity.id),
+        None,
+    )
+    for link in links:
+        if link.role == "primary" and link.status == "active" and link is not chosen:
+            link.status = "inactive"
+    if chosen is None:
+        chosen = PlatformAccountRegistrationIdentity(
+            platform_tenant_id=tenant.id,
+            registration_identity_asset_id=identity.id,
+            role="primary",
+            status="active",
+        )
+        db.add(chosen)
+    else:
+        chosen.status = "active"
+        chosen.starts_at = chosen.ends_at = None
+    retained_ids = {
+        link.registration_identity_asset_id
+        for link in links
+        if link.status == "active"
+    } | {identity.id}
+    removed_ids = old_primary_ids - retained_ids
+    if removed_ids:
+        old_relations = db.scalars(
+            select(AssetRelation)
+            .where(
+                AssetRelation.archived_at.is_(None),
+                AssetRelation.relation_type.in_(["registered_by", "REGISTERED_BY"]),
+                ((AssetRelation.source_asset_id == asset.id) & AssetRelation.target_asset_id.in_(removed_ids))
+                | ((AssetRelation.target_asset_id == asset.id) & AssetRelation.source_asset_id.in_(removed_ids)),
+            )
+            .with_for_update()
+        )
+        for relation in old_relations:
+            relation.archived_at = datetime.now(UTC)
+    projection = db.scalar(
+        select(AssetRelation)
+        .where(
+            AssetRelation.source_asset_id == asset.id,
+            AssetRelation.target_asset_id == identity.id,
+            AssetRelation.relation_type == "registered_by",
+        )
+        .with_for_update()
+    )
+    if projection is None:
+        db.add(AssetRelation(
+            source_asset_id=asset.id,
+            target_asset_id=identity.id,
+            relation_type="registered_by",
+            source_type="platform_account_form",
+        ))
+    else:
+        projection.archived_at = None
+    asset.version += 1
+    try:
+        db.flush()
+        context = get_platform_account_context(asset.id, db, access)
+        db.add(AuditLog(
+            actor_user_id=access.user.id,
+            action=action,
+            object_type="asset",
+            object_id=asset.id,
+            request_id=str(payload.request_id),
+            before_data=before,
+            after_data={
+                "request_digest": fingerprint,
+                "snapshot": _registration_identity_binding_snapshot(db, asset, tenant, context),
+            },
+        ))
+        db.commit()
+    except IntegrityError as cause:
+        db.rollback()
+        raise HTTPException(409, "平台账号或注册身份已有变化，请刷新后再保存") from cause
+    return context
 
 
 @router.put(

@@ -107,6 +107,6 @@ onMounted(load);
       <div v-if="!platformNodes.length" class="large-empty-panel"><Search :size="28" /><strong>没有找到匹配的场景对象</strong><p>可以清空搜索词，或在公司资产查看其他资产。</p><button class="secondary-button" @click="keyword = ''">清空筛选</button></div>
     </section>
 
-    <section class="scenario-footer"><div><strong>还有 {{ overview?.unclassified_count ?? 0 }} 项资产未归入业务场景</strong><p>可在公司资产继续查看和维护未归类资产。</p></div><RouterLink to="/assets?view=business" class="secondary-button">查看公司资产 <ArrowRight :size="15" /></RouterLink><RouterLink to="/services" class="primary-button"><Server :size="15" />订阅与用量</RouterLink></section>
+    <section class="scenario-footer"><div><strong>还有 {{ overview?.unclassified_count ?? 0 }} 项资产未归入业务场景</strong><p>可在公司资产继续查看和维护未归类资产。</p></div><RouterLink to="/assets?view=business" class="secondary-button">查看公司资产 <ArrowRight :size="15" /></RouterLink><RouterLink to="/accounts?section=usage" class="primary-button"><Server :size="15" />订阅与用量</RouterLink></section>
   </div>
 </template>
