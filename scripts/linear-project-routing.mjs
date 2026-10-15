@@ -7,6 +7,7 @@ export const TEAM_ID = '841e149e-6934-40d5-901a-ecdb1efc5b03';
 export const PROJECT_ID = '77af2f8a-8f02-4816-abdd-ce59f3d747a2';
 const LINEAR_ENDPOINT = 'https://api.linear.app/graphql';
 const GITHUB_ENDPOINT = `https://api.github.com/repos/${REPOSITORY}/issues/`;
+const GITHUB_GRAPHQL_ENDPOINT = 'https://api.github.com/graphql';
 const DEFAULT_POLL_DELAYS = [2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000];
 
 export const LOOKUP_QUERY = `query GithubSyncLookup($url: String!) {
@@ -28,6 +29,17 @@ export const UPDATE_MUTATION = `mutation RouteGithubIssue($id: String!, $input: 
   issueUpdate(id: $id, input: $input) {
     success
     issue { id team { id } project { id } }
+  }
+}`;
+
+export const IDENTITY_QUERY = `query ResolveGithubIssueIdentity($sourceId: ID!, $expectedId: ID!) {
+  synced: node(id: $sourceId) {
+    __typename
+    ... on Issue { id number url repository { nameWithOwner } }
+  }
+  expected: node(id: $expectedId) {
+    __typename
+    ... on Issue { id number url repository { nameWithOwner } }
   }
 }`;
 
@@ -135,6 +147,35 @@ function invalidField(name, record, key, accepts) {
   return `${name}=${type}`;
 }
 
+async function verifyGithubAlias(context, sourceId, githubIssue) {
+  const cacheKey = JSON.stringify([sourceId, githubIssue.nodeId]);
+  if (context.verifiedAliases.has(cacheKey)) return true;
+  const result = await requestJson(context, GITHUB_GRAPHQL_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${context.githubToken()}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'X-Github-Next-Global-ID': '1',
+    },
+    body: JSON.stringify({ query: IDENTITY_QUERY,
+      variables: { sourceId, expectedId: githubIssue.nodeId } }),
+  }, 'GitHub GraphQL');
+  if (!result || (Array.isArray(result.errors) && result.errors.length) ||
+      (result.errors && !Array.isArray(result.errors)) || !result.data) {
+    fail('GitHub GraphQL identity lookup failed.');
+  }
+  const { synced, expected } = result.data;
+  const matchesIssue = (node) => node?.__typename === 'Issue' &&
+    typeof node.id === 'string' && node.id.length > 0 &&
+    node.repository?.nameWithOwner === REPOSITORY &&
+    node.url === githubIssue.url && node.number === githubIssue.number;
+  if (!matchesIssue(synced) || !matchesIssue(expected) || synced.id !== expected.id) return false;
+  context.verifiedAliases.add(cacheKey);
+  context.nativeIdentityVerifiedViaGithub = true;
+  return true;
+}
+
 async function fetchAttachment(context, githubIssue) {
   const data = await linearRequest(context, LOOKUP_QUERY, { url: githubIssue.url });
   const connection = data.attachmentsForURL;
@@ -171,7 +212,10 @@ async function fetchAttachment(context, githubIssue) {
   const sources = Array.isArray(issue.syncedWith) ?
     issue.syncedWith.filter((source) => source?.service === 'github') : [];
   const nodeIdMatch = sources[0]?.id === githubIssue.nodeId;
-  if (sources.length !== 1 || !nodeIdMatch) {
+  const sourceId = sources[0]?.id;
+  const nativeIdentityMatches = sources.length === 1 && typeof sourceId === 'string' &&
+    sourceId.length > 0 && (nodeIdMatch || await verifyGithubAlias(context, sourceId, githubIssue));
+  if (!nativeIdentityMatches) {
     fail('A matching native GitHub issue sync is required; a manual link is insufficient ' +
       `(githubSources=${sources.length}, nodeIdMatch=${nodeIdMatch}).`);
   }
@@ -209,9 +253,11 @@ export async function routeIssue({
   const context = {
     fetchImpl, now, deadline: now() + Math.min(timeoutMs, 210000),
     linearToken: requireToken(env.LINEAR_API_KEY, 'LINEAR_API_KEY'),
+    githubToken: () => requireToken(env.GITHUB_TOKEN, 'GITHUB_TOKEN'),
+    verifiedAliases: new Set(), nativeIdentityVerifiedViaGithub: false,
   };
   if (!githubIssue.url) {
-    const githubToken = requireToken(env.GITHUB_TOKEN, 'GITHUB_TOKEN');
+    const githubToken = context.githubToken();
     const issue = await requestJson(context, `${GITHUB_ENDPOINT}${githubIssue.number}`, {
       headers: {
         Authorization: `Bearer ${githubToken}`,
@@ -254,7 +300,8 @@ export async function routeIssue({
       readback.issue.team.id !== TEAM_ID || readback.issue.project?.id !== PROJECT_ID) {
     fail('Linear project readback did not match; inspect before retrying.');
   }
-  return { status: 'routed', issueNumber: githubIssue.number };
+  return { status: 'routed', issueNumber: githubIssue.number,
+    ...(context.nativeIdentityVerifiedViaGithub ? { nativeIdentityVerifiedViaGithub: true } : {}) };
 }
 
 export async function runCli({ env = process.env, readEvent = readFile, log = console.log,
@@ -268,7 +315,8 @@ export async function runCli({ env = process.env, readEvent = readFile, log = co
       fail('GitHub event file could not be read as JSON.');
     }
     const result = await routeIssue({ event, env, fetchImpl });
-    log(`GitHub issue #${result.issueNumber}: ${result.status}${result.reason ? ` (${result.reason})` : ''}.`);
+    const identityNote = result.nativeIdentityVerifiedViaGithub ? ' Native identity verified via GitHub.' : '';
+    log(`GitHub issue #${result.issueNumber}: ${result.status}${result.reason ? ` (${result.reason})` : ''}.${identityNote}`);
     return 0;
   } catch (error) {
     // Never print upstream response bodies, event content, headers, or raw exception messages.
