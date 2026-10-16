@@ -4,4 +4,4 @@ frontend/src/assets/platform-logos/*.svg -text
 .agents/skills/** text eol=lf
 plugin/** text eol=lf
 # The legacy connector is an exact, checksummed copy of its recorded source.
-plugin/connector/** -text
+plugin/connector/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

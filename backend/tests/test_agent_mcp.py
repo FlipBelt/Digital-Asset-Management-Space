@@ -508,4 +508,3 @@ def test_unexpected_tool_failure_is_sanitized_and_rolled_back(issue_mcp_token, m
     assert "synthetic-internal-error-must-not-leak" not in response.text
     with SessionLocal() as db:
         assert db.get(AgentIncubation, pending_id) is None
-
