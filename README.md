@@ -9,6 +9,8 @@ V1.3 以统一 Asset 底库融合个人空间、成果发现、订阅与探索�
 本地入口：<http://127.0.0.1:5173>
 后端接口文档：<http://127.0.0.1:8100/docs>
 
+登记器、孵化器的[远程 MCP](docs/REMOTE-MCP.md)已部署到测试与正式环境，当前应用提交为 `ed0c403`，99项OAuth定向回归通过。新团队App已本人连接、发布并对FB GPT所有人启用，团队市场 `da7ab28` 已同步，0.2.0 wrapper已启用并必需绑定新App。直接App与成员端wrapper分别在独立新对话完成一次只读能力查询，团队技术接入验证通过，无业务写入；其他成员各自OAuth和真实业务UAT未逐人实测。个人市场和千问ZIP保持原交付，千问按用户决定暂不测试。详见[插件分发说明](docs/AI-ASSET-PLUGIN-DISTRIBUTION.md)。
+
 服务器隔离测试环境：<https://jtzhzt.flipbeltchina.com/test/>
 测试后端健康检查：<https://jtzhzt.flipbeltchina.com/test-api/api/v1/health/ready>
 
@@ -78,4 +80,4 @@ PostgreSQL Windows运行时位于项目`.runtime`目录，Python依赖位于`bac
 
 ## AI 孵化器 / 登记器连接器
 
-受限设备授权、私有草稿和孵化快照实现见 [连接器实施与上线清单](docs/AGENT-CONNECTOR.md)。默认关闭；生产部署与真人授权单独验收。
+旧 Windows 设备授权、私有草稿和孵化快照实现见[连接器实施与上线清单](docs/AGENT-CONNECTOR.md)；远程 OAuth 接入见[远程 MCP](docs/REMOTE-MCP.md)。代码开关默认关闭，当前测试与正式环境已按受管配置开启。技术发布、本人连接及真实登记业务验收分别记录。

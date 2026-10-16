@@ -28,6 +28,7 @@ import AssetFollowupPage from "./pages/AssetFollowupPage.vue";
 
 import AssetReviewPage from "./pages/AssetReviewPage.vue";
 import AgentConnectPage from "./pages/AgentConnectPage.vue";
+import AgentOAuthPage from "./pages/AgentOAuthPage.vue";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -38,6 +39,7 @@ const router = createRouter({
     { path: "/team", component: AssetSpacePage, props: { scope: "team" } },
     { path: "/discover/:id", component: AssetOverviewPage },
     { path: "/agent/connect", component: AgentConnectPage },
+    { path: "/agent/oauth", component: AgentOAuthPage },
     { path: "/register", component: AssetRegisterPage },
     { path: "/memberships/new", component: MembershipRegisterPage },
     { path: "/login", name: "login", component: LoginPage },

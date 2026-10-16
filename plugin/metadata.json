@@ -1,0 +1,9 @@
+{
+  "name": "flipbelt-ai-asset-center",
+  "version": "0.2.0",
+  "display_name": "飞比特 AI 成果助手",
+  "description": "Explore AI workflows and register outcomes with private drafts, host OAuth for remote MCP, and explicit web confirmation; remote distribution remains a candidate until verified.",
+  "description_zh": "以孵化器梳理工作机会，以登记器整理已有成果；默认本地，远程候选通过宿主 OAuth 逐人授权，正式登记须本人网页确切版本确认。远程服务和宿主安装尚待验证。",
+  "skills": ["flipbelt-ai-asset-registrar", "flipbelt-ai-workflow-incubator"],
+  "author": "FlipBelt"
+}
