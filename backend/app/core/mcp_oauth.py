@@ -21,6 +21,7 @@ from app.models import AuditLog, McpOAuthClient, McpOAuthGrant, McpOAuthRequest,
 from app.schemas.mcp_oauth import ClientRegistration
 
 QWEN_REDIRECT = "qwenwork-cn://mcp-oauth"
+CHATGPT_REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect"
 BUSINESS_SCOPES = frozenset(SCOPES)
 CLIENT_IDENTITY_NOTE = "客户端名称由申请方自行填写，未经企业身份认证；只允许你本人发起的连接。"
 
@@ -221,11 +222,15 @@ def create_authorization(db: Session, params: dict[str, str]):
         raise OAuthError("invalid_request", "PKCE S256 is required")
     resource = bound_resource(params, client, redirect)
     if "scope" not in params:
-        if not qwen_compatibility(client, redirect) or "resource" in params:
-            raise OAuthError("invalid_scope", "Business scopes are required")
-        selected_scopes = list(SCOPES)
-        if not set(selected_scopes) <= set(client.scopes):
-            raise OAuthError("invalid_scope", "Client is not registered for these scopes")
+        if redirect == CHATGPT_REDIRECT and client.redirect_uris == [CHATGPT_REDIRECT]:
+            # The resource was checked above; ChatGPT may omit the registered scopes.
+            selected_scopes = scopes(" ".join(client.scopes))
+        else:
+            if not qwen_compatibility(client, redirect) or "resource" in params:
+                raise OAuthError("invalid_scope", "Business scopes are required")
+            selected_scopes = list(SCOPES)
+            if not set(selected_scopes) <= set(client.scopes):
+                raise OAuthError("invalid_scope", "Client is not registered for these scopes")
     else:
         selected_scopes = scopes(params["scope"], client.scopes)
     token = "mrq_" + secrets.token_urlsafe(32)

@@ -27,6 +27,7 @@ from app.models import McpOAuthClient, McpOAuthGrant, McpOAuthRequest, Person, U
 
 pytest_plugins = ["test_asset_center_integration"]
 CALLBACK = "http://127.0.0.1:47321/callback"
+CHATGPT_CALLBACK = "https://chatgpt.com/connector_platform_oauth_redirect"
 RESOURCE = "https://jtzhzt.flipbeltchina.com/mcp"
 ISSUER = "https://jtzhzt.flipbeltchina.com/mcp-oauth"
 VERIFIER = "v" * 64
@@ -178,6 +179,96 @@ def test_complete_public_flow_and_hash_only_storage(actors, oauth):
     assert oauth.get("/.well-known/oauth-authorization-server/mcp-oauth").json()["issuer"] == ISSUER
     metadata = oauth.get("/.well-known/oauth-protected-resource/mcp").json()
     assert metadata["resource"] == RESOURCE and metadata["authorization_servers"] == [ISSUER]
+
+
+@pytest.mark.parametrize("registered_scope", [None, "asset:read incubation:read"])
+def test_chatgpt_missing_scope_uses_registered_scopes_with_explicit_consent(
+    actors, oauth, registered_scope
+):
+    registered = register(oauth, redirect_uris=[CHATGPT_CALLBACK], scope=registered_scope)
+    expected_scopes = set(SCOPES if registered_scope is None else registered_scope.split())
+    response = authorize(oauth, registered, scope=None)
+    assert response.status_code == 302, response.text
+    location = urlsplit(response.headers["location"])
+    assert location.netloc == "jtzhzt.flipbeltchina.com" and location.path == "/agent/oauth"
+    token = parse_qs(location.query)["request_token"][0]
+    payload = {"request_token": token}
+    with SessionLocal() as db:
+        pending = db.scalar(
+            select(McpOAuthRequest).where(McpOAuthRequest.request_hash == digest(token))
+        )
+        assert set(pending.scopes) == expected_scopes
+        assert pending.user_id is None and pending.approved_at is None and pending.code_hash is None
+        assert db.scalar(
+            select(McpOAuthGrant).where(McpOAuthGrant.client_id == pending.client_id)
+        ) is None
+    assert actors.owner.post(
+        "/api/v1/agent/oauth/approve", json=payload | {"approved": True}
+    ).status_code == 409
+    preview = actors.owner.post("/api/v1/agent/oauth/preview", json=payload)
+    assert preview.status_code == 200, preview.text
+    assert set(preview.json()["scopes"]) == expected_scopes
+    assert actors.other.post(
+        "/api/v1/agent/oauth/approve", json=payload | {"approved": True}
+    ).status_code == 403
+    approved = actors.owner.post(
+        "/api/v1/agent/oauth/approve", json=payload | {"approved": True}
+    )
+    assert approved.status_code == 200, approved.text
+    query = parse_qs(urlsplit(approved.json()["redirect_url"]).query)
+    assert query["state"] == ["synthetic-state"] and query["iss"] == [ISSUER]
+    result = exchange(oauth, registered, query["code"][0])
+    assert result.status_code == 200, result.text
+    assert set(result.json()["scope"].split()) == expected_scopes
+    _, allowed = machine_access(result.json()["access_token"])
+    assert allowed == expected_scopes
+    if registered_scope is not None:
+        with pytest.raises(HTTPException) as denied:
+            machine_access(result.json()["access_token"], {"asset:draft"})
+        assert denied.value.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "changes, expected_error",
+    [
+        ({"resource": None}, "invalid_target"),
+        ({"resource": ""}, "invalid_target"),
+        ({"resource": "https://other.invalid/mcp"}, "invalid_target"),
+        ({"scope": ""}, "invalid_scope"),
+        ({"scope": "openid"}, "invalid_scope"),
+        ({"scope": "asset:draft"}, "invalid_scope"),
+        ({"code_challenge_method": "plain"}, "invalid_request"),
+        ({"code_challenge": None}, "invalid_request"),
+        ({"state": None}, "invalid_request"),
+    ],
+)
+def test_chatgpt_scope_default_keeps_explicit_parameters_strict(
+    actors, oauth, changes, expected_error
+):
+    registered = register(oauth, redirect_uris=[CHATGPT_CALLBACK], scope="asset:read")
+    response = authorize(oauth, registered, **({"scope": None} | changes))
+    assert error_code(response) == expected_error
+    with SessionLocal() as db:
+        client = db.scalar(
+            select(McpOAuthClient).where(McpOAuthClient.client_id == registered["client_id"])
+        )
+        assert db.scalar(
+            select(McpOAuthRequest).where(McpOAuthRequest.client_id == client.id)
+        ) is None
+        assert db.scalar(select(McpOAuthGrant).where(McpOAuthGrant.client_id == client.id)) is None
+
+
+@pytest.mark.parametrize(
+    "redirect_uris",
+    [
+        [CALLBACK],
+        [CHATGPT_CALLBACK, CALLBACK],
+        ["https://chatgpt.com:443/connector_platform_oauth_redirect"],
+    ],
+)
+def test_chatgpt_scope_default_requires_sole_exact_callback(actors, oauth, redirect_uris):
+    registered = register(oauth, client_name="ChatGPT", redirect_uris=redirect_uris)
+    assert error_code(authorize(oauth, registered, scope=None)) == "invalid_scope"
 
 
 def test_registration_ignores_unsupported_metadata_without_storing_it(actors, oauth):
