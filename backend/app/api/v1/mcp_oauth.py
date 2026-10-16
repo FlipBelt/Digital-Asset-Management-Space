@@ -250,8 +250,8 @@ def authorize(request: Request, db: Session = Depends(get_db)):
             "code_challenge",
             "code_challenge_method",
         }
-        if set(params) - allowed:
-            raise OAuthError("invalid_request", "Unsupported authorization parameter")
+        # RFC 6749 section 3.1: ignore extensions after strict parsing and deduplication.
+        params = {key: value for key, value in params.items() if key in allowed}
         if (
             db.scalar(
                 select(func.count())
@@ -281,7 +281,7 @@ async def token(request: Request, db: Session = Depends(get_db)):
     throttle_public(request, "token", 120)
     try:
         params = await form(request)
-        if set(params) - {
+        allowed = {
             "grant_type",
             "client_id",
             "client_secret",
@@ -291,8 +291,9 @@ async def token(request: Request, db: Session = Depends(get_db)):
             "resource",
             "refresh_token",
             "scope",
-        }:
-            raise OAuthError("invalid_request", "Unsupported token parameter")
+        }
+        # RFC 6749 section 3.2: unsupported extensions never reach token processing.
+        params = {key: value for key, value in params.items() if key in allowed}
         result = await run_in_threadpool(token_result, db, params, request)
         return JSONResponse(result, headers=PRIVATE)
     except OAuthError as exc:

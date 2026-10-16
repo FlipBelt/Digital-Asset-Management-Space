@@ -8,7 +8,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 from fastapi import HTTPException
@@ -33,6 +33,11 @@ VERIFIER = "v" * 64
 CHALLENGE = (
     base64.urlsafe_b64encode(hashlib.sha256(VERIFIER.encode()).digest()).decode().rstrip("=")
 )
+EXTENSIONS = {
+    "prompt": "synthetic-prompt-marker",
+    "id_token_hint": "synthetic-id-token-marker",
+    "opaque_extension": "synthetic-opaque-marker",
+}
 
 
 @pytest.fixture
@@ -203,6 +208,55 @@ def test_registration_ignores_unsupported_metadata_without_storing_it(actors, oa
             assert value not in stored
 
 
+def test_authorization_and_token_extensions_are_ignored_without_bypassing_consent(actors, oauth):
+    registered = register(oauth)
+    response = authorize(oauth, registered, **EXTENSIONS)
+    assert response.status_code == 302, response.text
+    query = parse_qs(urlsplit(response.headers["location"]).query)
+    assert set(query) == {"request_token"}
+    request_token = query["request_token"][0]
+    with SessionLocal() as db:
+        client = db.scalar(
+            select(McpOAuthClient).where(McpOAuthClient.client_id == registered["client_id"])
+        )
+        pending = db.scalar(
+            select(McpOAuthRequest).where(McpOAuthRequest.request_hash == digest(request_token))
+        )
+        assert pending.user_id is None and pending.approved_at is None and pending.code_hash is None
+        assert db.scalar(select(McpOAuthGrant).where(McpOAuthGrant.client_id == client.id)) is None
+    payload = {"request_token": request_token}
+    preview = actors.owner.post("/api/v1/agent/oauth/preview", json=payload)
+    assert preview.status_code == 200, preview.text
+    approved = actors.owner.post("/api/v1/agent/oauth/approve", json=payload | {"approved": True})
+    assert approved.status_code == 200, approved.text
+    callback_query = parse_qs(urlsplit(approved.json()["redirect_url"]).query)
+    assert set(callback_query) == {"code", "state", "iss"}
+    assert callback_query["state"] == ["synthetic-state"] and callback_query["iss"] == [ISSUER]
+    result = exchange(oauth, registered, callback_query["code"][0], **EXTENSIONS)
+    assert result.status_code == 200, result.text
+    user_id, allowed = machine_access(result.json()["access_token"])
+    assert allowed == set(SCOPES)
+    with SessionLocal() as db:
+        assert db.get(User, user_id).person_id == actors.person["owner"]
+        rows = [
+            db.scalar(select(model).where(model.client_id == registered["client_id"]))
+            if model is McpOAuthClient
+            else db.scalar(select(model).where(model.client_id == client.id))
+            for model in (McpOAuthClient, McpOAuthRequest, McpOAuthGrant)
+        ]
+        stored = json.dumps(
+            [
+                {column.key: getattr(row, column.key) for column in row.__table__.columns}
+                for row in rows
+            ],
+            default=str,
+        )
+    output = response.headers["location"] + preview.text + approved.text + result.text
+    for key, value in EXTENSIONS.items():
+        assert key not in stored and value not in stored
+        assert key not in output and value not in output
+
+
 @pytest.mark.parametrize(
     "changes",
     [
@@ -298,11 +352,13 @@ def test_consent_cookie_requires_csrf(actors, oauth):
         {"resource": "https://other.invalid/mcp"},
         {"resource": None},
         {"scope": None},
+        {"redirect_uri": "https://unregistered.example.invalid/callback"},
+        {"code_challenge": "synthetic-invalid-challenge"},
     ],
 )
 def test_authorization_requires_state_pkce_resource_scope(actors, oauth, changes):
     registered = register(oauth)
-    response = authorize(oauth, registered, **changes)
+    response = authorize(oauth, registered, **(EXTENSIONS | changes))
     assert error_code(response) in {"invalid_request", "invalid_scope", "invalid_target"}
 
 
@@ -312,6 +368,78 @@ def test_duplicate_authorization_parameter_does_not_redirect(actors, oauth):
     # A repeated scope is rejected before any safe callback can be selected.
     url = str(response.request.url) + "&scope=asset%3Aread"
     assert oauth.get(url).status_code == 400
+
+
+@pytest.mark.parametrize(
+    "endpoint, parameter",
+    [
+        ("authorize", "state"),
+        ("authorize", "resource"),
+        ("authorize", "redirect_uri"),
+        ("authorize", "code_challenge"),
+        ("authorize", "opaque_extension"),
+        ("token", "resource"),
+        ("token", "redirect_uri"),
+        ("token", "code_verifier"),
+        ("token", "opaque_extension"),
+    ],
+)
+def test_known_and_unknown_duplicates_are_rejected_before_filtering(
+    actors, oauth, endpoint, parameter
+):
+    encoded = urlencode(list(EXTENSIONS.items()) + [(parameter, "synthetic-duplicate")])
+    if parameter != "opaque_extension":
+        encoded += "&" + urlencode({parameter: "synthetic-second-duplicate"})
+    if endpoint == "authorize":
+        response = oauth.get("/mcp-oauth/authorize?" + encoded)
+    else:
+        response = oauth.post(
+            "/mcp-oauth/token",
+            content=encoded,
+            headers={"content-type": "application/x-www-form-urlencoded"},
+        )
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_request"
+
+
+@pytest.mark.parametrize("endpoint", ["authorize", "token"])
+@pytest.mark.parametrize("kind", ["bad_percent", "bad_utf8", "too_many_fields", "too_large"])
+def test_ignored_extensions_do_not_relax_parser_limits(actors, oauth, endpoint, kind):
+    content = {
+        "bad_percent": "opaque_extension=%ZZ",
+        "bad_utf8": "opaque_extension=%FF",
+        "too_many_fields": urlencode({f"opaque_extension_{i}": "synthetic" for i in range(31)}),
+        "too_large": "opaque_extension=" + "x" * (8193 if endpoint == "authorize" else 16385),
+    }[kind]
+    if endpoint == "authorize":
+        response = oauth.get("/mcp-oauth/authorize?" + content)
+    else:
+        response = oauth.post(
+            "/mcp-oauth/token",
+            content=content,
+            headers={"content-type": "application/x-www-form-urlencoded"},
+        )
+    expected = (414 if endpoint == "authorize" else 413) if kind == "too_large" else 400
+    assert response.status_code == expected
+    assert response.json()["error"] == "invalid_request"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"resource": "https://other.example.invalid/mcp"},
+        {"scope": "openid"},
+        {"code_verifier": "x" * 64},
+        {"redirect_uri": "https://unregistered.example.invalid/callback"},
+        {"grant_type": "client_credentials"},
+        {"client_secret": "synthetic-unrequested-secret"},
+    ],
+)
+def test_token_known_fields_remain_strict_with_ignored_extensions(actors, oauth, changes):
+    registered = register(oauth)
+    code, _ = consent(oauth, actors, registered, **EXTENSIONS)
+    response = exchange(oauth, registered, code, **(EXTENSIONS | changes))
+    assert response.status_code in {400, 401}
 
 
 @pytest.mark.parametrize(
