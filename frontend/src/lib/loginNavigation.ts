@@ -10,6 +10,10 @@ export function safeLoginRedirect(value: unknown): string {
     if (rawPath === "/login" || rawPath.startsWith("/api/") || rawPath === "/test" || rawPath.startsWith("/test/")) return "/my";
     const parsed = new URL(value, "https://asset-center.invalid");
     if (parsed.origin !== "https://asset-center.invalid") return "/my";
+    // Global login buttons must not copy a pending OAuth credential into login URLs.
+    if ((rawPath === "/agent/oauth" || rawPath === "/agent/oauth/") && parsed.searchParams.has("request_token")) {
+      return "/agent/oauth?restart=1";
+    }
     return rawPath + parsed.search;
   } catch {
     return "/my";

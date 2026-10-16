@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     agent_connector_enabled: bool = False
     agent_frontend_url: str | None = None
     agent_token_ttl_hours: int = Field(default=24, ge=1, le=168)
+    agent_mcp_enabled: bool = False
+    agent_mcp_public_url: str | None = None
+    agent_mcp_allowed_redirect_uris: list[str] = Field(default_factory=list)
+    agent_mcp_allowed_origins: list[str] = Field(default_factory=list)
+    agent_mcp_access_token_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
+    agent_mcp_refresh_token_ttl_days: int = Field(default=30, ge=1, le=90)
     ai_import_enabled: bool = False
     ai_import_base_url: str | None = None
     ai_import_api_key: str | None = None
@@ -101,6 +107,48 @@ class Settings(BaseSettings):
                 raise ValueError("DINGTALK_WEB_FRONTEND_URL must end with a slash")
         if self.agent_connector_enabled and not self.agent_frontend_url:
             raise ValueError("AGENT_FRONTEND_URL is required when the connector is enabled")
+        if self.agent_mcp_enabled and (
+            not self.agent_connector_enabled or not self.agent_mcp_public_url
+        ):
+            raise ValueError("Remote MCP requires the agent connector and AGENT_MCP_PUBLIC_URL")
+        if self.agent_mcp_public_url:
+            parsed = urlsplit(self.agent_mcp_public_url)
+            local = self.app_env == "local" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+            if (
+                (parsed.scheme != "https" and not (local and parsed.scheme == "http"))
+                or not parsed.hostname or parsed.username is not None
+                or parsed.password is not None or parsed.query or parsed.fragment
+                or not parsed.path.endswith("/mcp") or "\\" in self.agent_mcp_public_url
+                or "%" in parsed.path or any(part in {".", ".."} for part in parsed.path.split("/"))
+                or any(ord(char) < 33 or ord(char) == 127 for char in self.agent_mcp_public_url)
+            ):
+                raise ValueError("AGENT_MCP_PUBLIC_URL must be a trusted HTTPS URL ending in /mcp")
+            _ = parsed.port
+            if self.agent_frontend_url:
+                frontend = urlsplit(self.agent_frontend_url)
+                if (parsed.scheme, parsed.netloc) != (frontend.scheme, frontend.netloc):
+                    raise ValueError("Remote MCP and agent frontend must share the same origin")
+        for value in self.agent_mcp_allowed_redirect_uris:
+            parsed = urlsplit(value)
+            if (
+                parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
+                or parsed.password is not None or parsed.fragment or parsed.query
+                or "\\" in value or "%" in value
+                or any(ord(char) < 33 or ord(char) == 127 for char in value)
+                or any(part in {".", ".."} for part in parsed.path.split("/"))
+            ):
+                raise ValueError("MCP callback allowlist must contain exact HTTPS callback URLs")
+            _ = parsed.port
+        for value in self.agent_mcp_allowed_origins:
+            parsed = urlsplit(value)
+            if (
+                parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
+                or parsed.password is not None or parsed.path not in {"", "/"}
+                or parsed.query or parsed.fragment or "\\" in value
+                or any(ord(char) < 33 or ord(char) == 127 for char in value)
+            ):
+                raise ValueError("MCP allowed origins must be exact HTTPS origins")
+            _ = parsed.port
         return self
 
     def dingtalk_web_missing_settings(self) -> list[str]:

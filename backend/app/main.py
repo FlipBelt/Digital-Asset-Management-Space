@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
-from app.api.v1 import developer, dingtalk, dingtalk_web, workspace
+from app.api.v1 import agent_mcp, developer, dingtalk, dingtalk_web, mcp_oauth, workspace
 from app.core.auth import require_authenticated
 from app.core.auth_logging import install_auth_log_redaction
 from app.core.config import get_settings
@@ -79,6 +79,9 @@ def root() -> dict[str, str]:
 
 app.include_router(api_router)
 app.include_router(developer.console_router)
+app.include_router(mcp_oauth.router)
+app.include_router(mcp_oauth.web_router)
+app.include_router(agent_mcp.router)
 # Public DingTalk bootstrap endpoints intentionally live outside /api/v1 for
 # compatibility with the micro-app contract. They expose configuration only
 # and establish an authenticated application session on successful login.

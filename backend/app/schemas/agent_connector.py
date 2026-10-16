@@ -11,7 +11,7 @@ class StrictInput(BaseModel):
 
 
 class DeviceStart(StrictInput):
-    client_name: Literal["Codex", "Qoder-CN"] = "Codex"
+    client_name: Literal["Codex", "Qoder-CN", "QwenWork", "QoderWork"] = "Codex"
 
 
 class DevicePoll(StrictInput):

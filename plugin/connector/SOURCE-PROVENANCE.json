@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "source_repository": "https://github.com/FlipBelt/Digital-Asset-Management-Space",
+  "source_commit": "fa56c38f9f9b37d78ba65971f1f9b810ce8d2ddf",
+  "source_directory": "connector",
+  "copied_on": "2026-10-15",
+  "copy_policy": "Original working-tree bytes; Git blob may differ only by CRLF/LF normalization.",
+  "transport": "stdio",
+  "supported_runtime": "Windows desktop with a local Python environment",
+  "tool_count": 16,
+  "files": [
+    {
+      "path": "pyproject.toml",
+      "source_path": "connector/pyproject.toml",
+      "bytes": 551,
+      "sha256": "e7d624e0acb6b837ea45912530b7275a00e2aac13cc5cc7dfd9cd2a88df74f36",
+      "git_blob_sha256": "d82623effab33024f1f0b9c97ae60ebe55947e09dce784042b6c211ba2c54c39"
+    },
+    {
+      "path": "uv.lock",
+      "source_path": "connector/uv.lock",
+      "bytes": 105213,
+      "sha256": "4f5b0da353ff33a5c0c69f5266a750ea4d80a99ded6282e5f27602659ded8f76",
+      "git_blob_sha256": "bdb87ea9b961fc41303bcd47c9bdb40f93d68cc8418db9dad50c2edc396a7dc0"
+    },
+    {
+      "path": "src/flipbelt_connector/__init__.py",
+      "source_path": "connector/src/flipbelt_connector/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "git_blob_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/flipbelt_connector/client.py",
+      "source_path": "connector/src/flipbelt_connector/client.py",
+      "bytes": 3830,
+      "sha256": "102beb29f2cc72f098494c63195a9fcd226613133e599f66c0435211da4ab882",
+      "git_blob_sha256": "69aa6ee934031c7765f2c40f78a7b79592973526c539fc4bac154913a0a3b793"
+    },
+    {
+      "path": "src/flipbelt_connector/server.py",
+      "source_path": "connector/src/flipbelt_connector/server.py",
+      "bytes": 9640,
+      "sha256": "969d3f98dddf74735676130a410198dba427418186a0b4bd5b008b064a353832",
+      "git_blob_sha256": "82f82ef208417d85be640bd0ea4e85efd55aa44d55171f456d42be14cf8804bd"
+    },
+    {
+      "path": "src/flipbelt_connector/vault.py",
+      "source_path": "connector/src/flipbelt_connector/vault.py",
+      "bytes": 2630,
+      "sha256": "d9bd6b8b816631fed8eda260215769ca9fd81fb062d4936f8007a7c94f912060",
+      "git_blob_sha256": "81293383bde4a05610d4643c6881ecbeccdb93eb409a998e3866f2c29c329320"
+    }
+  ]
+}

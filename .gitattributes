@@ -1,2 +1,7 @@
 # Preserve downloaded SVG bytes so source hashes survive Windows checkouts.
 frontend/src/assets/platform-logos/*.svg -text
+# Plugin provenance hashes must match committed bytes on Windows and Linux.
+.agents/skills/** text eol=lf
+plugin/** text eol=lf
+# The legacy connector is an exact, checksummed copy of its recorded source.
+plugin/connector/** -text

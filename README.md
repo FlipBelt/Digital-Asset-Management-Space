@@ -9,6 +9,8 @@ V1.3 以统一 Asset 底库融合个人空间、成果发现、订阅与探索�
 本地入口：<http://127.0.0.1:5173>
 后端接口文档：<http://127.0.0.1:8100/docs>
 
+登记器、孵化器的千问与团队云端连接改造见[远程 MCP 接入说明](docs/REMOTE-MCP.md)；候选实现尚需部署与真实宿主验收。
+
 服务器隔离测试环境：<https://jtzhzt.flipbeltchina.com/test/>
 测试后端健康检查：<https://jtzhzt.flipbeltchina.com/test-api/api/v1/health/ready>
 

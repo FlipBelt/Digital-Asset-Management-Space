@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flipbelt-agent-connector"
+version = "0.1.0"
+description = "Restricted local MCP adapter for FlipBelt AI incubator and asset registrar"
+requires-python = ">=3.11,<3.14"
+dependencies = ["mcp>=1.26,<2", "httpx>=0.28,<1"]
+
+[project.scripts]
+flipbelt-agent-connector = "flipbelt_connector.server:main"
+
+[dependency-groups]
+dev = ["pytest>=8,<9", "ruff>=0.12,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flipbelt_connector"]

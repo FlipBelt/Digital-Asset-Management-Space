@@ -99,6 +99,16 @@ def test_feature_flag(actors, agent_clients, monkeypatch):
     assert actors.owner.get("/api/v1/agent/grants").status_code == 404
 
 
+@pytest.mark.parametrize("client_name", ["QwenWork", "QoderWork"])
+def test_qwen_desktop_device_client_labels(actors, agent_clients, client_name):
+    client = agent_clients["owner"]
+    started = client.post("/api/v1/agent/device/start", json={"client_name": client_name})
+    assert started.status_code == 200
+    assert started.json()["verification_uri"].endswith("/agent/connect")
+    rejected = client.post("/api/v1/agent/device/start", json={"client_name": "unregistered"})
+    assert rejected.status_code == 422
+
+
 @pytest.mark.parametrize("state", ["expired", "revoked", "inactive", "departed", "role_removed"])
 def test_live_authorization(state, actors, agent_clients):
     with SessionLocal() as db:

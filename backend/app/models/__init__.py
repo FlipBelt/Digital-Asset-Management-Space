@@ -71,8 +71,12 @@ from app.models.domain import (
     UserSession,
     WorkflowRequest,
 )
+from app.models.mcp_oauth import McpOAuthClient, McpOAuthGrant, McpOAuthRequest
 
 __all__ = [
+    "McpOAuthClient",
+    "McpOAuthGrant",
+    "McpOAuthRequest",
     "AgentGrant",
     "AgentIncubation",
     "AgentOperation",
