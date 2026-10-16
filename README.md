@@ -9,7 +9,7 @@ V1.3 以统一 Asset 底库融合个人空间、成果发现、订阅与探索�
 本地入口：<http://127.0.0.1:5173>
 后端接口文档：<http://127.0.0.1:8100/docs>
 
-登记器、孵化器的[远程 MCP](docs/REMOTE-MCP.md)已部署到测试与正式环境，当前应用提交为 `a160657`。用户已完成 ChatGPT 本人连接，并成功执行一次只读能力查询；两个插件市场0.2.0已发布，团队Workspace市场已同步并导入真实必需App。用户反馈App已发布，但独立回读仍为草稿，团队插件显示禁用/不可用；管理员发布及恢复团队可用性仍待处理。千问按用户决定暂不测试。安装包与市场状态见[插件分发说明](docs/AI-ASSET-PLUGIN-DISTRIBUTION.md)。
+登记器、孵化器的[远程 MCP](docs/REMOTE-MCP.md)已部署到测试与正式环境，当前应用提交为 `ed0c403`，99项OAuth定向回归通过。新团队App已本人连接、发布并对FB GPT所有人启用，团队市场 `da7ab28` 已同步，0.2.0 wrapper已启用并必需绑定新App。直接App与成员端wrapper分别在独立新对话完成一次只读能力查询，团队技术接入验证通过，无业务写入；其他成员各自OAuth和真实业务UAT未逐人实测。个人市场和千问ZIP保持原交付，千问按用户决定暂不测试。详见[插件分发说明](docs/AI-ASSET-PLUGIN-DISTRIBUTION.md)。
 
 服务器隔离测试环境：<https://jtzhzt.flipbeltchina.com/test/>
 测试后端健康检查：<https://jtzhzt.flipbeltchina.com/test-api/api/v1/health/ready>

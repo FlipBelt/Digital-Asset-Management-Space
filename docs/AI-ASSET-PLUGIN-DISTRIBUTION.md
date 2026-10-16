@@ -2,17 +2,23 @@
 
 ## 0.2.0 当前交付（2026-10-16）
 
-登记器、孵化器与资产中心远程连接统一以0.2.0插件分发，Skill版本为0.2.3-pilot。正式远程服务已按测试→正式发布至 `https://jtzhzt.flipbeltchina.com/mcp`，当前应用提交为 `a160657200a93f05050d5c69d31ff7d0f966a448`。用户本人已允许ChatGPT连接，并在ChatGPT Work的FB GPT中完成一次只读 `get_capabilities` 调用；这不替代全部工具与登记闭环验收。部署与验证回执见[远程MCP说明](REMOTE-MCP.md)。
+登记器、孵化器与资产中心远程连接统一以0.2.0插件分发，Skill版本为0.2.3-pilot。正式远程服务已按测试→正式发布至 `https://jtzhzt.flipbeltchina.com/mcp`，当前应用提交为 `ed0c4039fb23ad33c5796f0dbeb8afb25af4b792`，99项OAuth定向回归通过。新团队App已本人OAuth连接、发布启用并对FB GPT全员可用，市场revision `da7ab28` 已同步；直接App与成员端wrapper分别在独立新对话完成一次只读能力回读，团队技术接入验证通过。部署与scope兼容规则见[远程MCP说明](REMOTE-MCP.md)。其他成员各自OAuth及真实业务UAT未逐人实测。
 
 | 目标 | 当前交付与边界 |
 | --- | --- |
-| 团队市场 flipbelt-team | 插件 `flipbelt-ai-asset-center` 的0.2.0已推送main，提交 [aaa3c4a](https://github.com/J21NIANYI/flipbelt-plugin-marketplace/commit/aaa3c4a27e0388048c927e8f95882d8fc1f61f25)，绑定真实资产App；[CI 38856116286](https://github.com/J21NIANYI/flipbelt-plugin-marketplace/actions/runs/38856116286) success，155个tracked blob路径/模式/Git SHA匹配，15个变更文件远端字节回读一致。FB GPT市场已同步确切revision并重载确认成果助手已导入，真实App为必需依赖。用户反馈App已发布，但独立回读仍为草稿及工作空间权限错误；团队插件在工作空间列表显示禁用/不可用，原因未确定。管理员发布及恢复团队可用性仍待处理。 |
+| 团队市场 flipbelt-team | 0.2.0新App依赖revision [da7ab28](https://github.com/J21NIANYI/flipbelt-plugin-marketplace/commit/da7ab2884e77b1003f1b801eea39305f0431df3e) 已推送并实际同步FB GPT；[CI 38879959551](https://github.com/J21NIANYI/flipbelt-plugin-marketplace/actions/runs/38879959551) success。wrapper重载确认已启用、全员可用、两项Skill与必需新App链接正确、访客关闭持久化；成员端专门新对话一次只读能力回读成功。包版本保持0.2.0，以revision区分依赖替换，技能源不变。 |
 | 个人市场 flipbelt-personal | 插件 `flipbelt-ai-asset-center-personal` 的0.2.0已推送main，提交 [b34d776](https://github.com/J21NIANYI/flipbelt-personal-marketplace/commit/b34d7768ac2d0783d3bf2a5feb0ff864848bc36c)；[CI 38851739980](https://github.com/J21NIANYI/flipbelt-personal-marketplace/actions/runs/38851739980) success，78个远端blob字节回读一致。 |
 | 千问办公 | 企业后台已创建并enabled OAuth DCR连接器 `flipbelt-ai-assets`，地址为正式 `/mcp`；已导出下方最终ZIP。用户明确暂不测试千问；本轮不声称ZIP已导入、成员OAuth成功、工具可调用或业务验收通过。 |
 
-真实ChatGPT资产App为 `asdk_app_6ad1a995522c819197dd69e6aca6f71f`，技术插件标识为 `plugin_asdk_app_6ad1a995522c819197dd69e6aca6f71f`。团队包的 `.app.json` 使用前者且 `required: true`；不复用知识库App。App目录版本1.0.0与本项目插件版本0.2.0独立，不能相互替代。本人连接证据来自用户确认与宿主可见调用，不冒充原始服务日志；响应中的 `remote_tool_count=13` 不是13个工具分别执行通过，且响应没有 `role` 或 `connected` 字段。
+当前真实团队App为 `asdk_app_6ad1de5fb8788191b73c1aaab021a067`，技术插件标识为 `plugin_asdk_app_6ad1de5fb8788191b73c1aaab021a067`，名称“FlipBelt AI资产中心（团队）”，目录归属FB GPT。当前操作者已在成员页确认是FB GPT Owner，新App从该工作空间管理入口创建；不把旧App的权限错误归因于操作者缺Owner。新团队依赖应在 `.app.json` 使用规范化App ID与 `required: true`，不复用知识库App。App目录版本1.0.0与本项目插件版本0.2.0独立；此次仅替换依赖及对应wrapper，以市场revision区分。
 
-同步后已进入导入插件详情回读：标题为“飞比特AI成果助手”、目录为FB GPT、版本为0.2.0，两项Skill可见；应用区链接指向上述真实资产App并标记“必需”。证据截图为 `.local/connection-proof/team-plugin-0.2.0-required-app.png`。这确认导入后的插件绑定，不替代App组织发布或其他成员的连接验收。
+当前本人连接截图为 `.local/connection-proof/team-app-connected-ed0c403.png`；Admin发布后的独立reload截图为 `.local/connection-proof/team-app-published-enabled-13tools.png`。回读显示已启用、可用范围适用于FB GPT所有人、可用已勾选、13工具、禁用新增工具、站点访客开关关闭，第二tab重载保持。13工具为8读5写，发现目录不等于逐项执行业务。
+
+新App直接“在聊天中试用”的ChatGPT Work新对话已完成一次只读 get_capabilities，截图 `.local/connection-proof/team-app-host-capabilities-ed0c403.png`。宿主可见摘要为调用成功、remote_tool_count=13、四个业务scope、streamable_http/OAuth2及最终确认web_only；未导出原始服务tool trace，不把宿主摘要或“已连接”推断伪称原始响应日志/connected字段。该次无业务写入；wrapper专门新对话验证另记。
+
+成员端wrapper“飞比特AI成果助手”（`Plugin_98ded03801bc8191a0a2bc10dbdff428`）详情“在聊天中试用”的独立新对话也已完成单次只读 get_capabilities，宿主回读成功、remote_tool_count=13、四个scope为asset:draft、asset:read、incubation:read、incubation:write，实际确认字段为 `confirmation=web_only`，没有 `final_confirmation_mode` 字段。截图 `.local/connection-proof/team-wrapper-host-capabilities-da7ab28.png`。两个独立新对话各调用一次，均无业务写入，未导出原始服务tool trace，不把宿主摘要伪称原始服务日志。wrapper Admin重载与访客关闭持久化截图为 `.local/connection-proof/team-wrapper-enabled-new-app-da7ab28.png`。
+
+旧App为 `asdk_app_6ad1a995522c819197dd69e6aca6f71f`，旧revision `aaa3c4a` 的导入详情曾显示该App为必需，截图 `.local/connection-proof/team-plugin-0.2.0-required-app.png`。旧App曾有草稿、共享设置及Workspace权限错误；这些属于历史，不再是当前新App发布的阻塞。旧App故障记录、`a160657` 应用发布及此前本人连接证据继续保留。
 
 ### 维护源与最终ZIP
 
@@ -24,7 +30,7 @@ SHA-256：`441e7dceec26f9e8e25533764bf49eed3c7ddac710f459862b1cca3601cd360a`。
 
 生成目录为 `.local/remote-mcp-final-distribution/a160657200a9/`，来源提交为干净的 `a160657200a93f05050d5c69d31ff7d0f966a448`。ZIP根目录含 `.qoder-plugin/plugin.json` 和 `.mcp.json`，共11文件，未带Windows运行资源、令牌或团队App ID。逐文件回读、CRC与正斜杠条目检查通过；9个技能源/模板文件和6个复制技能文件与已推送个人市场的来源字节一致。个人市场记录的生成提交为 `210b85f`，两次提交之间上述9个源文件内容未变化；不把不同provenance文件或ZIP摘要混称同一产物。
 
-真正的团队App绑定输出位于团队仓库 `.tmp/ai-asset-0.2.0-a160657200a9/team`，已应用到其 `plugins/flipbelt-ai-asset-center`。上述本地最终ZIP生成目录中的 `team` 子目录是无App的直接MCP候选，不能作为团队市场绑定包使用。旧候选和Downloads中的0.1.0历史包保留，验收本轮交付应使用上面的0.2.0文件名及摘要。
+旧App绑定产物曾位于团队仓库 `.tmp/ai-asset-0.2.0-a160657200a9/team`，对应历史revision `aaa3c4a`，不能当作当前da7ab28新绑定证据。上述千问最终ZIP生成目录中的 `team` 子目录是无App的直接MCP候选，不能用于团队市场。个人市场 `b34d776` 与现有千问ZIP本轮保持不动，0.1.0与早期候选继续仅作历史。
 
 早期无App的0.2.0候选ZIP摘要 `5870e236b23c8d84761381696c2065001fa7f5edc5b4ab880c5cc0babd9b3f0a` 仅保留为历史证据，不是本轮最终交付摘要。
 
@@ -35,31 +41,35 @@ SHA-256：`441e7dceec26f9e8e25533764bf49eed3c7ddac710f459862b1cca3601cd360a`。
 - `local-legacy`：保留旧本机兼容方式；不随包自动配置MCP。
 - `remote-oauth-candidate`：指定 `--remote-mcp-url` 后，个人和千问包加入 `.mcp.json`，使用 `mcpServers → flipbelt-ai-assets → type=http/url`。该内部profile名称保留，不代表此时服务仍未部署。无App团队直连包只供本地核查，不能写入团队市场。
 - `workspace-app-candidate`：同时指定 `--remote-mcp-url` 与真实 `--team-app-id`，团队包仅生成 `.app.json` 和 `manifest.apps`；个人和千问仍为直接远程MCP。指定 `--team-root` 必须有真实App标识。
-- `SOURCE-PROVENANCE.json` 保留生成时的connection_profile、提交、dirty状态与逐文件摘要。`workspace_app_binding_verified`、`remote_deployment_verified`、`host_runtime_verified`默认false；独立部署和宿主证据另记，不回写为自动验证成功，也不改写已交付包。
+- `SOURCE-PROVENANCE.json` 保留生成时的connection_profile、提交、dirty状态与逐文件摘要。`workspace_app_binding_verified`、`remote_deployment_verified`、`host_runtime_verified`本轮仍保留生成时的候选标记false；这些产物标记不替代独立部署和宿主运行验收，实际证据另记，不因文档更新改写已交付包。
 
 App参数仅接受严格的 `asdk_app_...` 或 `plugin_asdk_app_...`，后者规范化为前者；不接受URL、空白、嵌套前缀或其他ID类别。这是本项目的窄输入边界，打包输入不能代替真实App、服务地址和成员策略回读。脚本不注册App、批准用户授权或推送仓库；下游存在多余文件时停止且不删除，所有目标预检后才写入，并拒绝符号链接及Windows junction/reparse path。
 
-生成到独立目录并回读（在正式工程根目录执行；真实App标识可从上方回执核对）：
+生成到独立新目录并回读（在正式工程根目录执行；下例使用当前已发布的新App，不会提交推送或同步市场，也不会覆盖既有个人包及千问交付）：
 
 ```powershell
-$env:FLIPBELT_TEAM_APP_ID='asdk_app_6ad1a995522c819197dd69e6aca6f71f'
-python -B -X utf8 scripts/package_ai_asset_plugin.py --output-dir work/ai-asset-plugin/0.2.0-app --remote-mcp-url https://jtzhzt.flipbeltchina.com/mcp --team-app-id $env:FLIPBELT_TEAM_APP_ID
-python -B -X utf8 scripts/package_ai_asset_plugin.py --output-dir work/ai-asset-plugin/0.2.0-app --remote-mcp-url https://jtzhzt.flipbeltchina.com/mcp --team-app-id $env:FLIPBELT_TEAM_APP_ID --check
+$env:FLIPBELT_TEAM_APP_ID='asdk_app_6ad1de5fb8788191b73c1aaab021a067'
+python -B -X utf8 scripts/package_ai_asset_plugin.py --output-dir work/ai-asset-plugin/0.2.0-team-app-6ad1de5f --remote-mcp-url https://jtzhzt.flipbeltchina.com/mcp --team-app-id $env:FLIPBELT_TEAM_APP_ID
+python -B -X utf8 scripts/package_ai_asset_plugin.py --output-dir work/ai-asset-plugin/0.2.0-team-app-6ad1de5f --remote-mcp-url https://jtzhzt.flipbeltchina.com/mcp --team-app-id $env:FLIPBELT_TEAM_APP_ID --check
 ```
 
-本轮打包定向回归20/20通过，包括App格式与别名规范化、团队独占App引用、缺URL/错误目标拒绝、无App团队市场零写入，以及CLI三目标生成和逐字节回读；两项Skill quick_validate通过。团队市场22项全仓测试、市场校验、两技能校验与9个源文件/6个技能复制文件核对通过，提交仅含本轮15个路径。个人市场另完成18项分发回归及既有产品专家检查。官方plugin-creator校验器当前不存在，不声称完成官方全Schema验证。
+既有打包定向回归20/20通过，包括App格式与别名规范化、团队独占App引用、缺URL/错误目标拒绝、无App团队市场零写入，以及CLI三目标生成和逐字节回读；两项Skill quick_validate通过。旧团队revision `aaa3c4a` 发布时22项全仓测试、市场校验、两技能校验与9个源文件/6个技能复制文件核对通过，提交15个路径。个人市场另完成18项分发回归及既有产品专家检查。新团队da7ab28的CI及远端回读已完成，详见下文；官方plugin-creator校验器当前不存在，不声称完成官方全Schema验证。
 
-团队市场的local、origin/main、GitHub main与ls-remote均指向上述 `aaa3c4a`，工作区干净。155个tracked blob的Git SHA核验与15个变更文件的完整字节回读分别记录，不将前者描述为全部155文件均已下载比对。
+旧团队revision `aaa3c4a` 的[CI 38856116286](https://github.com/J21NIANYI/flipbelt-plugin-marketplace/actions/runs/38856116286) success；当时155个tracked blob路径/模式/Git SHA匹配，15个变更文件完整字节回读一致，不将前者描述为全部155文件均已下载比对。这是旧依赖的历史发布证据；当前新依赖的发布与同步以da7ab28回执为准。
+
+本轮团队新依赖提交 `da7ab2884e77b1003f1b801eea39305f0431df3e` 的CI 38879959551 success，155个tracked路径/模式/Git SHA全匹配；4个变更blob完整字节一致，其余151个不变。四文件仅为App依赖、对应provenance、根README和CHANGELOG；包版本仍0.2.0，个人包与千问ZIP未变。
+
+最终团队main为仅文档收口 `67816e8d3a29531f4870225cf8345b7280f1aafb`，[CI 38880809304](https://github.com/J21NIANYI/flipbelt-plugin-marketplace/actions/runs/38880809304) success；只更新根README与CHANGELOG，137个插件blob与新依赖revision da7ab28相同。155个远端文件模式/SHA与两文档字节回读一致。后台已实际同步67816e8，0添加、0更新、5未变、0删除、0失败，截图 `.local/connection-proof/team-market-final-synced-67816e8.png`。这次文档同步不改变已验证插件、App权限或现有千问ZIP。
 
 ### 后续安装与验收
 
-FB GPT市场同步已完成，重载回读的revision为 `aaa3c4a27e0388048c927e8f95882d8fc1f61f25`，统计为0添加、1更新、4未变、0源删除、0失败，成果助手显示已导入；截图为 `.local/connection-proof/team-market-synced-aaa3c4a.png`。
+本轮已实际“立即同步”exact revision `da7ab2884e77b1003f1b801eea39305f0431df3e`，回读0添加、1更新、4未变、0源删除、0失败，截图 `.local/connection-proof/team-market-synced-da7ab28.png`。wrapper详情已启用、所有FB GPT成员可用、两项Skill可见、required链接准确指向新App `6ad1de5f`、访客开关关闭持久化，专门新宿主只读验证已成功，团队技术接入验证通过。旧revision `aaa3c4a` 的同步截图保留为历史；包版本继续0.2.0，其他成员各自OAuth与真实业务UAT保持未逐人实测。
 
-App Workspace批准与发布尚未获得成功回执：先前Shared弹窗明确要求“此应用必须先获得工作空间管理员的批准，其他用户才能使用”；App设置显示草稿、共享设置加载失败，点击发布后返回“插件不可用，你没有权限访问此工作空间中的插件”。用户随后反馈“App已发布”，但独立刷新及新tab的WORKSPACE范围回读仍为草稿、共享设置失败与插件权限错误，发布尚未在回读中生效；团队插件在工作空间列表还显示禁用/不可用，原因未确定，不归因于代码或用户操作。证据为 `.local/connection-proof/team-app-admin-approval-required.png` 和 `.local/connection-proof/app-workspace-publish-permission.png`。管理员发布及恢复团队可用性仍待处理，不绕过该权限。此前当前账号已完成OAuth和一次只读能力查询的事实保留；其他成员可用性尚未验证。
+新App已在用户本人确认后完成Workspace发布与恢复可用，并经独立reload及第二tab持久化回读确认。旧App批准与发布失败截图 `.local/connection-proof/team-app-admin-approval-required.png`、`.local/connection-proof/app-workspace-publish-permission.png` 保留为故障历史，不再写成当前“待管理员发布”。对FB GPT所有人可用是已验证的组织策略；其他成员各自的OAuth与业务调用仍未逐人验收。
 
 市场更新、App绑定、组织批准和每位用户的OAuth连接分别记录。其他员工仍需本人登录资产中心并允许确切权限，机器不得代点同意。
 
-千问企业连接器与专家套件分别管理。最终ZIP可供后续导入，后台连接器已enabled；用户已选择暂不测试，因此不继续调整坐席或发起千问运行端测试。后续若恢复测试，应在目标客户端验证工具发现、本人授权及必要业务路径。已有FBC-21/24/25人工UAT保持独立，技术发布、一次能力查询和后台启用均不关闭这些验收项。
+千问企业连接器与专家套件分别管理。最终ZIP可供后续导入，后台连接器已enabled；用户已选择暂不测试，因此不继续调整坐席或发起千问运行端测试。后续若恢复测试，应在目标客户端验证工具发现、本人授权及必要业务路径。已有FBC-21/24/25人工UAT保持独立，技术发布、只读能力查询和后台启用均不关闭这些验收项。
 
 官方依据：[OpenAI插件打包](https://developers.openai.com/plugins/build/plugins)、[OpenAI团队插件管理](https://learn.chatgpt.com/docs/enterprise/plugin-management)、[App标识格式](https://developers.openai.com/plugins/deploy/submission-errors)、[千问企业连接器](https://help.aliyun.com/zh/qwenwork/enterprise-ultimate-ai-assets-connectors)、[千问企业专家套件](https://help.aliyun.com/zh/qwenwork/enterprise-ultimate-ai-assets-expert-kits)。2026-10-16已核对的OpenAI团队说明区分App引用与Desktop only的直接MCP配置；千问附件仅用于选择 `.qoder-plugin` 元数据布局，不能替代本插件的目标环境验收。
 
