@@ -9,7 +9,7 @@ V1.3 以统一 Asset 底库融合个人空间、成果发现、订阅与探索�
 本地入口：<http://127.0.0.1:5173>
 后端接口文档：<http://127.0.0.1:8100/docs>
 
-登记器、孵化器的千问与团队云端连接改造见[远程 MCP 接入说明](docs/REMOTE-MCP.md)；候选实现尚需部署与真实宿主验收。
+登记器、孵化器的[远程 MCP](docs/REMOTE-MCP.md)已部署到测试与正式环境，当前应用提交为 `a160657`。用户已完成 ChatGPT 本人连接，并成功执行一次只读能力查询；两个插件市场0.2.0已发布，团队Workspace市场已同步并导入真实必需App。用户反馈App已发布，但独立回读仍为草稿，团队插件显示禁用/不可用；管理员发布及恢复团队可用性仍待处理。千问按用户决定暂不测试。安装包与市场状态见[插件分发说明](docs/AI-ASSET-PLUGIN-DISTRIBUTION.md)。
 
 服务器隔离测试环境：<https://jtzhzt.flipbeltchina.com/test/>
 测试后端健康检查：<https://jtzhzt.flipbeltchina.com/test-api/api/v1/health/ready>
@@ -80,4 +80,4 @@ PostgreSQL Windows运行时位于项目`.runtime`目录，Python依赖位于`bac
 
 ## AI 孵化器 / 登记器连接器
 
-受限设备授权、私有草稿和孵化快照实现见 [连接器实施与上线清单](docs/AGENT-CONNECTOR.md)。默认关闭；生产部署与真人授权单独验收。
+旧 Windows 设备授权、私有草稿和孵化快照实现见[连接器实施与上线清单](docs/AGENT-CONNECTOR.md)；远程 OAuth 接入见[远程 MCP](docs/REMOTE-MCP.md)。代码开关默认关闭，当前测试与正式环境已按受管配置开启。技术发布、本人连接及真实登记业务验收分别记录。
