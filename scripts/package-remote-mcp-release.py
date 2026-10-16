@@ -32,6 +32,19 @@ def blob(commit, name, *, missing=False):
     return result.stdout
 
 
+def matched_old_sha(original, observed):
+    actual = set(observed)
+    assert len(actual) == 1, "Test and production runtime bytes differ"
+    selected = actual.pop()
+    if original is None:
+        assert selected is None, "New runtime file unexpectedly exists on the server"
+        return None
+    lf = original.replace(b"\r\n", b"\n")
+    variants = {sha(original), sha(lf), sha(lf.replace(b"\n", b"\r\n"))}
+    assert selected in variants, "Live runtime bytes differ beyond LF/CRLF conversion"
+    return selected
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--commit", required=True)
@@ -72,9 +85,8 @@ def main():
     for name in sorted(changed):
         old = blob(live, "backend/" + name, missing=True)
         assert old == blob(SOURCE_BASE, "backend/" + name, missing=True)
-        old_sha = sha(old) if old is not None else None
-        assert all(preflight["environments"][label]["backend"][name] == old_sha
-                   for label in ("test", "production")), "Live backend bytes drifted: " + name
+        old_sha = matched_old_sha(old, [preflight["environments"][label]["backend"][name]
+                                       for label in ("test", "production")])
         data = blob(commit, "backend/" + name)
         backend[name] = {"old_sha256": old_sha, "sha256": sha(data),
                          "data": base64.b64encode(data).decode()}
