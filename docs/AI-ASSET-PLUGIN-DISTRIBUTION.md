@@ -8,7 +8,7 @@
 | --- | --- |
 | 团队市场 flipbelt-team | 0.2.0新App依赖revision [da7ab28](https://github.com/J21NIANYI/flipbelt-plugin-marketplace/commit/da7ab2884e77b1003f1b801eea39305f0431df3e) 已推送并实际同步FB GPT；[CI 38879959551](https://github.com/J21NIANYI/flipbelt-plugin-marketplace/actions/runs/38879959551) success。wrapper重载确认已启用、全员可用、两项Skill与必需新App链接正确、访客关闭持久化；成员端专门新对话一次只读能力回读成功。包版本保持0.2.0，以revision区分依赖替换，技能源不变。 |
 | 个人市场 flipbelt-personal | 插件 `flipbelt-ai-asset-center-personal` 的0.2.0已推送main，提交 [b34d776](https://github.com/J21NIANYI/flipbelt-personal-marketplace/commit/b34d7768ac2d0783d3bf2a5feb0ff864848bc36c)；[CI 38851739980](https://github.com/J21NIANYI/flipbelt-personal-marketplace/actions/runs/38851739980) success，78个远端blob字节回读一致。 |
-| 千问办公 | 企业后台已创建并enabled OAuth DCR连接器 `flipbelt-ai-assets`，地址为正式 `/mcp`；已导出下方最终ZIP。用户明确暂不测试千问；本轮不声称ZIP已导入、成员OAuth成功、工具可调用或业务验收通过。 |
+| 千问办公 | 已上传下方既有最终ZIP并创建组织套件 `flipbelt-ai-asset-center` 0.2.0（飞比特AI成果助手）；独立reload显示2 skills、0 connectors、网页/桌面、正常、团队可见。用户已接受先保留套件与独立连接器，正式 `/mcp` 的OAuth DCR连接器继续enabled，未重复新建。本轮补装完成，不继续API依赖绑定；运行测试仍暂停，不声称成员OAuth、工具调用或业务验收通过。 |
 
 当前真实团队App为 `asdk_app_6ad1de5fb8788191b73c1aaab021a067`，技术插件标识为 `plugin_asdk_app_6ad1de5fb8788191b73c1aaab021a067`，名称“FlipBelt AI资产中心（团队）”，目录归属FB GPT。当前操作者已在成员页确认是FB GPT Owner，新App从该工作空间管理入口创建；不把旧App的权限错误归因于操作者缺Owner。新团队依赖应在 `.app.json` 使用规范化App ID与 `required: true`，不复用知识库App。App目录版本1.0.0与本项目插件版本0.2.0独立；此次仅替换依赖及对应wrapper，以市场revision区分。
 
@@ -69,7 +69,11 @@ python -B -X utf8 scripts/package_ai_asset_plugin.py --output-dir work/ai-asset-
 
 市场更新、App绑定、组织批准和每位用户的OAuth连接分别记录。其他员工仍需本人登录资产中心并允许确切权限，机器不得代点同意。
 
-千问企业连接器与专家套件分别管理。最终ZIP可供后续导入，后台连接器已enabled；用户已选择暂不测试，因此不继续调整坐席或发起千问运行端测试。后续若恢复测试，应在目标客户端验证工具发现、本人授权及必要业务路径。已有FBC-21/24/25人工UAT保持独立，技术发布、只读能力查询和后台启用均不关闭这些验收项。
+千问企业套件已实际补装：在 `https://qwenwork.cn/admin/expert-kits` 创建标识 `flipbelt-ai-asset-center`、版本0.2.0、中文名“飞比特AI成果助手”，上传上方既有31,213字节最终ZIP，SHA-256仍为 `441e7dceec26f9e8e25533764bf49eed3c7ddac710f459862b1cca3601cd360a`。独立reload显示组织套件3的新行：2 skills、0 connectors、网页/桌面、正常、团队可见已勾选，截图 `.local/connection-proof/qwen-kit-installed-2skills-0connectors.png`。管理界面安装数、两技能解析及ZIP校验只证明安装范围，不证明运行成功。
+
+该套件当前未登记连接器引用，编辑页没有依赖控件；既有组织连接器4个保持不变，资产中心正式 `/mcp` OAuth DCR连接器继续enabled，没有新建重复连接器。用户已明确选择“先保留套件与独立连接器”，这是本轮已接受的交付状态，不继续API依赖绑定，不把API身份列为当前阻塞或绑定任务承诺。运行测试继续暂停，成员OAuth、工具发现及业务路径未实测；已有FBC-21/24/25人工UAT不由套件安装或后台启用关闭。个人市场、ChatGPT团队已验证状态及现有ZIP均未改变。
+
+未来若另行决定绑定，可先通过[查询连接器](https://help.aliyun.com/zh/qwenwork/developer-ai-assets-connectors-list-connectors)与[查询专家套件](https://help.aliyun.com/zh/qwenwork/developer-ai-assets-expert-kits-list-expert-kits)取得真实资源标识、origin及revision，再按[更新专家套件](https://help.aliyun.com/zh/qwenwork/developer-ai-assets-expert-kits-update-expert-kits)调用 `PATCH /api/openapi/v1/expert-suites/{resourceId}`，填写 `connector_refs[].connector_id`、`connector_origin`、布尔 `required`，并将读取到的revision填入 `expected_revision`。该路线使用应用API Key，读取及管理权限分别需要 `admin.v1.connectors.read`、`admin.v1.expert-suites.read`、`admin.v1.expert-suites.manage`；不猜资源ID或ZIP扩展字段，不在文档保存凭据。本轮未执行这些API操作，该方法仅作未来参考，不属于本轮待完成事项。
 
 官方依据：[OpenAI插件打包](https://developers.openai.com/plugins/build/plugins)、[OpenAI团队插件管理](https://learn.chatgpt.com/docs/enterprise/plugin-management)、[App标识格式](https://developers.openai.com/plugins/deploy/submission-errors)、[千问企业连接器](https://help.aliyun.com/zh/qwenwork/enterprise-ultimate-ai-assets-connectors)、[千问企业专家套件](https://help.aliyun.com/zh/qwenwork/enterprise-ultimate-ai-assets-expert-kits)。2026-10-16已核对的OpenAI团队说明区分App引用与Desktop only的直接MCP配置；千问附件仅用于选择 `.qoder-plugin` 元数据布局，不能替代本插件的目标环境验收。
 

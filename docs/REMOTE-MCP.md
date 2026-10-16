@@ -9,7 +9,7 @@
 | 团队 Workspace | 已确认当前操作者为FB GPT Owner；新资产App `asdk_app_6ad1de5fb8788191b73c1aaab021a067` 从FB GPT管理入口创建，目录归属FB GPT。用户已本人OAuth连接并确认发布及恢复团队可用；独立reload显示已启用、可用范围适用于FB GPT所有人、可用已勾选、13工具，禁用新增工具且站点访客开关关闭，第二tab重载保持。App版本1.0.0与内置插件版本0.2.0独立；组织可用不代替每位成员授权。 |
 | 团队市场 | 新App依赖修订 `da7ab28` 已推送main、CI成功并实际同步FB GPT；wrapper已启用、适用于所有FB GPT成员，两项Skill和必需App链接正确，访客开关关闭并重载持久化。成员端wrapper新对话的一次只读能力回读成功，与直接App是两个独立新对话各一次，团队技术接入验证通过；插件仍0.2.0，其他成员各自OAuth及真实业务UAT未逐人实测。 |
 | 个人市场 | `b34d776` 已发布，CI成功并完成78个远端 blob 回读；具体入口见[分发说明](AI-ASSET-PLUGIN-DISTRIBUTION.md)。 |
-| 千问办公 | 企业 OAuth DCR 连接器已创建并 enabled，最终 ZIP 已交付。用户明确暂不测试千问，本人授权、工具发现和业务验收保持未验证。 |
+| 千问办公 | 已用既有最终ZIP补装组织套件 `flipbelt-ai-asset-center` 0.2.0（飞比特AI成果助手）；独立reload显示2 skills、0 connectors、网页/桌面、正常及团队可见。用户已接受先保留套件与独立连接器，正式 `/mcp` OAuth DCR连接器继续enabled，未重复新建。本轮补装目标完成，不继续API依赖绑定；运行测试仍暂停，本人授权、工具发现和业务验收保持未验证。 |
 
 ## 问题与接入方式
 
@@ -94,7 +94,9 @@ ChatGPT本人连接以用户确认及可见宿主调用为证，本地截图为 
 
 旧App `asdk_app_6ad1a995522c819197dd69e6aca6f71f` 曾出现草稿、共享设置加载失败及Workspace插件权限错误，当时的批准/发布失败截图为 `.local/connection-proof/team-app-admin-approval-required.png` 与 `.local/connection-proof/app-workspace-publish-permission.png`。这是旧App历史，不改写此前本人连接和能力调用，也不再作为当前新App的阻塞状态。旧App归属问题不靠猜测下结论；本轮从FB GPT管理入口新建并回读了新App的目录、发布及启用状态，未绕过权限。
 
-千问办公企业后台的连接器与专家套件分别管理：已创建并 enabled 的连接器使用正式 `/mcp` 与 OAuth 2.1 DCR。用户决定暂不测试千问，保留现有技术配置和最终 ZIP；今后实际导入、成员授权与工具发现另行确认。不能仅凭后台启用或两项技能存在报告接通。
+千问办公已在 `https://qwenwork.cn/admin/expert-kits` 上传既有0.2.0最终ZIP并创建“飞比特AI成果助手”。独立reload后组织套件总数为3，新行显示2 skills、0 connectors、网页/桌面、正常且团队可见；证据 `.local/connection-proof/qwen-kit-installed-2skills-0connectors.png`。编辑页没有连接器依赖控件，套件当前未登记连接器引用，不能把ZIP中的MCP配置或安装数当作自动绑定及运行成功。既有组织连接器仍为4个，资产中心正式 `/mcp` OAuth DCR连接器保持enabled，没有重复新建。
+
+用户已明确接受“先保留套件与独立连接器”，本轮补装组织套件目标完成，不继续API依赖绑定，也不将API身份或关联操作列为当前阻塞/未完成承诺。运行测试继续暂停，千问成员OAuth、工具调用与真实业务UAT未执行；未来若决定关联套件依赖，可参考[分发说明中的官方API路线](AI-ASSET-PLUGIN-DISTRIBUTION.md)，不改写现有ZIP或ChatGPT团队技术接入结论。
 
 ## 迁移与回退
 
